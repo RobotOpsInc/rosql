@@ -1,0 +1,23 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause:
+    MessagePath:
+      from_topic: /scan
+      to_node: /local_costmap_node
+      show: ~
+  robot_scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: day
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~

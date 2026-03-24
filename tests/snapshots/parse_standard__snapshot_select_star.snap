@@ -1,0 +1,17 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source: Traces
+  robot_scope: ~
+  conditions: ~
+  facet: ~
+  time_range: ~
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~

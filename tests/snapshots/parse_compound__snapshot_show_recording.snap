@@ -1,0 +1,19 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause: ShowRecording
+  robot_scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: days
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~

@@ -1,0 +1,20 @@
+---
+source: tests/parse_pipeline.rs
+expression: ast
+---
+Pipeline:
+  stages:
+    - From: Logs
+    - Where:
+        Comparison:
+          left:
+            Field: duration
+          op: Gt
+          right:
+            UnitValue:
+              raw_value: 500
+              unit: ms
+              si_value: 0.5
+              si_unit: s
+    - Facet:
+        dimension: robot_id

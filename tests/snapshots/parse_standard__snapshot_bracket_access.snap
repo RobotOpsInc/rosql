@@ -1,0 +1,26 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source: Logs
+  robot_scope: ~
+  conditions:
+    Comparison:
+      left:
+        FieldAccess:
+          base: fields
+          key: my_value
+      op: Gt
+      right:
+        Literal:
+          Integer: 42
+  facet: ~
+  time_range: ~
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~
