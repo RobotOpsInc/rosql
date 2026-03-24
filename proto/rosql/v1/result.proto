@@ -1,0 +1,151 @@
+syntax = "proto3";
+
+package rosql.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "rosql/v1/ast.proto";
+
+// Query result envelope — all ROSQL query results share this structure.
+message QueryResult {
+  // The output format of the result.
+  OutputFormat format = 1;
+  // The original ROSQL query text.
+  string query = 2;
+  // When the query was executed.
+  google.protobuf.Timestamp executed_at = 3;
+  // Execution time in milliseconds.
+  uint64 duration_ms = 4;
+  // Number of rows/items returned.
+  uint64 row_count = 5;
+  // Whether the result was truncated (e.g. by LIMIT or max_rows).
+  bool truncated = 6;
+
+  // Format-specific result data.
+  oneof data {
+    TableResult table = 10;
+    TimeseriesResult timeseries = 11;
+    ScalarResult scalar = 12;
+    TraceTreeResult trace_tree = 13;
+    GraphResult graph = 14;
+    PathResult path = 15;
+  }
+}
+
+// ==========================================================================
+// Table format — columnar rows (default for flat SELECT)
+// ==========================================================================
+
+message TableResult {
+  repeated ColumnMeta columns = 1;
+  repeated Row rows = 2;
+}
+
+message ColumnMeta {
+  string name = 1;
+  string data_type = 2;     // "string", "number", "timestamp", etc.
+  string unit = 3;           // display unit, if applicable
+}
+
+message Row {
+  repeated google.protobuf.Value values = 1;
+}
+
+// ==========================================================================
+// Timeseries format — time-bucketed aggregations
+// ==========================================================================
+
+message TimeseriesResult {
+  // The time bucket interval (e.g. "1 minute").
+  string interval = 1;
+  repeated TimeSeries series = 2;
+  string unit = 3;
+}
+
+message TimeSeries {
+  // Labels identifying this series (e.g. robot_id, node).
+  map<string, string> labels = 1;
+  repeated TimePoint points = 2;
+}
+
+message TimePoint {
+  google.protobuf.Timestamp timestamp = 1;
+  double value = 2;
+}
+
+// ==========================================================================
+// Scalar format — single aggregate value
+// ==========================================================================
+
+message ScalarResult {
+  double value = 1;
+  string unit = 2;
+  string label = 3;
+}
+
+// ==========================================================================
+// Trace tree format — OTel-compatible nested span tree
+// ==========================================================================
+
+message TraceTreeResult {
+  repeated SpanNode roots = 1;
+}
+
+message SpanNode {
+  string trace_id = 1;
+  string span_id = 2;
+  string parent_span_id = 3;
+  string span_name = 4;
+  string service_name = 5;
+  google.protobuf.Timestamp start_time = 6;
+  uint64 duration_ns = 7;
+  string status = 8;
+  map<string, string> attributes = 9;
+  repeated SpanNode children = 10;
+}
+
+// ==========================================================================
+// Graph format — adjacency list (MESSAGE JOURNEY, MESSAGE PATHS)
+// ==========================================================================
+
+message GraphResult {
+  repeated GraphNode nodes = 1;
+  repeated GraphEdge edges = 2;
+}
+
+message GraphNode {
+  string id = 1;
+  string type = 2;              // "node", "topic", "action", etc.
+  string label = 3;
+  map<string, string> metadata = 4;
+}
+
+message GraphEdge {
+  string id = 1;
+  string from = 2;
+  string to = 3;
+  string label = 4;
+  map<string, string> metadata = 5;
+}
+
+// ==========================================================================
+// Path format — coordinate arrays (PATH DEVIATION)
+// ==========================================================================
+
+message PathResult {
+  repeated PathPoint actual_path = 1;
+  repeated PathPoint planned_path = 2;
+  PathDeviation deviation = 3;
+}
+
+message PathPoint {
+  google.protobuf.Timestamp timestamp = 1;
+  double x = 2;
+  double y = 3;
+  double theta = 4;
+}
+
+message PathDeviation {
+  double max_m = 1;
+  double avg_m = 2;
+}

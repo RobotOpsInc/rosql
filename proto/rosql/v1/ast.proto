@@ -1,0 +1,423 @@
+syntax = "proto3";
+
+package rosql.v1;
+
+// Typed ROSQL AST — mirrors the native Rust AST in src/ast.rs.
+// This is the contract between the rosql-parser sidecar and the Go backend.
+
+// ==========================================================================
+// Top-level query
+// ==========================================================================
+
+// A parsed ROSQL query.
+message ROSQLQuery {
+  oneof query {
+    StandardQuery standard = 1;
+    PipelineQuery pipeline = 2;
+    CompoundQuery compound = 3;
+  }
+}
+
+// Standard SQL-shaped query: SELECT ... FROM ... WHERE ...
+message StandardQuery {
+  repeated Selection selections = 1;
+  DataSource data_source = 2;
+  RobotScope robot_scope = 3;
+  Condition conditions = 4;
+  FacetClause facet = 5;
+  TimeRange time_range = 6;
+  TimeBasis time_basis = 7;
+  OrderBy order_by = 8;
+  optional uint64 limit = 9;
+  OutputFormat output_format = 10;
+  Baseline baseline = 11;
+}
+
+// Pipeline query: FROM source | WHERE ... | FACET ...
+message PipelineQuery {
+  repeated PipelineStage stages = 1;
+}
+
+message PipelineStage {
+  oneof stage {
+    DataSource from = 1;
+    SelectStage select = 2;
+    Condition where = 3;
+    FacetClause facet = 4;
+    TimeRange since = 5;
+    TimeBasis using = 6;
+    OrderBy order_by = 7;
+    uint64 limit = 8;
+    OutputFormat format = 9;
+    Baseline compare_to = 10;
+    RobotScope for_robot = 11;
+    CompoundClause compound_clause = 12;
+  }
+}
+
+message SelectStage {
+  repeated Selection selections = 1;
+}
+
+// Compound query: MESSAGE JOURNEY, HEALTH(), ANOMALY(), etc.
+message CompoundQuery {
+  CompoundClause clause = 1;
+  RobotScope robot_scope = 2;
+  TimeRange time_range = 3;
+  TimeBasis time_basis = 4;
+  Condition conditions = 5;
+  FacetClause facet = 6;
+  OrderBy order_by = 7;
+  optional uint64 limit = 8;
+  OutputFormat output_format = 9;
+  Baseline baseline = 10;
+}
+
+// ==========================================================================
+// Data sources
+// ==========================================================================
+
+message DataSource {
+  oneof source {
+    DataSourceType type = 1;
+    TopicAliasType topic_alias = 2;
+  }
+}
+
+enum DataSourceType {
+  DATA_SOURCE_TYPE_UNSPECIFIED = 0;
+  DATA_SOURCE_TYPE_LOGS = 1;
+  DATA_SOURCE_TYPE_SYSTEM_LOGS = 2;
+  DATA_SOURCE_TYPE_TRACES = 3;
+  DATA_SOURCE_TYPE_METRICS = 4;
+  DATA_SOURCE_TYPE_DIAGNOSTICS = 5;
+  DATA_SOURCE_TYPE_TOPICS = 6;
+  DATA_SOURCE_TYPE_TF = 7;
+  DATA_SOURCE_TYPE_HEARTBEATS = 8;
+  DATA_SOURCE_TYPE_RECORDINGS = 9;
+  DATA_SOURCE_TYPE_EVENTS = 10;
+}
+
+enum TopicAliasType {
+  TOPIC_ALIAS_TYPE_UNSPECIFIED = 0;
+  TOPIC_ALIAS_TYPE_ODOM = 1;           // /odom
+  TOPIC_ALIAS_TYPE_JOINT_STATES = 2;   // /joint_states
+  TOPIC_ALIAS_TYPE_BATTERY = 3;        // /battery_state
+  TOPIC_ALIAS_TYPE_CMD_VEL = 4;        // /cmd_vel
+  TOPIC_ALIAS_TYPE_IMU = 5;            // /imu/data
+}
+
+// ==========================================================================
+// Selections
+// ==========================================================================
+
+message Selection {
+  oneof selection {
+    bool star = 1;                     // SELECT *
+    string field = 2;                  // field reference
+    AggregationCall aggregation = 3;   // function call
+    AliasedSelection aliased = 4;      // expr AS alias
+  }
+}
+
+message AliasedSelection {
+  Selection expr = 1;
+  string alias = 2;
+}
+
+message AggregationCall {
+  AggregationFunction function = 1;
+  repeated Expr args = 2;
+}
+
+enum AggregationFunction {
+  AGGREGATION_FUNCTION_UNSPECIFIED = 0;
+  AGGREGATION_FUNCTION_COUNT = 1;
+  AGGREGATION_FUNCTION_SUM = 2;
+  AGGREGATION_FUNCTION_AVG = 3;
+  AGGREGATION_FUNCTION_MIN = 4;
+  AGGREGATION_FUNCTION_MAX = 5;
+  AGGREGATION_FUNCTION_PERCENTILE = 6;
+  AGGREGATION_FUNCTION_STDDEV = 7;
+  AGGREGATION_FUNCTION_RATE = 8;
+  AGGREGATION_FUNCTION_DELTA = 9;
+  AGGREGATION_FUNCTION_DERIVATIVE = 10;
+  AGGREGATION_FUNCTION_MOVING_AVG = 11;
+  AGGREGATION_FUNCTION_TOPIC_RATE = 12;
+  AGGREGATION_FUNCTION_NODE_STATUS = 13;
+  AGGREGATION_FUNCTION_EXPECTED = 14;
+  AGGREGATION_FUNCTION_ACTION_SUCCESS_RATE = 15;
+  AGGREGATION_FUNCTION_UPTIME = 16;
+  AGGREGATION_FUNCTION_APPROX_COUNT_DISTINCT = 17;
+  AGGREGATION_FUNCTION_APPROX_PERCENTILE = 18;
+}
+
+// ==========================================================================
+// Expressions
+// ==========================================================================
+
+message Expr {
+  oneof expr {
+    string field = 1;
+    Literal literal = 2;
+    UnitValue unit_value = 3;
+    AggregationCall aggregation = 4;
+    FieldAccess field_access = 5;
+    BinaryOp binary_op = 6;
+  }
+}
+
+message Literal {
+  oneof value {
+    int64 integer = 1;
+    double float = 2;
+    string string_value = 3;
+    bool boolean = 4;
+    bool null = 5;          // always true when set
+  }
+}
+
+message UnitValue {
+  double raw_value = 1;     // value as written by the user
+  string unit = 2;          // unit symbol (e.g. "ms")
+  double si_value = 3;      // SI-normalised value (e.g. 0.5)
+  string si_unit = 4;       // SI base unit symbol (e.g. "s")
+}
+
+message FieldAccess {
+  string base = 1;          // e.g. "fields"
+  string key = 2;           // e.g. "my_value"
+}
+
+message BinaryOp {
+  Expr left = 1;
+  ArithmeticOp op = 2;
+  Expr right = 3;
+}
+
+enum ArithmeticOp {
+  ARITHMETIC_OP_UNSPECIFIED = 0;
+  ARITHMETIC_OP_ADD = 1;
+  ARITHMETIC_OP_SUB = 2;
+  ARITHMETIC_OP_MUL = 3;
+  ARITHMETIC_OP_DIV = 4;
+}
+
+// ==========================================================================
+// Conditions
+// ==========================================================================
+
+message Condition {
+  oneof condition {
+    Comparison comparison = 1;
+    LogicalOp and = 2;
+    LogicalOp or = 3;
+    Condition not = 4;
+    Expr is_null = 5;
+    Expr is_not_null = 6;
+    InExpr in_expr = 7;
+    LikeExpr like = 8;
+    BetweenExpr between = 9;
+  }
+}
+
+message Comparison {
+  Expr left = 1;
+  ComparisonOp op = 2;
+  Expr right = 3;
+}
+
+message LogicalOp {
+  Condition left = 1;
+  Condition right = 2;
+}
+
+message InExpr {
+  Expr expr = 1;
+  repeated Expr values = 2;
+}
+
+message LikeExpr {
+  Expr expr = 1;
+  string pattern = 2;
+}
+
+message BetweenExpr {
+  Expr expr = 1;
+  Expr low = 2;
+  Expr high = 3;
+}
+
+enum ComparisonOp {
+  COMPARISON_OP_UNSPECIFIED = 0;
+  COMPARISON_OP_EQ = 1;
+  COMPARISON_OP_NEQ = 2;
+  COMPARISON_OP_LT = 3;
+  COMPARISON_OP_GT = 4;
+  COMPARISON_OP_LTE = 5;
+  COMPARISON_OP_GTE = 6;
+}
+
+// ==========================================================================
+// Time
+// ==========================================================================
+
+message TimeRange {
+  oneof range {
+    TimeExpr since = 1;
+    BetweenTime between = 2;
+  }
+}
+
+message BetweenTime {
+  TimeExpr start = 1;
+  TimeExpr end = 2;
+}
+
+message TimeExpr {
+  oneof expr {
+    RelativeTime relative = 1;
+    string absolute = 2;      // RFC 3339 timestamp
+    UnixEpoch epoch = 3;
+    LifecycleAnchor anchor = 4;
+  }
+}
+
+message RelativeTime {
+  double amount = 1;
+  string unit = 2;            // "minutes", "hours", "days", etc.
+}
+
+message UnixEpoch {
+  oneof precision {
+    uint64 seconds = 1;       // 10-digit
+    uint64 milliseconds = 2;  // 13-digit
+    uint64 nanoseconds = 3;   // 19-digit
+  }
+}
+
+enum LifecycleAnchor {
+  LIFECYCLE_ANCHOR_UNSPECIFIED = 0;
+  LIFECYCLE_ANCHOR_LAST_DEPLOYMENT = 1;
+  LIFECYCLE_ANCHOR_LAST_ROBOT_RESTART = 2;
+  LIFECYCLE_ANCHOR_LAST_ACTION_FAILURE = 3;
+  LIFECYCLE_ANCHOR_LAST_TOPIC_DROP = 4;
+  LIFECYCLE_ANCHOR_LAST_DIAGNOSTIC_WARNING = 5;
+}
+
+enum TimeBasis {
+  TIME_BASIS_UNSPECIFIED = 0;
+  TIME_BASIS_ROS_TIME = 1;
+  TIME_BASIS_WALL_TIME = 2;
+}
+
+// ==========================================================================
+// Robot scoping
+// ==========================================================================
+
+message RobotScope {
+  oneof scope {
+    string robot_id = 1;     // FOR ROBOT 'robot_42'
+    bool fleet = 2;          // FOR FLEET (always true when set)
+  }
+}
+
+// ==========================================================================
+// Clauses
+// ==========================================================================
+
+message FacetClause {
+  string dimension = 1;
+}
+
+message OrderBy {
+  string field = 1;
+  SortDirection direction = 2;
+}
+
+enum SortDirection {
+  SORT_DIRECTION_UNSPECIFIED = 0;
+  SORT_DIRECTION_ASC = 1;
+  SORT_DIRECTION_DESC = 2;
+}
+
+enum OutputFormat {
+  OUTPUT_FORMAT_UNSPECIFIED = 0;
+  OUTPUT_FORMAT_TABLE = 1;
+  OUTPUT_FORMAT_TIMESERIES = 2;
+  OUTPUT_FORMAT_SCALAR = 3;
+  OUTPUT_FORMAT_TRACE_TREE = 4;
+  OUTPUT_FORMAT_GRAPH = 5;
+  OUTPUT_FORMAT_PATH = 6;
+}
+
+// ==========================================================================
+// Baselines
+// ==========================================================================
+
+message Baseline {
+  oneof baseline {
+    bool last_week = 1;       // always true when set
+    bool fleet = 2;           // always true when set
+    string robot_id = 3;      // COMPARE TO ROBOT 'robot_01'
+    bool last_deployment = 4; // always true when set
+    bool compare_robots = 5;  // always true when set
+  }
+}
+
+// ==========================================================================
+// Compound clauses
+// ==========================================================================
+
+message CompoundClause {
+  oneof clause {
+    DuringClause during = 1;
+    MessageJourneyClause message_journey = 2;
+    MessagePathsClause message_paths = 3;
+    MessagePathClause message_path = 4;
+    TraceClause trace = 5;
+    bool show_trace_breakdown = 6;   // always true when set
+    bool health = 7;                 // always true when set
+    AnomalyClause anomaly = 8;
+    PathDeviationClause path_deviation = 9;
+    CorrelateClause correlate = 10;
+    bool show_recording = 11;        // always true when set
+  }
+}
+
+message DuringClause {
+  DataSource inner_source = 1;
+  Condition inner_conditions = 2;
+  TimeRange inner_time_range = 3;
+}
+
+message MessageJourneyClause {
+  string trace_id = 1;
+}
+
+message MessagePathsClause {
+  string topic = 1;
+}
+
+message MessagePathClause {
+  string from_topic = 1;
+  string to_node = 2;
+  string show = 3;
+}
+
+message TraceClause {
+  string trace_id = 1;
+}
+
+message AnomalyClause {
+  string field = 1;
+  Baseline compared_to = 2;
+}
+
+message PathDeviationClause {
+  repeated string show = 1;
+}
+
+message CorrelateClause {
+  DataSource with_source = 1;
+}

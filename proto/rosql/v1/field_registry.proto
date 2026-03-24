@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package rosql.v1;
+
+// Machine-readable field metadata for parser validation and frontend
+// autocomplete. Consumed by the parser (field validation), planner
+// (unit conversion), and frontend autocomplete service.
+
+message FieldRegistry {
+  repeated FieldDefinition fields = 1;
+}
+
+message FieldDefinition {
+  // The ROSQL field name (e.g. "duration", "node", "publish_rate").
+  string name = 1;
+  // The source table (e.g. "otel_traces", "otel_metrics").
+  string source = 2;
+  // The actual column or expression mapping (e.g. "Duration",
+  // "SpanAttributes['ros.node']", "Value WHERE MetricName = '...'").
+  string column_mapping = 3;
+  // The field's data type.
+  FieldType type = 4;
+  // The storage unit (e.g. "ns" for nanoseconds, "Hz", "B/s").
+  // Empty if the field has no unit.
+  string storage_unit = 5;
+  // The unit support tier for this field.
+  UnitTier unit_tier = 6;
+  // Human-readable description for autocomplete tooltips.
+  string description = 7;
+}
+
+enum FieldType {
+  FIELD_TYPE_UNSPECIFIED = 0;
+  FIELD_TYPE_STRING = 1;
+  FIELD_TYPE_INTEGER = 2;
+  FIELD_TYPE_FLOAT = 3;
+  FIELD_TYPE_BOOLEAN = 4;
+  FIELD_TYPE_TIMESTAMP = 5;
+  FIELD_TYPE_MAP = 6;
+  FIELD_TYPE_ARRAY = 7;
+}
+
+enum UnitTier {
+  // Unspecified.
+  UNIT_TIER_UNSPECIFIED = 0;
+  // Robot Ops-controlled columns — full unit support, storage unit
+  // documented in field registry.
+  UNIT_TIER_1 = 1;
+  // ROS2 standard message fields — SI assumed per REP-103.
+  UNIT_TIER_2 = 2;
+  // Custom fields — unit suffix rejected at parse time with clear error.
+  UNIT_TIER_3 = 3;
+}
