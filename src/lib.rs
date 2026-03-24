@@ -5,6 +5,8 @@
 //! drivers, the WASM frontend module, and the gRPC parser sidecar.
 
 pub mod ast;
+pub mod completions;
+pub mod convert;
 pub mod drivers;
 pub mod error;
 pub mod lexer;
@@ -12,6 +14,9 @@ pub mod parser;
 pub mod proto;
 pub mod span;
 pub mod units;
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 // Public convenience re-exports
 pub use ast::{Query, ROSQLQuery};

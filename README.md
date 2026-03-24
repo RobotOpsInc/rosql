@@ -12,11 +12,11 @@
 
 ---
 
-ROSQL is a structured query language purpose-built for ROS2 telemetry data stored via [OpenTelemetry](https://opentelemetry.io/). It lets robotics engineers query traces, spans, and metrics using familiar SQL-like syntax with first-class support for ROS2 concepts like nodes, actions, and topic hierarchies. Built in Rust, available as a library, CLI, and WASM package.
+ROSQL is a structured query language purpose-built for ROS2 telemetry data stored via [OpenTelemetry](https://opentelemetry.io/). It lets robotics engineers query traces, logs, and metrics using familiar SQL-like syntax with first-class support for ROS2 concepts like nodes, actions, and topic hierarchies. Built in Rust, available as a library, CLI, gRPC server, and WASM package.
 
 ## Architecture
 
-### Open source pipeline (self-hosted)
+### Pipeline
 
 ```
   ROS2 System
@@ -25,10 +25,10 @@ ROSQL is a structured query language purpose-built for ROS2 telemetry data store
   OTel Collector (opentelemetry-collector-contrib)
        │  OTLP → SQL exporter
        ▼
-  SQL-compatible DB (others supported soon)
+  SQL-compatible DB (PostgreSQL, SQLite, MySQL)
        │  OTel standard schema
        ▼
-  rosql driver (SQLBackend / others supported soon)
+  rosql (parse + execute via ROSQLBackend)
        │
        ▼
   Query results
@@ -41,7 +41,10 @@ ROSQL is a structured query language purpose-built for ROS2 telemetry data store
   │ Mode 1: Parse + Execute (standalone)                │
   │   ROSQL text → parser → AST → ROSQLBackend → DB    │
   ├─────────────────────────────────────────────────────┤
-  │ Mode 2: WASM (frontend editor)                      │
+  │ Mode 2: gRPC Server + CLI                           │
+  │   rosql-parser serve / parse / validate             │
+  ├─────────────────────────────────────────────────────┤
+  │ Mode 3: WASM (frontend editor)                      │
   │   parse() / validate() / get_completions()          │
   └─────────────────────────────────────────────────────┘
 ```
@@ -55,107 +58,110 @@ Add ROSQL to your `Cargo.toml`:
 rosql = "0.1"
 ```
 
-Parse and execute a query against any SQL-compatible database:
+Parse a query:
 
 ```rust
-use rosql::{SQLBackend, ROSQLEngine};
+use rosql::parse;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let backend = SQLBackend::connect("postgresql://localhost/telemetry")?;
-    let engine = ROSQLEngine::new(backend);
-
-    let results = engine.execute("
+fn main() {
+    let ast = parse("
         SELECT span_name, duration
-        FROM spans
-        WHERE ros.node = '/navigation/planner'
+        FROM traces
+        WHERE node = '/navigation/planner'
         ORDER BY duration DESC
         LIMIT 10
-    ")?;
+    ").unwrap();
 
-    println!("{results}");
-    Ok(())
+    println!("{ast:?}");
 }
 ```
 
-See [`examples/`](examples/) for full working examples with fixture data.
+## Feature flags
 
-## Driver support
+| Feature | What it enables | Dependencies |
+|---------|----------------|--------------|
+| *(default)* | Parser, AST, unit system, SQL compiler, proto types | logos, serde, prost |
+| `sql` | `SqlBackend` driver (PostgreSQL, MySQL, SQLite) | sqlx, tokio |
+| `server` | `rosql-parser` gRPC server + CLI binary | tonic, tokio, clap |
+| `wasm` | WASM exports for frontend editors | wasm-bindgen |
+| `duckdb` | DuckDB driver (coming soon — [#18](https://github.com/RobotOpsInc/rosql/issues/18)) | duckdb |
 
-| Driver | Feature flag | Backend | Auth | Status |
-|--------|-------------|---------|------|--------|
-| ANSI SQL | *(default)* | `SQLBackend` | Connection string | v0.1 |
-| PostgreSQL | `postgres` | `PostgresBackend` | Connection string | Coming soon |
-| DuckDB | `duckdb` | `DuckDbBackend` | None (local file) | Coming soon |
-| Pandas | `pandas` | `PandasBackend` | None (in-process) | Coming soon |
-| InfluxDB | `influxdb` | `InfluxDbBackend` | Token / connection string | Coming soon |
-| Athena | `athena` | `AthenaBackend` | AWS IAM | Coming soon |
-| BigQuery | `bigquery` | `BigQueryBackend` | GCP service account | Coming soon |
+## CLI
 
-The default ANSI SQL driver works with any standard SQL-compatible database out of the box — PostgreSQL, MySQL, TimescaleDB, and others that support standard SQL over a connection string.
+Build and use the `rosql-parser` CLI:
 
-## Performance
+```sh
+cargo build --features server --bin rosql-parser
 
-Benchmarks are in progress (Mar 2026). See [BENCHMARKS.md](BENCHMARKS.md) once available, and [#6](https://github.com/RobotOpsInc/rosql/issues/6) for test infrastructure tracking.
+# Parse a query to JSON AST
+rosql-parser parse "FROM traces WHERE duration > 500 ms SINCE 1 hour ago"
 
-## Schema
+# Validate a query
+rosql-parser validate "SELECT * FROM logs"
 
-ROSQL expects telemetry data stored in the [OpenTelemetry schema conventions for ROS2](docs/ros2-otel-conventions.md). This includes standard OTel span and trace tables augmented with ROS2-specific resource and span attributes (`ros.node`, `ros.action.*`, etc.).
+# Get completions at cursor position
+rosql-parser completions "FROM " 5
 
-See the [full schema expectations doc](docs/ros2-otel-conventions.md) for required tables, columns, and attribute mappings.
-
-## Documentation and reference
-
-- [ROSQL Language Spec](https://rosql.org/spec) — full grammar, keywords, and semantics
-- [Driver Architecture](https://rosql.org/drivers) — how backends translate AST to SQL dialects
-
-## Examples
-
-```sql
--- Find the slowest action server callbacks in the last hour
-SELECT ros.node, ros.action.name, span_name, duration
-FROM spans
-WHERE ros.action.name IS NOT NULL
-  AND start_time > now() - INTERVAL '1 hour'
-ORDER BY duration DESC
-LIMIT 20;
-
--- Trace a full action lifecycle by parent span
-SELECT span_name, status, duration, ParentSpanId
-FROM spans
-WHERE TraceId = 'abc123'
-ORDER BY start_time;
-
--- Aggregate latency by node
-SELECT ros.node, AVG(duration) AS avg_duration, COUNT(*) AS call_count
-FROM spans
-GROUP BY ros.node
-ORDER BY avg_duration DESC;
-
--- Validate topic publish rates
-SELECT ros.topic, COUNT(*) / EXTRACT(EPOCH FROM MAX(end_time) - MIN(start_time)) AS msgs_per_sec
-FROM spans
-WHERE ros.topic IS NOT NULL
-GROUP BY ros.topic;
+# Start gRPC server on a Unix socket
+rosql-parser serve --socket /tmp/rosql-parser.sock
 ```
-
-See the [`examples/`](examples/) directory for runnable demos ([#7](https://github.com/RobotOpsInc/rosql/issues/7)).
 
 ## WASM API
 
-The `@robotops/rosql` npm package exposes parsing and validation for use in browser editors and tooling:
+The `@robotops/rosql` npm package exposes parsing and validation for use in browser editors:
 
 ```typescript
-import { parse, validate, getCompletions } from '@robotops/rosql';
+import init, { parse, validate, get_completions } from '@robotops/rosql';
 
-const ast = parse('SELECT span_name FROM spans WHERE ros.node = "/planner"');
-console.log(ast);
+await init();
+
+const result = parse('FROM traces WHERE duration > 500 ms SINCE 1 hour ago');
+console.log(result);
 
 const errors = validate('SELECT bad_column FROM not_a_table');
 console.log(errors);
 
-const completions = getCompletions('SELECT span_name FROM spans WHERE ros.');
+const completions = get_completions('FROM ', 5);
 console.log(completions);
 ```
+
+## Examples
+
+```sql
+-- Find slow navigation actions in the last hour
+SELECT span_name, duration
+FROM traces
+WHERE action_name = '/navigate_to_pose' AND duration > 500 ms
+SINCE 1 hour ago
+ORDER BY duration DESC
+LIMIT 20
+
+-- Cross-signal correlation: errors during low battery
+FROM traces WHERE status = 'ERROR'
+DURING(
+  FROM topics WHERE topic_name = '/battery_state'
+  AND fields['percentage'] < 20
+)
+SINCE yesterday
+
+-- Message causality graph
+MESSAGE JOURNEY FOR TRACE 'abc123def456'
+
+-- Robot health assessment
+HEALTH() FOR ROBOT 'robot_42' SINCE 30 minutes ago
+
+-- Pipeline syntax
+FROM traces
+| WHERE duration > 500 ms
+| FACET robot_id
+| COMPARE TO last week
+```
+
+See the [`examples/`](examples/) directory for runnable demos ([#7](https://github.com/RobotOpsInc/rosql/issues/7)).
+
+## Schema
+
+ROSQL expects telemetry data stored in the [OpenTelemetry schema conventions for ROS2](docs/ros2-otel-conventions.md). This includes standard OTel tables (`otel_traces`, `otel_logs`, `otel_metrics`) augmented with ROS2-specific span attributes (`ros.node`, `ros.action.*`, etc.).
 
 ## Options for running
 
@@ -171,7 +177,12 @@ console.log(completions);
 ```sh
 git clone https://github.com/RobotOpsInc/rosql
 cd rosql
+
+# Library only (default)
 cargo build --release
+
+# gRPC server + CLI binary
+cargo build --release --features server --bin rosql-parser
 ```
 
 ## Local development
@@ -182,7 +193,10 @@ cd rosql
 just build       # build default features
 just test        # run tests
 just build-wasm  # build WASM package
+just check       # full CI: build + test + clippy + fmt + buf-lint
 ```
+
+Prerequisites: Rust (stable), protoc, buf (optional). See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Guidelines for contributing
 
