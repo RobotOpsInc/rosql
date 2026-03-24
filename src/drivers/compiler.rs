@@ -267,9 +267,8 @@ impl<'a> CompileCtx<'a> {
             String::new()
         };
 
-        let group_by = if cq.facet.is_some() {
-            let col = &cq.facet.as_ref().unwrap().dimension;
-            format!(" GROUP BY signal_type, {col}")
+        let group_by = if let Some(ref f) = cq.facet {
+            format!(" GROUP BY signal_type, {}", f.dimension)
         } else {
             " GROUP BY signal_type".to_string()
         };
