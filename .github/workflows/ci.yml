@@ -10,26 +10,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Build, Test, Lint
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
 
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Format
+        run: cargo fmt --check
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler
-
-      - name: Install buf
-        uses: bufbuild/buf-setup-action@v1
-
-      - name: Buf lint
-        run: buf lint proto/
 
       - name: Build
         run: cargo build
@@ -37,8 +43,59 @@ jobs:
       - name: Test
         run: cargo test
 
-      - name: Clippy
-        run: cargo clippy -- -D warnings
+  test-postgres:
+    name: Test (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: rosql_examples
+          POSTGRES_USER: rosql
+          POSTGRES_PASSWORD: rosql
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rosql -d rosql_examples"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
 
-      - name: Format
-        run: cargo fmt --check
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Load fixture data
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: rosql
+          PGPASSWORD: rosql
+          PGDATABASE: rosql_examples
+        run: |
+          for f in examples/postgres/fixtures/*.sql; do
+            psql -f "$f"
+          done
+
+      - name: Test with PostgreSQL
+        env:
+          DATABASE_URL: postgresql://rosql:rosql@localhost:5432/rosql_examples
+        run: cargo test --features postgres
+
+  buf-lint:
+    name: Buf Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bufbuild/buf-setup-action@v1
+      - run: buf lint proto/
+
+  cargo-deny:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2

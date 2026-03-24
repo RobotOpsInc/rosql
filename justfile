@@ -48,9 +48,16 @@ test-examples:
     docker compose -f examples/postgres/docker-compose.yml up -d --wait
     echo "Running integration tests..."
     DATABASE_URL=postgresql://rosql:rosql@localhost:5432/rosql_examples \
-        cargo test --ignored --features sql 2>&1 || { docker compose -f examples/postgres/docker-compose.yml down -v; exit 1; }
+        cargo test --ignored --features postgres 2>&1 || { docker compose -f examples/postgres/docker-compose.yml down -v; exit 1; }
     echo "Tearing down..."
     docker compose -f examples/postgres/docker-compose.yml down -v
+
+# Lint (clippy + fmt)
+lint: clippy fmt
+
+# Extract version from Cargo.toml
+validate-version:
+    @grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'
 
 # Run all checks (build + test + clippy + fmt + buf-lint)
 check: build test clippy fmt buf-lint
