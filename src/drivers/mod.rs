@@ -9,7 +9,7 @@ pub mod dialect;
 pub mod field_registry;
 pub mod otel_registry;
 
-#[cfg(feature = "sql")]
+#[cfg(any(feature = "postgres", feature = "mysql"))]
 pub mod sql;
 
 use crate::ast::{OutputFormat, Query};

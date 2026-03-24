@@ -1,0 +1,25 @@
+-- Basic ROSQL queries — simple FROM / WHERE / SINCE patterns
+
+-- Find all error spans
+FROM traces WHERE status = 'ERROR'
+
+-- Log messages at ERROR severity
+FROM logs WHERE severity = 'ERROR'
+
+-- Select specific fields with ordering
+SELECT span_name, duration FROM traces ORDER BY duration DESC LIMIT 10
+
+-- Filter by ROS2 node name
+FROM traces WHERE node = '/bt_navigator'
+
+-- Filter by action name
+FROM traces WHERE action_name = '/navigate_to_pose' AND status = 'ERROR'
+
+-- Bracket field access on topic messages
+FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < '20'
+
+-- Use a topic alias
+FROM odom LIMIT 5
+
+-- Robot scoping
+FOR ROBOT 'robot_sim_001' FROM logs WHERE severity = 'ERROR'

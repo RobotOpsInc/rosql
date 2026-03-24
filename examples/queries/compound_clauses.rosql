@@ -1,0 +1,47 @@
+-- Compound clause queries — the killer demos
+-- These showcase ROSQL's unique robotics-native features.
+
+-- ============================================================================
+-- Which navigation action failed?
+-- ============================================================================
+FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+
+-- ============================================================================
+-- MESSAGE JOURNEY — trace the full causality chain for the failed action
+-- Follow ParentSpanId links to see how the message propagated through nodes.
+-- ============================================================================
+MESSAGE JOURNEY FOR TRACE 'trace-002'
+
+-- ============================================================================
+-- MESSAGE PATHS — find all message paths for /cmd_vel
+-- Shows which nodes published and subscribed to velocity commands.
+-- ============================================================================
+MESSAGE PATHS FOR TOPIC '/cmd_vel'
+
+-- ============================================================================
+-- HEALTH() — derived robot health assessment
+-- Fan-out across traces, logs, and metrics to get an overall health picture.
+-- ============================================================================
+HEALTH() FOR ROBOT 'robot_sim_001'
+
+-- ============================================================================
+-- PATH DEVIATION — did the robot deviate from its planned path?
+-- Queries /odom trajectory data from topic_messages.
+-- ============================================================================
+PATH DEVIATION FOR ROBOT 'robot_sim_001'
+
+-- ============================================================================
+-- SHOW RECORDING — find the MCAP recording that covers the failure window
+-- ============================================================================
+SHOW RECORDING
+
+-- ============================================================================
+-- ANOMALY — detect statistical anomalies in span duration
+-- Uses z-score (AVG/STDDEV) to find outlier spans.
+-- ============================================================================
+ANOMALY(duration)
+
+-- ============================================================================
+-- TRACE — show all spans for a specific trace
+-- ============================================================================
+TRACE 'trace-002'

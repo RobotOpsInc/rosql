@@ -40,6 +40,18 @@ struct CompileCtx<'a> {
 }
 
 impl<'a> CompileCtx<'a> {
+    /// Resolve a well-known ROSQL field to its quoted column name.
+    /// Falls back to the field name itself if not found in the registry.
+    fn col(&self, field_name: &str) -> String {
+        self.resolve_column(field_name, "")
+            .unwrap_or_else(|_| field_name.to_string())
+    }
+
+    /// Quote a table name for the current dialect.
+    fn qtable(&self, table: &str) -> String {
+        self.dialect.quote_ident(table)
+    }
+
     // ── Standard query ──────────────────────────────────────────────
 
     fn compile_standard(&self, q: &ROSQLQuery) -> Result<String, ROSQLError> {
@@ -180,12 +192,16 @@ impl<'a> CompileCtx<'a> {
         trace_id: &str,
         cq: &CompoundQuery,
     ) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let tid = self.col("trace_id");
+        let psid = self.col("parent_span_id");
+        let sid = self.col("span_id");
         let mut sql = format!(
             "WITH RECURSIVE journey AS (\
-             SELECT * FROM otel_traces WHERE TraceId = '{trace_id}' AND ParentSpanId = '' \
+             SELECT * FROM {tbl} WHERE {tid} = '{trace_id}' AND {psid} = '' \
              UNION ALL \
-             SELECT t.* FROM otel_traces t \
-             JOIN journey j ON t.ParentSpanId = j.SpanId\
+             SELECT t.* FROM {tbl} t \
+             JOIN journey j ON t.{psid} = j.{sid}\
              ) SELECT * FROM journey"
         );
         sql.push_str(&self.compile_compound_suffix(cq)?);
@@ -193,13 +209,22 @@ impl<'a> CompileCtx<'a> {
     }
 
     fn compile_message_paths(&self, topic: &str, cq: &CompoundQuery) -> Result<String, ROSQLError> {
-        let topic_attr = self.dialect.json_access("SpanAttributes", "ros.topic");
+        let tbl = self.qtable("otel_traces");
+        let psid = self.col("parent_span_id");
+        let sid = self.col("span_id");
+        let topic_attr = self.dialect.json_access(
+            self.registry
+                .resolve("topic")
+                .map(|f| f.column.as_str())
+                .unwrap_or("span_attributes"),
+            "ros.topic",
+        );
         let mut sql = format!(
             "WITH RECURSIVE paths AS (\
-             SELECT * FROM otel_traces WHERE {topic_attr} = '{topic}' \
+             SELECT * FROM {tbl} WHERE {topic_attr} = '{topic}' \
              UNION ALL \
-             SELECT t.* FROM otel_traces t \
-             JOIN paths p ON t.ParentSpanId = p.SpanId\
+             SELECT t.* FROM {tbl} t \
+             JOIN paths p ON t.{psid} = p.{sid}\
              ) SELECT * FROM paths"
         );
         sql.push_str(&self.compile_compound_suffix(cq)?);
@@ -212,14 +237,22 @@ impl<'a> CompileCtx<'a> {
         to_node: &str,
         cq: &CompoundQuery,
     ) -> Result<String, ROSQLError> {
-        let topic_attr = self.dialect.json_access("SpanAttributes", "ros.topic");
-        let node_attr = self.dialect.json_access("SpanAttributes", "ros.node");
+        let tbl = self.qtable("otel_traces");
+        let psid = self.col("parent_span_id");
+        let sid = self.col("span_id");
+        let span_attrs_col = self
+            .registry
+            .resolve("topic")
+            .map(|f| f.column.as_str())
+            .unwrap_or("span_attributes");
+        let topic_attr = self.dialect.json_access(span_attrs_col, "ros.topic");
+        let node_attr = self.dialect.json_access(span_attrs_col, "ros.node");
         let mut sql = format!(
             "WITH RECURSIVE msg_path AS (\
-             SELECT * FROM otel_traces WHERE {topic_attr} = '{from_topic}' \
+             SELECT * FROM {tbl} WHERE {topic_attr} = '{from_topic}' \
              UNION ALL \
-             SELECT t.* FROM otel_traces t \
-             JOIN msg_path p ON t.ParentSpanId = p.SpanId\
+             SELECT t.* FROM {tbl} t \
+             JOIN msg_path p ON t.{psid} = p.{sid}\
              ) SELECT * FROM msg_path WHERE {node_attr} = '{to_node}'"
         );
         sql.push_str(&self.compile_compound_suffix(cq)?);
@@ -227,17 +260,24 @@ impl<'a> CompileCtx<'a> {
     }
 
     fn compile_trace(&self, trace_id: &str) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let tid = self.col("trace_id");
+        let ts = self.col("timestamp");
         Ok(format!(
-            "SELECT * FROM otel_traces WHERE TraceId = '{trace_id}' ORDER BY Timestamp"
+            "SELECT * FROM {tbl} WHERE {tid} = '{trace_id}' ORDER BY {ts}"
         ))
     }
 
     fn compile_trace_breakdown(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
-        let mut sql = "SELECT SpanName, COUNT(*) AS count, \
-             AVG(Duration) AS avg_duration_ns, \
-             MAX(Duration) AS max_duration_ns \
-             FROM otel_traces"
-            .to_string();
+        let tbl = self.qtable("otel_traces");
+        let sname = self.col("span_name");
+        let dur = self.col("duration");
+        let mut sql = format!(
+            "SELECT {sname}, COUNT(*) AS count, \
+             AVG({dur}) AS avg_duration_ns, \
+             MAX({dur}) AS max_duration_ns \
+             FROM {tbl}"
+        );
 
         let mut where_parts = Vec::new();
         if let Some(ref tr) = cq.time_range {
@@ -249,11 +289,18 @@ impl<'a> CompileCtx<'a> {
         if !where_parts.is_empty() {
             sql.push_str(&format!(" WHERE {}", where_parts.join(" AND ")));
         }
-        sql.push_str(" GROUP BY SpanName ORDER BY avg_duration_ns DESC");
+        sql.push_str(&format!(" GROUP BY {sname} ORDER BY avg_duration_ns DESC"));
         Ok(sql)
     }
 
     fn compile_health(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let traces_tbl = self.qtable("otel_traces");
+        let logs_tbl = self.qtable("otel_logs");
+        let metrics_tbl = self.qtable("otel_metrics");
+        let status = self.col("status");
+        let severity = self.col("severity");
+        let mname = self.col("metric_name");
+
         let time_filter = if let Some(ref tr) = cq.time_range {
             format!(" WHERE {}", self.compile_time_range(tr, "t")?,)
         } else {
@@ -276,18 +323,18 @@ impl<'a> CompileCtx<'a> {
         Ok(format!(
             "SELECT 'traces' AS signal_type{facet}, \
              COUNT(*) AS total, \
-             SUM(CASE WHEN StatusCode = 'ERROR' THEN 1 ELSE 0 END) AS errors \
-             FROM otel_traces t{time_filter}{group_by} \
+             SUM(CASE WHEN {status} = 'ERROR' THEN 1 ELSE 0 END) AS errors \
+             FROM {traces_tbl} t{time_filter}{group_by} \
              UNION ALL \
              SELECT 'logs' AS signal_type{facet}, \
              COUNT(*) AS total, \
-             SUM(CASE WHEN SeverityText IN ('ERROR', 'FATAL') THEN 1 ELSE 0 END) AS errors \
-             FROM otel_logs t{time_filter}{group_by} \
+             SUM(CASE WHEN {severity} IN ('ERROR', 'FATAL') THEN 1 ELSE 0 END) AS errors \
+             FROM {logs_tbl} t{time_filter}{group_by} \
              UNION ALL \
              SELECT 'metrics' AS signal_type{facet}, \
-             COUNT(DISTINCT MetricName) AS total, \
+             COUNT(DISTINCT {mname}) AS total, \
              0 AS errors \
-             FROM otel_metrics t{time_filter}{group_by}"
+             FROM {metrics_tbl} t{time_filter}{group_by}"
         ))
     }
 
@@ -297,15 +344,15 @@ impl<'a> CompileCtx<'a> {
         _compared_to: &Option<Baseline>,
         cq: &CompoundQuery,
     ) -> Result<String, ROSQLError> {
-        let table = "otel_traces";
-        let col = self.resolve_column(field, table)?;
+        let table = self.qtable("otel_traces");
+        let col = self.resolve_column(field, "otel_traces")?;
 
         let mut where_parts = Vec::new();
         if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, table)?);
+            where_parts.push(self.compile_time_range(tr, &table)?);
         }
         if let Some(ref cond) = cq.conditions {
-            where_parts.push(self.compile_condition(cond, table)?);
+            where_parts.push(self.compile_condition(cond, &table)?);
         }
         let where_clause = if where_parts.is_empty() {
             String::new()
@@ -417,11 +464,17 @@ impl<'a> CompileCtx<'a> {
             String::new()
         };
 
+        let traces_tbl = self.qtable("otel_traces");
+        let ts = self.col("timestamp");
+        let dur = self.col("duration");
+        let val = self.col("metric_value");
         Ok(format!(
             "SELECT {corr} AS correlation{facet_group} \
-             FROM otel_traces a \
-             JOIN {table_b} b ON a.Timestamp = b.Timestamp{where_clause}",
-            corr = self.dialect.corr_aggregate("a.Duration", "b.Value"),
+             FROM {traces_tbl} a \
+             JOIN {table_b} b ON a.{ts} = b.{ts}{where_clause}",
+            corr = self
+                .dialect
+                .corr_aggregate(&format!("a.{dur}"), &format!("b.{val}")),
         ))
     }
 
@@ -448,12 +501,14 @@ impl<'a> CompileCtx<'a> {
             format!(" AND {}", inner_where.join(" AND "))
         };
 
+        let traces_tbl = self.qtable("otel_traces");
+        let ts = self.col("timestamp");
         Ok(format!(
-            "SELECT outer_t.* FROM otel_traces outer_t \
+            "SELECT outer_t.* FROM {traces_tbl} outer_t \
              WHERE EXISTS (\
              SELECT 1 FROM {inner_table} inner_t \
-             WHERE inner_t.Timestamp >= outer_t.Timestamp \
-             AND inner_t.Timestamp <= outer_t.Timestamp{inner_where_clause}\
+             WHERE inner_t.{ts} >= outer_t.{ts} \
+             AND inner_t.{ts} <= outer_t.{ts}{inner_where_clause}\
              )"
         ))
     }
@@ -562,7 +617,8 @@ impl<'a> CompileCtx<'a> {
     }
 
     fn compile_from(&self, _source: &DataSource, table: &str) -> Result<String, ROSQLError> {
-        Ok(format!("FROM {table}"))
+        let quoted = self.dialect.quote_ident(table);
+        Ok(format!("FROM {quoted}"))
     }
 
     fn compile_condition(&self, cond: &Condition, table: &str) -> Result<String, ROSQLError> {
@@ -671,7 +727,7 @@ impl<'a> CompileCtx<'a> {
     }
 
     fn compile_time_range(&self, tr: &TimeRange, _table: &str) -> Result<String, ROSQLError> {
-        let ts_col = self.dialect.timestamp_column();
+        let ts_col = self.col("timestamp");
         match tr {
             TimeRange::Since(expr) => {
                 let time_val = self.compile_time_expr(expr)?;
@@ -701,12 +757,22 @@ impl<'a> CompileCtx<'a> {
                 // For the open source driver, only LastActionFailure is supported
                 // (from otel_traces).
                 match anchor {
-                    LifecycleAnchor::LastActionFailure => Ok(format!(
-                        "(SELECT MAX(Timestamp) FROM otel_traces \
-                         WHERE StatusCode = 'ERROR' AND {} IS NOT NULL)",
-                        self.dialect
-                            .json_access("SpanAttributes", "ros.action.name")
-                    )),
+                    LifecycleAnchor::LastActionFailure => {
+                        let tbl = self.qtable("otel_traces");
+                        let ts = self.col("timestamp");
+                        let sc = self.col("status");
+                        let span_attrs_col = self
+                            .registry
+                            .resolve("action_name")
+                            .map(|f| f.column.as_str())
+                            .unwrap_or("span_attributes");
+                        let action_attr =
+                            self.dialect.json_access(span_attrs_col, "ros.action.name");
+                        Ok(format!(
+                            "(SELECT MAX({ts}) FROM {tbl} \
+                             WHERE {sc} = 'ERROR' AND {action_attr} IS NOT NULL)"
+                        ))
+                    }
                     _ => Err(ROSQLError::DataSourceUnavailable {
                         data_source: "robot_heartbeats".into(),
                         message: format!(
@@ -755,7 +821,6 @@ impl<'a> CompileCtx<'a> {
     }
 
     fn resolve_column(&self, field_name: &str, _table: &str) -> Result<String, ROSQLError> {
-        // Check if it's a wildcard field like "span_attrs.foo"
         if field_name == "*" {
             return Ok("*".into());
         }
@@ -768,11 +833,11 @@ impl<'a> CompileCtx<'a> {
                     return Ok(self.dialect.json_access(map_col, map_key));
                 }
             }
-            return Ok(field_def.column.clone());
+            return Ok(self.dialect.quote_ident(&field_def.column));
         }
 
-        // Unknown field — pass through as-is (could be a raw column name)
-        Ok(field_name.to_string())
+        // Unknown field — pass through quoted (preserves case for OTel PascalCase columns)
+        Ok(self.dialect.quote_ident(field_name))
     }
 }
 
@@ -861,28 +926,32 @@ mod tests {
         compile(&ast, &reg, &pg(), &caps()).unwrap_err()
     }
 
+    // Note: PostgreSQL tests use quoted lowercase identifiers (OtelPostgres profile).
+    // e.g. "status_code", "otel_traces", "span_attributes"
+
     #[test]
     fn basic_select_star() {
         let sql = compile_pg("FROM logs");
-        assert_eq!(sql, "SELECT * FROM otel_logs");
+        assert_eq!(sql, r#"SELECT * FROM "otel_logs""#);
     }
 
     #[test]
     fn select_fields() {
         let sql = compile_pg("SELECT span_name, duration FROM traces");
-        assert_eq!(sql, "SELECT SpanName, Duration FROM otel_traces");
+        assert!(sql.contains(r#""span_name_col""#), "got: {sql}");
+        assert!(sql.contains(r#""duration""#), "got: {sql}");
+        assert!(sql.contains(r#""otel_traces""#), "got: {sql}");
     }
 
     #[test]
     fn where_comparison() {
         let sql = compile_pg("FROM traces WHERE status = 'ERROR'");
-        assert!(sql.contains("WHERE StatusCode = 'ERROR'"));
+        assert!(sql.contains(r#""status_code" = 'ERROR'"#), "got: {sql}");
     }
 
     #[test]
     fn where_unit_value_converts_to_storage() {
         let sql = compile_pg("FROM traces WHERE duration > 500 ms");
-        // 500ms = 0.5s → 500000000 ns (storage unit is ns)
         assert!(sql.contains("500000000"), "got: {sql}");
     }
 
@@ -890,7 +959,7 @@ mod tests {
     fn since_relative() {
         let sql = compile_pg("FROM logs SINCE 30 minutes ago");
         assert!(
-            sql.contains("Timestamp >= NOW() - INTERVAL '30 minute'"),
+            sql.contains(r#""timestamp" >= NOW() - INTERVAL '30 minute'"#),
             "got: {sql}"
         );
     }
@@ -898,25 +967,28 @@ mod tests {
     #[test]
     fn since_absolute() {
         let sql = compile_pg("FROM logs SINCE '2026-03-18T14:00:00Z'");
-        assert!(sql.contains("Timestamp >= '2026-03-18T14:00:00Z'"));
+        assert!(
+            sql.contains(r#""timestamp" >= '2026-03-18T14:00:00Z'"#),
+            "got: {sql}"
+        );
     }
 
     #[test]
     fn since_unix_epoch() {
         let sql = compile_pg("FROM logs SINCE 1742306400");
-        assert!(sql.contains("to_timestamp(1742306400)"));
+        assert!(sql.contains("to_timestamp(1742306400)"), "got: {sql}");
     }
 
     #[test]
     fn facet_group_by() {
         let sql = compile_pg("FROM logs FACET robot_id");
-        assert!(sql.contains("GROUP BY robot_id"));
+        assert!(sql.contains(r#"GROUP BY "robot_id""#), "got: {sql}");
     }
 
     #[test]
     fn order_by_desc() {
         let sql = compile_pg("FROM traces ORDER BY duration DESC");
-        assert!(sql.contains("ORDER BY Duration DESC"));
+        assert!(sql.contains(r#""duration" DESC"#), "got: {sql}");
     }
 
     #[test]
@@ -928,19 +1000,22 @@ mod tests {
     #[test]
     fn map_field_access() {
         let sql = compile_pg("FROM traces WHERE node = '/planner'");
-        assert!(sql.contains("SpanAttributes->>'ros.node'"), "got: {sql}");
+        assert!(
+            sql.contains(r#""span_attributes"->>'ros.node'"#),
+            "got: {sql}"
+        );
     }
 
     #[test]
     fn bracket_field_access() {
         let sql = compile_pg("FROM logs WHERE fields['my_key'] = 'val'");
-        assert!(sql.contains("fields->>'my_key'"), "got: {sql}");
+        assert!(sql.contains(r#""fields"->>'my_key'"#), "got: {sql}");
     }
 
     #[test]
     fn aggregation_avg() {
         let sql = compile_pg("SELECT AVG(duration) FROM traces");
-        assert!(sql.contains("AVG(Duration)"));
+        assert!(sql.contains(r#"AVG("duration")"#), "got: {sql}");
     }
 
     #[test]
@@ -952,15 +1027,15 @@ mod tests {
     #[test]
     fn topic_alias_odom() {
         let sql = compile_pg("FROM odom SINCE 10 minutes ago");
-        assert!(sql.contains("FROM topic_messages"));
-        assert!(sql.contains("topic_name = '/odom'"));
+        assert!(sql.contains("topic_messages"), "got: {sql}");
+        assert!(sql.contains("topic_name = '/odom'"), "got: {sql}");
     }
 
     #[test]
     fn pipeline_compiles() {
         let sql = compile_pg("FROM traces | WHERE duration > 500 ms | FACET robot_id");
-        assert!(sql.contains("FROM otel_traces"));
-        assert!(sql.contains("GROUP BY robot_id"));
+        assert!(sql.contains("otel_traces"), "got: {sql}");
+        assert!(sql.contains("GROUP BY"), "got: {sql}");
     }
 
     // ── Compound clauses ────────────────────────────────────────────
@@ -968,40 +1043,41 @@ mod tests {
     #[test]
     fn message_journey() {
         let sql = compile_pg("MESSAGE JOURNEY FOR TRACE 'abc123'");
-        assert!(sql.contains("WITH RECURSIVE journey"));
-        assert!(sql.contains("TraceId = 'abc123'"));
-        assert!(sql.contains("ParentSpanId"));
+        assert!(sql.contains("WITH RECURSIVE journey"), "got: {sql}");
+        assert!(sql.contains("abc123"), "got: {sql}");
+        assert!(sql.contains("parent_span_id"), "got: {sql}");
     }
 
     #[test]
     fn trace_query() {
         let sql = compile_pg("TRACE 'abc123'");
-        assert!(sql.contains("TraceId = 'abc123'"));
+        assert!(sql.contains("abc123"), "got: {sql}");
+        assert!(sql.contains("otel_traces"), "got: {sql}");
     }
 
     #[test]
     fn health_query() {
         let sql = compile_pg("HEALTH() SINCE 30 minutes ago");
-        assert!(sql.contains("signal_type"));
-        assert!(sql.contains("UNION ALL"));
-        assert!(sql.contains("otel_traces"));
-        assert!(sql.contains("otel_logs"));
-        assert!(sql.contains("otel_metrics"));
+        assert!(sql.contains("signal_type"), "got: {sql}");
+        assert!(sql.contains("UNION ALL"), "got: {sql}");
+        assert!(sql.contains("otel_traces"), "got: {sql}");
+        assert!(sql.contains("otel_logs"), "got: {sql}");
+        assert!(sql.contains("otel_metrics"), "got: {sql}");
     }
 
     #[test]
     fn anomaly_query() {
         let sql = compile_pg("ANOMALY(duration) SINCE 24 hours ago");
         assert!(sql.contains("z_score"), "got: {sql}");
-        assert!(sql.contains("STDDEV"));
-        assert!(sql.contains("AVG"));
+        assert!(sql.contains("STDDEV"), "got: {sql}");
+        assert!(sql.contains("AVG"), "got: {sql}");
     }
 
     #[test]
     fn show_recording() {
         let sql = compile_pg("SHOW RECORDING SINCE yesterday");
-        assert!(sql.contains("mcap_metadata"));
-        assert!(sql.contains("s3_key"));
+        assert!(sql.contains("mcap_metadata"), "got: {sql}");
+        assert!(sql.contains("s3_key"), "got: {sql}");
     }
 
     #[test]
@@ -1037,8 +1113,9 @@ mod tests {
     #[test]
     fn since_last_action_failure() {
         let sql = compile_pg("FROM traces SINCE last action failure");
-        assert!(sql.contains("MAX(Timestamp)"), "got: {sql}");
-        assert!(sql.contains("StatusCode = 'ERROR'"), "got: {sql}");
+        assert!(sql.contains("MAX("), "got: {sql}");
+        assert!(sql.contains("status_code"), "got: {sql}");
+        assert!(sql.contains("ERROR"), "got: {sql}");
     }
 
     #[test]

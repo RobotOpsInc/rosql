@@ -10,15 +10,16 @@ keywords = ["ros2", "robotics", "telemetry", "query-language", "opentelemetry"]
 categories = ["parser-implementations", "science::robotics"]
 
 [[bin]]
-name = "rosql-parser"
-path = "src/bin/rosql-parser.rs"
+name = "rosql"
+path = "src/bin/rosql.rs"
 required-features = ["server"]
 
 [features]
 default = []
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
 server = ["dep:tonic", "dep:tokio", "dep:clap", "dep:tokio-stream"]
-sql = ["dep:sqlx", "dep:tokio"]
+postgres = ["dep:sqlx", "dep:tokio"]
+mysql = ["dep:sqlx", "dep:tokio"]
 duckdb = ["dep:duckdb"]
 athena = ["dep:aws-sdk-athena", "dep:aws-config"]
 bigquery = ["dep:gcp-bigquery-client"]
@@ -39,7 +40,7 @@ wasm-bindgen = { version = "0.2", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 tonic = { version = "0.12", optional = true }
 clap = { version = "4", optional = true, features = ["derive"] }
-sqlx = { version = "0.8", optional = true, features = ["runtime-tokio", "any", "postgres", "sqlite", "mysql"] }
+sqlx = { version = "0.8", optional = true, features = ["runtime-tokio", "postgres", "mysql", "chrono", "json"] }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "net"] }
 tokio-stream = { version = "0.1", optional = true, features = ["net"] }
 duckdb = { version = "1", optional = true }

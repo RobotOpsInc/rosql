@@ -28,7 +28,7 @@ cargo build
 cargo build --target wasm32-unknown-unknown --features wasm
 
 # gRPC server + CLI binary
-cargo build --features server --bin rosql-parser
+cargo build --features server --bin rosql
 ```
 
 ## Running checks

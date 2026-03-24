@@ -1,13 +1,5 @@
 use std::io::Result;
-
 fn main() -> Result<()> {
-    let out_dir = "src/proto";
-    std::fs::create_dir_all(out_dir)?;
-
-    // Rerun if proto files change or if features change
-    println!("cargo:rerun-if-changed=proto/");
-    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_SERVER");
-
     let protos = &[
         "proto/rosql/v1/parser_service.proto",
         "proto/rosql/v1/ast.proto",
@@ -16,17 +8,23 @@ fn main() -> Result<()> {
     ];
     let includes = &["proto/"];
 
-    // When the `server` feature is enabled, generate gRPC service traits
-    // via tonic-build (includes prost message types automatically).
-    // Otherwise, generate only prost message types.
     if std::env::var("CARGO_FEATURE_SERVER").is_ok() {
+        // With server feature: use tonic-build which generates both
+        // message types AND gRPC service traits in one file.
         tonic_build::configure()
-            .out_dir(out_dir)
+            .build_server(true)
+            .build_client(false)
             .compile_protos(protos, includes)?;
     } else {
-        prost_build::Config::new()
-            .out_dir(out_dir)
-            .compile_protos(protos, includes)?;
+        // Without server feature: use prost-build for message types only.
+        // No tonic dependency in the generated code.
+        prost_build::compile_protos(protos, includes)?;
+    }
+
+    // Ensure rebuild when features change.
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_SERVER");
+    for proto in protos {
+        println!("cargo:rerun-if-changed={proto}");
     }
 
     Ok(())
