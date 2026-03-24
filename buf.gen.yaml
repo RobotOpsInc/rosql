@@ -1,0 +1,12 @@
+# Rust proto generation uses prost-build via build.rs (no BSR auth needed).
+# This file is kept for reference; use `cargo build` to regenerate proto types.
+#
+# buf.yaml is still used for `buf lint` and `buf build` validation.
+version: v2
+plugins:
+  - remote: buf.build/community/neoeinstein-prost:v0.4.0
+    out: src/proto
+    opt:
+      - compile_well_known_types
+  - remote: buf.build/community/neoeinstein-prost-serde:v0.3.1
+    out: src/proto

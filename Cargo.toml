@@ -25,6 +25,8 @@ thiserror = "2"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 strsim = "0.11"
 async-trait = "0.1"
+prost = "0.13"
+prost-types = "0.13"
 
 # Feature-gated optional dependencies
 wasm-bindgen = { version = "0.2", optional = true }
@@ -35,6 +37,9 @@ duckdb = { version = "1", optional = true }
 aws-sdk-athena = { version = "1", optional = true }
 aws-config = { version = "1", optional = true }
 gcp-bigquery-client = { version = "0.22", optional = true }
+
+[build-dependencies]
+prost-build = "0.13"
 
 [dev-dependencies]
 pretty_assertions = "1"

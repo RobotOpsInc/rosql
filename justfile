@@ -24,5 +24,13 @@ fmt:
 fmt-fix:
     cargo fmt
 
-# Run all checks (build + test + clippy + fmt)
-check: build test clippy fmt
+# Lint proto files
+buf-lint:
+    buf lint proto/
+
+# Regenerate proto types (build.rs handles this automatically on cargo build)
+generate-proto:
+    cargo build
+
+# Run all checks (build + test + clippy + fmt + buf-lint)
+check: build test clippy fmt buf-lint

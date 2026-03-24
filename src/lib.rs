@@ -9,6 +9,7 @@ pub mod drivers;
 pub mod error;
 pub mod lexer;
 pub mod parser;
+pub mod proto;
 pub mod span;
 pub mod units;
 
