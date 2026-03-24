@@ -34,23 +34,23 @@ generate-proto:
 
 # Start example PostgreSQL with fixture data
 examples-up:
-    docker compose -f examples/docker-compose.yml up -d
+    docker compose -f examples/postgres/docker-compose.yml up -d
 
 # Stop example PostgreSQL
 examples-down:
-    docker compose -f examples/docker-compose.yml down -v
+    docker compose -f examples/postgres/docker-compose.yml down -v
 
 # Run example integration tests against Docker PostgreSQL
 test-examples:
     #!/usr/bin/env bash
     set -e
     echo "Starting PostgreSQL..."
-    docker compose -f examples/docker-compose.yml up -d --wait
+    docker compose -f examples/postgres/docker-compose.yml up -d --wait
     echo "Running integration tests..."
     DATABASE_URL=postgresql://rosql:rosql@localhost:5432/rosql_examples \
-        cargo test --ignored --features sql 2>&1 || { docker compose -f examples/docker-compose.yml down -v; exit 1; }
+        cargo test --ignored --features sql 2>&1 || { docker compose -f examples/postgres/docker-compose.yml down -v; exit 1; }
     echo "Tearing down..."
-    docker compose -f examples/docker-compose.yml down -v
+    docker compose -f examples/postgres/docker-compose.yml down -v
 
 # Run all checks (build + test + clippy + fmt + buf-lint)
 check: build test clippy fmt buf-lint

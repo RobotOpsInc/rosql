@@ -1,22 +1,22 @@
-//! `rosql-parser` — gRPC server + CLI for ROSQL.
+//! `rosql` CLI — parse, compile, and execute ROSQL queries.
 //!
-//! Build with: `cargo build --features server --bin rosql-parser`
-//! For query execution: `cargo build --features server,sql --bin rosql-parser`
+//! Build with: `cargo build --features server --bin rosql`
+//! For query execution: `cargo build --features server,postgres --bin rosql`
 //!
 //! Usage:
-//!   rosql-parser parse <query>                          # parse → JSON AST
-//!   rosql-parser compile <query> --backend <type>       # parse → compiled SQL
-//!   rosql-parser query <query> --backend <type> --url   # parse → execute → results
-//!   rosql-parser validate <query>                       # validate syntax
-//!   rosql-parser completions <query> <pos>              # autocomplete
-//!   rosql-parser serve [--socket <path>]                # gRPC server
+//!   rosql parse <query>                          # parse → JSON AST
+//!   rosql compile <query> --backend <type>       # parse → compiled SQL
+//!   rosql query <query> --backend <type> --url   # parse → execute → results
+//!   rosql validate <query>                       # validate syntax
+//!   rosql completions <query> <pos>              # autocomplete
+//!   rosql serve [--socket <path>]                # gRPC server
 
 use clap::{Parser, Subcommand, ValueEnum};
 use std::io::{self, Read};
 
 #[derive(Parser)]
 #[command(
-    name = "rosql-parser",
+    name = "rosql",
     about = "ROSQL — parse, compile, and execute ROS2 telemetry queries"
 )]
 struct Cli {
@@ -40,6 +40,11 @@ enum Commands {
         /// Target database backend.
         #[arg(long, default_value = "postgres")]
         backend: Backend,
+
+        /// Schema profile — determines column naming convention.
+        /// Defaults to otel-postgres for postgres/mysql/sqlite backends.
+        #[arg(long, default_value = "otel-postgres")]
+        schema: Schema,
     },
 
     /// Execute a ROSQL query against a database and return results.
@@ -50,6 +55,10 @@ enum Commands {
         /// Target database backend.
         #[arg(long)]
         backend: Backend,
+
+        /// Schema profile — determines column naming convention.
+        #[arg(long, default_value = "otel-postgres")]
+        schema: Schema,
 
         /// Database connection URL.
         /// PostgreSQL: postgresql://user:pass@host:5432/db
@@ -76,13 +85,35 @@ enum Commands {
     /// Start the gRPC parser server.
     Serve {
         /// Unix socket path for the gRPC server.
-        #[arg(long, default_value = "/tmp/rosql-parser.sock")]
+        #[arg(long, default_value = "/tmp/rosql.sock")]
         socket: String,
 
         /// Log level.
         #[arg(long, default_value = "info")]
         log_level: String,
     },
+}
+
+/// Schema profile — column naming convention for the OTel exporter.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Schema {
+    /// Lowercase columns (OTel Collector PostgreSQL exporter convention).
+    /// Example: trace_id, status_code, span_attributes
+    #[value(name = "otel-postgres")]
+    OtelPostgres,
+    /// PascalCase columns (OTel Collector ClickHouse exporter convention).
+    /// Example: TraceId, StatusCode, SpanAttributes
+    #[value(name = "otel-clickhouse")]
+    OtelClickhouse,
+}
+
+impl Schema {
+    fn to_profile(&self) -> rosql::drivers::otel_registry::SchemaProfile {
+        match self {
+            Schema::OtelPostgres => rosql::drivers::otel_registry::SchemaProfile::OtelPostgres,
+            Schema::OtelClickhouse => rosql::drivers::otel_registry::SchemaProfile::OtelClickhouse,
+        }
+    }
 }
 
 /// Supported database backends.
@@ -92,8 +123,6 @@ enum Backend {
     Postgres,
     /// MySQL / MariaDB
     Mysql,
-    /// SQLite
-    Sqlite,
     /// DuckDB (coming soon)
     Duckdb,
     /// AWS Athena (coming soon)
@@ -107,7 +136,6 @@ impl Backend {
         match self {
             Backend::Postgres => Ok(rosql::drivers::dialect::SqlDialect::PostgreSQL),
             Backend::Mysql => Ok(rosql::drivers::dialect::SqlDialect::MySQL),
-            Backend::Sqlite => Ok(rosql::drivers::dialect::SqlDialect::SQLite),
             Backend::Duckdb => Err("DuckDB backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/18".into()),
             Backend::Athena => Err("Athena backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/9".into()),
             Backend::Bigquery => Err("BigQuery backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/10".into()),
@@ -124,17 +152,22 @@ async fn main() {
             let query = read_query(query);
             cmd_parse(&query);
         }
-        Commands::Compile { query, backend } => {
+        Commands::Compile {
+            query,
+            backend,
+            schema,
+        } => {
             let query = read_query(query);
-            cmd_compile(&query, backend);
+            cmd_compile(&query, backend, schema);
         }
         Commands::Query {
             query,
             backend,
+            schema,
             url,
         } => {
             let query = read_query(query);
-            cmd_query(&query, backend, &url).await;
+            cmd_query(&query, backend, schema, &url).await;
         }
         Commands::Validate { query } => {
             let query = read_query(query);
@@ -169,7 +202,7 @@ fn cmd_parse(query: &str) {
     }
 }
 
-fn cmd_compile(query: &str, backend: Backend) {
+fn cmd_compile(query: &str, backend: Backend, schema: Schema) {
     let dialect = match backend.to_dialect() {
         Ok(d) => d,
         Err(msg) => {
@@ -186,7 +219,7 @@ fn cmd_compile(query: &str, backend: Backend) {
         }
     };
 
-    let registry = rosql::drivers::otel_registry::default_otel_registry();
+    let registry = rosql::drivers::otel_registry::otel_registry(schema.to_profile());
     let capabilities = rosql::BackendCapabilities {
         topic_data: true,
         recording_index: true,
@@ -213,8 +246,8 @@ fn cmd_compile(query: &str, backend: Backend) {
 }
 
 #[allow(unused_variables)]
-async fn cmd_query(query: &str, backend: Backend, url: &str) {
-    #[cfg(feature = "sql")]
+async fn cmd_query(query: &str, backend: Backend, _schema: Schema, url: &str) {
+    #[cfg(any(feature = "postgres", feature = "mysql"))]
     {
         use rosql::drivers::ROSQLBackend;
 
@@ -259,11 +292,11 @@ async fn cmd_query(query: &str, backend: Backend, url: &str) {
         }
     }
 
-    #[cfg(not(feature = "sql"))]
+    #[cfg(not(any(feature = "postgres", feature = "mysql")))]
     {
         eprintln!(
             "Error: the `query` subcommand requires the `sql` feature.\n\
-             Rebuild with: cargo build --features server,sql --bin rosql-parser"
+             Rebuild with: cargo build --features server,postgres --bin rosql"
         );
         std::process::exit(1);
     }

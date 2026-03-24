@@ -42,7 +42,7 @@ ROSQL is a structured query language purpose-built for ROS2 telemetry data store
   │   ROSQL text → parser → AST → ROSQLBackend → DB    │
   ├─────────────────────────────────────────────────────┤
   │ Mode 2: gRPC Server + CLI                           │
-  │   rosql-parser serve / parse / validate             │
+  │   rosql serve / parse / validate             │
   ├─────────────────────────────────────────────────────┤
   │ Mode 3: WASM (frontend editor)                      │
   │   parse() / validate() / get_completions()          │
@@ -81,29 +81,34 @@ fn main() {
 | Feature | What it enables | Dependencies |
 |---------|----------------|--------------|
 | *(default)* | Parser, AST, unit system, SQL compiler, proto types | logos, serde, prost |
-| `sql` | `SqlBackend` driver (PostgreSQL, MySQL, SQLite) | sqlx, tokio |
-| `server` | `rosql-parser` gRPC server + CLI binary | tonic, tokio, clap |
+| `postgres` | PostgreSQL / TimescaleDB driver | sqlx, tokio |
+| `mysql` | MySQL / MariaDB driver | sqlx, tokio |
+| `server` | `rosql` gRPC server + CLI binary | tonic, tokio, clap |
 | `wasm` | WASM exports for frontend editors | wasm-bindgen |
 | `duckdb` | DuckDB driver (coming soon — [#18](https://github.com/RobotOpsInc/rosql/issues/18)) | duckdb |
 
 ## CLI
 
-Build and use the `rosql-parser` CLI:
+Build and use the `rosql` CLI:
 
 ```sh
-cargo build --features server --bin rosql-parser
+cargo build --features server --bin rosql
 
 # Parse a query to JSON AST
-rosql-parser parse "FROM traces WHERE duration > 500 ms SINCE 1 hour ago"
+rosql parse "FROM traces WHERE duration > 500 ms SINCE 1 hour ago"
 
 # Validate a query
-rosql-parser validate "SELECT * FROM logs"
+rosql validate "SELECT * FROM logs"
 
 # Get completions at cursor position
-rosql-parser completions "FROM " 5
+rosql completions "FROM " 5
 
 # Start gRPC server on a Unix socket
-rosql-parser serve --socket /tmp/rosql-parser.sock
+rosql serve --socket /tmp/rosql.sock
+
+# Schema profiles (match your OTel Collector exporter):
+#   --schema otel-postgres    (lowercase columns, default)
+#   --schema otel-clickhouse  (PascalCase columns)
 ```
 
 ## WASM API
@@ -182,7 +187,7 @@ cd rosql
 cargo build --release
 
 # gRPC server + CLI binary
-cargo build --release --features server --bin rosql-parser
+cargo build --release --features server --bin rosql
 ```
 
 ## Local development
