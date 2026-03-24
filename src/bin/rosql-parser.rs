@@ -1,18 +1,24 @@
-//! `rosql-parser` — gRPC server + CLI for ROSQL parsing.
+//! `rosql-parser` — gRPC server + CLI for ROSQL.
 //!
 //! Build with: `cargo build --features server --bin rosql-parser`
+//! For query execution: `cargo build --features server,sql --bin rosql-parser`
 //!
 //! Usage:
-//!   rosql-parser serve [--socket <path>]     # gRPC server mode
-//!   rosql-parser parse <query>               # CLI parse to JSON
-//!   rosql-parser validate <query>            # CLI validate
-//!   rosql-parser completions <query> <pos>   # CLI completions
+//!   rosql-parser parse <query>                          # parse → JSON AST
+//!   rosql-parser compile <query> --backend <type>       # parse → compiled SQL
+//!   rosql-parser query <query> --backend <type> --url   # parse → execute → results
+//!   rosql-parser validate <query>                       # validate syntax
+//!   rosql-parser completions <query> <pos>              # autocomplete
+//!   rosql-parser serve [--socket <path>]                # gRPC server
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::io::{self, Read};
 
 #[derive(Parser)]
-#[command(name = "rosql-parser", about = "ROSQL parser — gRPC server and CLI")]
+#[command(
+    name = "rosql-parser",
+    about = "ROSQL — parse, compile, and execute ROS2 telemetry queries"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -20,21 +26,37 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Start the gRPC parser server.
-    Serve {
-        /// Unix socket path for the gRPC server.
-        #[arg(long, default_value = "/tmp/rosql-parser.sock")]
-        socket: String,
-
-        /// Log level.
-        #[arg(long, default_value = "info")]
-        log_level: String,
-    },
-
     /// Parse a ROSQL query and output the AST as JSON.
     Parse {
         /// The ROSQL query string. Reads from stdin if omitted.
         query: Option<String>,
+    },
+
+    /// Compile a ROSQL query to SQL for a specific backend.
+    Compile {
+        /// The ROSQL query string. Reads from stdin if omitted.
+        query: Option<String>,
+
+        /// Target database backend.
+        #[arg(long, default_value = "postgres")]
+        backend: Backend,
+    },
+
+    /// Execute a ROSQL query against a database and return results.
+    Query {
+        /// The ROSQL query string. Reads from stdin if omitted.
+        query: Option<String>,
+
+        /// Target database backend.
+        #[arg(long)]
+        backend: Backend,
+
+        /// Database connection URL.
+        /// PostgreSQL: postgresql://user:pass@host:5432/db
+        /// SQLite: sqlite:./path/to/db
+        /// MySQL: mysql://user:pass@host:3306/db
+        #[arg(long)]
+        url: String,
     },
 
     /// Validate a ROSQL query.
@@ -50,6 +72,47 @@ enum Commands {
         /// Cursor position (0-based byte offset).
         cursor_pos: usize,
     },
+
+    /// Start the gRPC parser server.
+    Serve {
+        /// Unix socket path for the gRPC server.
+        #[arg(long, default_value = "/tmp/rosql-parser.sock")]
+        socket: String,
+
+        /// Log level.
+        #[arg(long, default_value = "info")]
+        log_level: String,
+    },
+}
+
+/// Supported database backends.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Backend {
+    /// PostgreSQL / TimescaleDB
+    Postgres,
+    /// MySQL / MariaDB
+    Mysql,
+    /// SQLite
+    Sqlite,
+    /// DuckDB (coming soon)
+    Duckdb,
+    /// AWS Athena (coming soon)
+    Athena,
+    /// Google BigQuery (coming soon)
+    Bigquery,
+}
+
+impl Backend {
+    fn to_dialect(&self) -> Result<rosql::drivers::dialect::SqlDialect, String> {
+        match self {
+            Backend::Postgres => Ok(rosql::drivers::dialect::SqlDialect::PostgreSQL),
+            Backend::Mysql => Ok(rosql::drivers::dialect::SqlDialect::MySQL),
+            Backend::Sqlite => Ok(rosql::drivers::dialect::SqlDialect::SQLite),
+            Backend::Duckdb => Err("DuckDB backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/18".into()),
+            Backend::Athena => Err("Athena backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/9".into()),
+            Backend::Bigquery => Err("BigQuery backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/10".into()),
+        }
+    }
 }
 
 #[tokio::main]
@@ -57,12 +120,21 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve { socket, log_level } => {
-            serve(socket, log_level).await;
-        }
         Commands::Parse { query } => {
             let query = read_query(query);
             cmd_parse(&query);
+        }
+        Commands::Compile { query, backend } => {
+            let query = read_query(query);
+            cmd_compile(&query, backend);
+        }
+        Commands::Query {
+            query,
+            backend,
+            url,
+        } => {
+            let query = read_query(query);
+            cmd_query(&query, backend, &url).await;
         }
         Commands::Validate { query } => {
             let query = read_query(query);
@@ -70,6 +142,9 @@ async fn main() {
         }
         Commands::Completions { query, cursor_pos } => {
             cmd_completions(&query, cursor_pos);
+        }
+        Commands::Serve { socket, log_level } => {
+            serve(socket, log_level).await;
         }
     }
 }
@@ -81,7 +156,6 @@ async fn main() {
 fn cmd_parse(query: &str) {
     match rosql::parse(query) {
         Ok(ast) => {
-            let _proto = rosql::convert::query_to_proto(&ast);
             let json = serde_json::json!({
                 "ok": true,
                 "ast": serde_json::to_value(&ast).unwrap_or(serde_json::Value::Null),
@@ -89,17 +163,109 @@ fn cmd_parse(query: &str) {
             println!("{}", serde_json::to_string_pretty(&json).unwrap());
         }
         Err(errors) => {
-            let error_list: Vec<serde_json::Value> = errors
-                .iter()
-                .map(|e| serde_json::json!({ "error": e.to_string() }))
-                .collect();
+            print_errors(&errors);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_compile(query: &str, backend: Backend) {
+    let dialect = match backend.to_dialect() {
+        Ok(d) => d,
+        Err(msg) => {
+            eprintln!("Error: {msg}");
+            std::process::exit(1);
+        }
+    };
+
+    let ast = match rosql::parse(query) {
+        Ok(ast) => ast,
+        Err(errors) => {
+            print_errors(&errors);
+            std::process::exit(1);
+        }
+    };
+
+    let registry = rosql::drivers::otel_registry::default_otel_registry();
+    let capabilities = rosql::BackendCapabilities {
+        topic_data: true,
+        recording_index: true,
+    };
+
+    match rosql::drivers::compiler::compile(&ast, &registry, &dialect, &capabilities) {
+        Ok(sql) => {
+            let json = serde_json::json!({
+                "ok": true,
+                "sql": sql,
+                "backend": format!("{backend:?}").to_lowercase(),
+            });
+            println!("{}", serde_json::to_string_pretty(&json).unwrap());
+        }
+        Err(err) => {
             let json = serde_json::json!({
                 "ok": false,
-                "errors": error_list,
+                "error": err.to_string(),
             });
             println!("{}", serde_json::to_string_pretty(&json).unwrap());
             std::process::exit(1);
         }
+    }
+}
+
+#[allow(unused_variables)]
+async fn cmd_query(query: &str, backend: Backend, url: &str) {
+    #[cfg(feature = "sql")]
+    {
+        use rosql::drivers::ROSQLBackend;
+
+        let dialect = match backend.to_dialect() {
+            Ok(d) => d,
+            Err(msg) => {
+                eprintln!("Error: {msg}");
+                std::process::exit(1);
+            }
+        };
+
+        let ast = match rosql::parse(query) {
+            Ok(ast) => ast,
+            Err(errors) => {
+                print_errors(&errors);
+                std::process::exit(1);
+            }
+        };
+
+        let sql_backend = match rosql::drivers::sql::SqlBackend::new(url).await {
+            Ok(b) => b,
+            Err(err) => {
+                eprintln!("Connection error: {err}");
+                std::process::exit(1);
+            }
+        };
+
+        let opts = rosql::ExecOptions::default();
+        match sql_backend.execute(&ast, &opts).await {
+            Ok(result) => {
+                let json = serde_json::to_string_pretty(&result).unwrap();
+                println!("{json}");
+            }
+            Err(err) => {
+                let json = serde_json::json!({
+                    "ok": false,
+                    "error": err.to_string(),
+                });
+                println!("{}", serde_json::to_string_pretty(&json).unwrap());
+                std::process::exit(1);
+            }
+        }
+    }
+
+    #[cfg(not(feature = "sql"))]
+    {
+        eprintln!(
+            "Error: the `query` subcommand requires the `sql` feature.\n\
+             Rebuild with: cargo build --features server,sql --bin rosql-parser"
+        );
+        std::process::exit(1);
     }
 }
 
@@ -131,6 +297,18 @@ fn cmd_completions(query: &str, cursor_pos: usize) {
     let completions = rosql::completions::get_completions(query, cursor_pos);
     let json = serde_json::to_string_pretty(&completions).unwrap();
     println!("{json}");
+}
+
+fn print_errors(errors: &[rosql::ROSQLError]) {
+    let error_list: Vec<serde_json::Value> = errors
+        .iter()
+        .map(|e| serde_json::json!({ "error": e.to_string() }))
+        .collect();
+    let json = serde_json::json!({
+        "ok": false,
+        "errors": error_list,
+    });
+    println!("{}", serde_json::to_string_pretty(&json).unwrap());
 }
 
 fn read_query(query: Option<String>) -> String {
@@ -260,10 +438,7 @@ async fn serve(socket: String, _log_level: String) {
         }
     }
 
-    // Listen on Unix socket
     eprintln!("rosql-parser gRPC server starting on {socket}");
-
-    // Remove stale socket file if it exists
     let _ = std::fs::remove_file(&socket);
 
     let uds = tokio::net::UnixListener::bind(&socket).expect("failed to bind Unix socket");

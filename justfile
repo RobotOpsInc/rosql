@@ -40,23 +40,17 @@ examples-up:
 examples-down:
     docker compose -f examples/docker-compose.yml down -v
 
-# Parse all example .rosql files (shows compiled SQL for each query)
-run-examples:
+# Run example integration tests against Docker PostgreSQL
+test-examples:
     #!/usr/bin/env bash
     set -e
-    cargo build --features server --bin rosql-parser 2>/dev/null
-    for file in examples/queries/*.rosql; do
-        echo "=== $(basename $file) ==="
-        # Read each non-empty, non-comment line as a separate query
-        while IFS= read -r line; do
-            line=$(echo "$line" | sed 's/^[[:space:]]*//')
-            [[ -z "$line" || "$line" == --* ]] && continue
-            echo "  > $line"
-            ./target/debug/rosql-parser parse "$line" 2>/dev/null | head -5
-            echo ""
-        done < "$file"
-        echo ""
-    done
+    echo "Starting PostgreSQL..."
+    docker compose -f examples/docker-compose.yml up -d --wait
+    echo "Running integration tests..."
+    DATABASE_URL=postgresql://rosql:rosql@localhost:5432/rosql_examples \
+        cargo test --ignored --features sql 2>&1 || { docker compose -f examples/docker-compose.yml down -v; exit 1; }
+    echo "Tearing down..."
+    docker compose -f examples/docker-compose.yml down -v
 
 # Run all checks (build + test + clippy + fmt + buf-lint)
 check: build test clippy fmt buf-lint

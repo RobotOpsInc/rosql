@@ -26,97 +26,128 @@ All signals are interconnected:
 
 - [Rust](https://rustup.rs) (stable)
 - [Docker](https://docs.docker.com/get-docker/) (for PostgreSQL)
-- [just](https://just.systems) (optional — or run the commands manually)
 - `protoc` (`brew install protobuf` or `apt-get install protobuf-compiler`)
 
 ### Start PostgreSQL with fixture data
 
 ```sh
-cd examples
-docker compose up -d
+just examples-up
+# or: docker compose -f examples/docker-compose.yml up -d
 ```
 
 This starts PostgreSQL on `localhost:5432` and automatically loads the OTel schema + fixture data.
 
-**Connection string:** `postgresql://rosql:rosql@localhost:5432/rosql_examples`
+### Try some queries
 
-### Run example queries
-
-From the repo root:
+**Parse a query** (shows the AST as JSON):
 
 ```sh
-# Parse all example queries (shows JSON AST output)
-just run-examples
+cargo run --features server --bin rosql-parser -- parse "FROM traces WHERE status = 'ERROR'"
+```
 
-# Or run individual queries:
-cargo build --features server --bin rosql-parser
-./target/debug/rosql-parser parse "FROM traces WHERE status = 'ERROR'"
+**Compile a query to SQL** (shows what SQL ROSQL generates — no DB needed):
+
+```sh
+cargo run --features server --bin rosql-parser -- compile "FROM traces WHERE status = 'ERROR'" --backend postgres
+```
+
+**Execute a query against the example database** (returns actual results):
+
+```sh
+cargo run --features server,sql --bin rosql-parser -- query \
+  "FROM traces WHERE status = 'ERROR'" \
+  --backend postgres --url postgresql://rosql:rosql@localhost:5432/rosql_examples
 ```
 
 ### Tear down
 
 ```sh
-cd examples
-docker compose down -v
+just examples-down
+# or: docker compose -f examples/docker-compose.yml down -v
 ```
 
 ## Example queries
 
-### Basic queries (`queries/basic.rosql`)
+### Basic queries
 
-```sql
--- Find all error spans
-FROM traces WHERE status = 'ERROR'
+```sh
+# Find all error spans
+cargo run --features server --bin rosql-parser -- compile \
+  "FROM traces WHERE status = 'ERROR'" --backend postgres
 
--- Filter by ROS2 node name
-FROM traces WHERE node = '/bt_navigator'
+# Filter by ROS2 node
+cargo run --features server --bin rosql-parser -- compile \
+  "FROM traces WHERE node = '/bt_navigator'" --backend postgres
 
--- Use a topic alias
-FROM odom LIMIT 5
+# Topic alias
+cargo run --features server --bin rosql-parser -- compile \
+  "FROM odom LIMIT 5" --backend postgres
+
+# Unit conversion (500 ms → nanoseconds in compiled SQL)
+cargo run --features server --bin rosql-parser -- compile \
+  "FROM traces WHERE duration > 500 ms" --backend postgres
 ```
 
-### Compound clauses (`queries/compound_clauses.rosql`)
+### Compound clauses — the killer demos
 
-These are the "killer demo" queries that showcase ROSQL's unique features:
+```sh
+# Message causality graph — trace how a message propagated through nodes
+cargo run --features server --bin rosql-parser -- compile \
+  "MESSAGE JOURNEY FOR TRACE 'trace-002'" --backend postgres
 
-```sql
--- Which navigation action failed?
-FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+# Robot health assessment across traces, logs, and metrics
+cargo run --features server --bin rosql-parser -- compile \
+  "HEALTH() FOR ROBOT 'robot_sim_001'" --backend postgres
 
--- Trace the full message causality chain
-MESSAGE JOURNEY FOR TRACE 'trace-002'
+# Path deviation analysis — did the robot veer off course?
+cargo run --features server --bin rosql-parser -- compile \
+  "PATH DEVIATION FOR ROBOT 'robot_sim_001'" --backend postgres
 
--- Robot health assessment across all signal types
-HEALTH() FOR ROBOT 'robot_sim_001'
+# Find the MCAP recording covering the failure
+cargo run --features server --bin rosql-parser -- compile \
+  "SHOW RECORDING" --backend postgres
 
--- Did the robot deviate from its planned path?
-PATH DEVIATION FOR ROBOT 'robot_sim_001'
+# Statistical anomaly detection
+cargo run --features server --bin rosql-parser -- compile \
+  "ANOMALY(duration)" --backend postgres
 
--- Find the MCAP recording covering the failure
-SHOW RECORDING
-
--- Detect anomalous span durations
-ANOMALY(duration)
+# Show all spans for a trace
+cargo run --features server --bin rosql-parser -- compile \
+  "TRACE 'trace-002'" --backend postgres
 ```
 
-### Pipeline syntax (`queries/pipeline.rosql`)
+### Pipeline syntax
 
-```sql
--- Chain stages with | for readable composition
-FROM traces
-| WHERE duration > 500 ms
-| WHERE status = 'ERROR'
-| FACET robot_id
+```sh
+cargo run --features server --bin rosql-parser -- compile \
+  "FROM traces | WHERE duration > 500 ms | WHERE status = 'ERROR' | FACET robot_id" \
+  --backend postgres
 ```
 
-### Aggregations (`queries/timeseries.rosql`)
+### Compare SQL dialects
 
-```sql
--- Average and max duration with aliases
-SELECT AVG(duration) AS avg_dur, MAX(duration) AS max_dur, COUNT(*) AS total FROM traces
+```sh
+# PostgreSQL
+cargo run --features server --bin rosql-parser -- compile \
+  "FROM traces WHERE node = '/bt_navigator'" --backend postgres
 
--- 95th percentile navigation duration
-SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose'
+# SQLite
+cargo run --features server --bin rosql-parser -- compile \
+  "FROM traces WHERE node = '/bt_navigator'" --backend sqlite
+
+# MySQL
+cargo run --features server --bin rosql-parser -- compile \
+  "FROM traces WHERE node = '/bt_navigator'" --backend mysql
+```
+
+## Running tests
+
+Example queries are automatically tested in CI via `cargo test`. The integration tests parse and compile every query in the `.rosql` files.
+
+For full end-to-end testing against PostgreSQL with fixture data:
+
+```sh
+just test-examples
 ```
 
 ## Fixture data files
@@ -136,6 +167,12 @@ To use ROSQL with your own ROS2 telemetry:
 
 1. Set up an [OTel Collector](https://opentelemetry.io/docs/collector/) exporting to PostgreSQL
 2. Ensure your ROS2 nodes emit spans with `ros.node`, `ros.action.name`, and `ParentSpanId` attributes
-3. Point ROSQL at your database: `rosql-parser parse "FROM traces WHERE node = '/your_node'"`
+3. Run queries:
+
+```sh
+cargo run --features server,sql --bin rosql-parser -- query \
+  "FROM traces WHERE node = '/your_node'" \
+  --backend postgres --url postgresql://user:pass@host:5432/your_db
+```
 
 See the [ROS2 OTel attribute conventions](../docs/ros2-otel-conventions.md) for the expected span attributes.
