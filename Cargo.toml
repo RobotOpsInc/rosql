@@ -2,16 +2,22 @@
 name = "rosql"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.80"
 license = "Apache-2.0"
 description = "The query language for ROS2 telemetry data"
 repository = "https://github.com/RobotOpsInc/rosql"
 keywords = ["ros2", "robotics", "telemetry", "query-language", "opentelemetry"]
 categories = ["parser-implementations", "science::robotics"]
 
+[[bin]]
+name = "rosql-parser"
+path = "src/bin/rosql-parser.rs"
+required-features = ["server"]
+
 [features]
 default = []
-wasm = ["dep:wasm-bindgen"]
-robotops-backend = ["dep:tonic"]
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
+server = ["dep:tonic", "dep:tokio", "dep:clap", "dep:tokio-stream"]
 sql = ["dep:sqlx", "dep:tokio"]
 duckdb = ["dep:duckdb"]
 athena = ["dep:aws-sdk-athena", "dep:aws-config"]
@@ -30,9 +36,12 @@ prost-types = "0.13"
 
 # Feature-gated optional dependencies
 wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
 tonic = { version = "0.12", optional = true }
+clap = { version = "4", optional = true, features = ["derive"] }
 sqlx = { version = "0.8", optional = true, features = ["runtime-tokio", "any", "postgres", "sqlite", "mysql"] }
-tokio = { version = "1", optional = true, features = ["rt"] }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio-stream = { version = "0.1", optional = true, features = ["net"] }
 duckdb = { version = "1", optional = true }
 aws-sdk-athena = { version = "1", optional = true }
 aws-config = { version = "1", optional = true }
@@ -40,8 +49,9 @@ gcp-bigquery-client = { version = "0.22", optional = true }
 
 [build-dependencies]
 prost-build = "0.13"
+tonic-build = "0.12"
 
 [dev-dependencies]
 pretty_assertions = "1"
 insta = { version = "1", features = ["yaml"] }
-tokio = { version = "1", features = ["rt", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
