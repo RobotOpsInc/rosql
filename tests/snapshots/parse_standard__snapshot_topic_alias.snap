@@ -1,0 +1,22 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source:
+    TopicAlias: Odom
+  robot_scope: ~
+  conditions: ~
+  facet: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 10
+        unit: minutes
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~

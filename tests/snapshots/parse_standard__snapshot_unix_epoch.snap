@@ -1,0 +1,20 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source: Logs
+  robot_scope: ~
+  conditions: ~
+  facet: ~
+  time_range:
+    Since:
+      Epoch:
+        Seconds: 1742306400
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~
