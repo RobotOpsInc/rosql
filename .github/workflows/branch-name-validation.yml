@@ -1,0 +1,36 @@
+name: Branch Name Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  branch-name-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch name
+        run: |
+          SOURCE="${{ github.head_ref }}"
+          TARGET="${{ github.base_ref }}"
+
+          echo "Source branch: $SOURCE"
+          echo "Target branch: $TARGET"
+
+          if [[ "$TARGET" == "main" ]]; then
+            if [[ "$SOURCE" != "development" ]]; then
+              echo "::error::Only 'development' branch can be merged into 'main'. Got: '$SOURCE'"
+              exit 1
+            fi
+          elif [[ "$TARGET" == "development" ]]; then
+            if [[ "$SOURCE" =~ ^(feature|fix|task|chore)/.+ ]]; then
+              echo "Valid branch prefix detected"
+            elif [[ "$SOURCE" =~ ^[0-9]+-. ]]; then
+              echo "Valid issue-numbered branch detected"
+            else
+              echo "::error::Branch '$SOURCE' is not allowed to merge into 'development'."
+              echo "::error::Allowed patterns: feature/*, fix/*, task/*, chore/*, or [issue#]-*"
+              exit 1
+            fi
+          fi
+
+          echo "Branch name validation passed"
