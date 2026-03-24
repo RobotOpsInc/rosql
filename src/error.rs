@@ -43,6 +43,14 @@ pub enum ROSQLError {
         keyword: String,
         location: SourceLocation,
     },
+
+    /// A driver or connection error.
+    #[error("Driver error: {message}")]
+    DriverError { message: String },
+
+    /// An error compiling the AST to SQL.
+    #[error("Compilation error: {message}")]
+    CompilationError { message: String },
 }
 
 #[cfg(test)]

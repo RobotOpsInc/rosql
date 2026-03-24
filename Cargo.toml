@@ -12,7 +12,7 @@ categories = ["parser-implementations", "science::robotics"]
 default = []
 wasm = ["dep:wasm-bindgen"]
 robotops-backend = ["dep:tonic"]
-postgres = ["dep:sqlx"]
+sql = ["dep:sqlx", "dep:tokio"]
 duckdb = ["dep:duckdb"]
 athena = ["dep:aws-sdk-athena", "dep:aws-config"]
 bigquery = ["dep:gcp-bigquery-client"]
@@ -20,14 +20,17 @@ bigquery = ["dep:gcp-bigquery-client"]
 [dependencies]
 logos = "0.14"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 strsim = "0.11"
+async-trait = "0.1"
 
 # Feature-gated optional dependencies
 wasm-bindgen = { version = "0.2", optional = true }
 tonic = { version = "0.12", optional = true }
-sqlx = { version = "0.8", optional = true, features = ["runtime-tokio", "postgres"] }
+sqlx = { version = "0.8", optional = true, features = ["runtime-tokio", "any", "postgres", "sqlite", "mysql"] }
+tokio = { version = "1", optional = true, features = ["rt"] }
 duckdb = { version = "1", optional = true }
 aws-sdk-athena = { version = "1", optional = true }
 aws-config = { version = "1", optional = true }
@@ -36,4 +39,4 @@ gcp-bigquery-client = { version = "0.22", optional = true }
 [dev-dependencies]
 pretty_assertions = "1"
 insta = { version = "1", features = ["yaml"] }
-serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros"] }
