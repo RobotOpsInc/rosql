@@ -1,0 +1,30 @@
+# ROSQL example — PostgreSQL with OTel fixture data
+#
+# Usage:
+#   docker compose up -d          # start PostgreSQL + load fixtures
+#   docker compose down -v        # stop and remove data
+#
+# The fixture SQL files are mounted into /docker-entrypoint-initdb.d/
+# and run automatically on first startup (alphabetical order).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: rosql_examples
+      POSTGRES_USER: rosql
+      POSTGRES_PASSWORD: rosql
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./fixtures/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./fixtures/traces.sql:/docker-entrypoint-initdb.d/02_traces.sql:ro
+      - ./fixtures/logs.sql:/docker-entrypoint-initdb.d/03_logs.sql:ro
+      - ./fixtures/metrics.sql:/docker-entrypoint-initdb.d/04_metrics.sql:ro
+      - ./fixtures/topic_messages.sql:/docker-entrypoint-initdb.d/05_topic_messages.sql:ro
+      - ./fixtures/mcap_metadata.sql:/docker-entrypoint-initdb.d/06_mcap_metadata.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rosql -d rosql_examples"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
