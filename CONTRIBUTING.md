@@ -63,6 +63,24 @@ The generated Rust types (`src/proto/rosql.v1.rs`) are not committed — they're
 3. Run `just check` (or the individual commands above) and ensure everything passes
 4. Open a pull request against `development`
 
+## Releasing
+
+Releases are created via a manual GitHub Actions workflow. Only maintainers can trigger releases.
+
+1. **Bump the version** in `Cargo.toml` (e.g. `version = "0.2.0"`)
+2. **Add a CHANGELOG entry** under `## [0.2.0] - YYYY-MM-DD` in `CHANGELOG.md`
+3. **Merge to `main`** via a PR through `development`
+4. **Trigger the release** — go to Actions → Release → Run workflow (from `main`)
+
+The workflow will:
+- Create a git tag `v0.2.0`
+- Create a GitHub Release with the CHANGELOG notes
+- Build Linux binaries (x64 + arm64) and attach them to the release
+- Publish the `rosql` crate to [crates.io](https://crates.io/crates/rosql)
+- Publish the `@robotops/rosql` WASM package to [npm](https://www.npmjs.com/package/@robotops/rosql)
+
+If the version hasn't been bumped (tag already exists), the workflow will fail — this is intentional.
+
 ## Reporting issues
 
 File bugs and feature requests in the [issue tracker](https://github.com/RobotOpsInc/rosql/issues).
