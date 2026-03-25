@@ -19,18 +19,13 @@ ROSQL is a structured query language purpose-built for ROS2 telemetry data store
 ```
   ROS2 System
        │
-       │  Instrumented with OTel attributes
-       │  (ros.node, ros.action.*, ros.topic, ParentSpanId)
+       │  OTel attributes (ros.node, ros.action.*, ros.topic, ParentSpanId)
+       ▼
+  Robot Ops Agent (robotops.com) or OTel Collector (community)
        │
-       ├──────────────────────────────────┐
-       ▼                                  ▼
-  Robot Ops Agent              OTel Collector (community)
-  (robotops.com)               (opentelemetry-collector-contrib)
-       │                                  │
-       │  OTLP gRPC                       │  OTLP → SQL exporter
-       ▼                                  ▼
-  Datastore                          Datastore
-  (e.g. PostgreSQL + TimescaleDB, ClickHouse, or any SQL-compatible DB)
+       │  OTLP gRPC
+       ▼
+  Datastore (e.g. PostgreSQL + TimescaleDB, ClickHouse, or any SQL-compatible DB)
        │
        │  OTel standard schema
        ▼
