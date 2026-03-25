@@ -33,17 +33,18 @@ SINCE 6 hours ago`;
 
 const ARCH_DIAGRAM = `  ROS2 System
        │
-       │  OTel attributes (ros.node, ros.action.*, ros.topic, ParentSpanId)
+       │  ros.node, ros.action.*, ros.topic
+       │  ParentSpanId  (OTel attributes)
        ▼
-  Robot Ops Agent (robotops.com) or OTel Collector (community)
+  Robot Ops Agent  or  OTel Collector
        │
        │  OTLP gRPC
        ▼
-  Datastore (PostgreSQL + TimescaleDB, MySQL, DuckDB, …)
+  Datastore (PostgreSQL, MySQL, DuckDB …)
        │
        │  OTel standard schema
        ▼
-  rosql (parse + compile + execute)
+  rosql  (parse + compile + execute)
        │
        ▼
   Query results`;
