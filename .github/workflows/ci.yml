@@ -20,6 +20,9 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
 
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
       - name: Clippy
         run: cargo clippy -- -D warnings
 
@@ -76,9 +79,12 @@ jobs:
           PGPASSWORD: rosql
           PGDATABASE: rosql_examples
         run: |
-          for f in examples/postgres/fixtures/*.sql; do
-            psql -f "$f"
-          done
+          psql -f examples/postgres/fixtures/schema.sql
+          psql -f examples/postgres/fixtures/traces.sql
+          psql -f examples/postgres/fixtures/logs.sql
+          psql -f examples/postgres/fixtures/metrics.sql
+          psql -f examples/postgres/fixtures/topic_messages.sql
+          psql -f examples/postgres/fixtures/mcap_metadata.sql
 
       - name: Test with PostgreSQL
         env:
