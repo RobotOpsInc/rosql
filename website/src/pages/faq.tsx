@@ -27,8 +27,8 @@ const FAQS: FaqItem[] = [
     q: 'Does ROSQL replace SQL?',
     a: (
       <>
-        No — ROSQL <em>compiles to SQL</em>. When you write a ROSQL query, the library parses it and generates
-        the equivalent SQL for your target database. ROSQL adds robotics semantics on top of SQL: duration
+        No — ROSQL <em>compiles to SQL</em> and other database languages. When you write a ROSQL query, the library parses it and generates
+        the equivalent query for your target database. ROSQL adds robotics semantics on top of SQL: duration
         units, <code>DURING()</code> cross-signal correlation, <code>MESSAGE JOURNEY</code> causality traversal,
         <code>HEALTH()</code>, <code>ANOMALY()</code>, and more. You can use <code>rosql compile</code> to
         see exactly what SQL a ROSQL query generates.
@@ -61,8 +61,8 @@ const FAQS: FaqItem[] = [
     q: 'What databases does ROSQL support?',
     a: (
       <>
-        PostgreSQL and MySQL/MariaDB are supported in v0.1. DuckDB support is coming soon.
-        AWS Athena and Google BigQuery are planned. See the <a href="/docs/drivers">Driver Support</a> page.
+        PostgreSQL (including with TimescaleDB) and MySQL/MariaDB are supported in v0.1. DuckDB,
+        AWS Athena, Google BigQuery, and InfluxDB are in development. See the <a href="/docs/drivers">Driver Support</a> page.
       </>
     ),
   },
