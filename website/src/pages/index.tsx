@@ -4,6 +4,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import CodeBlock from '@theme/CodeBlock';
 import Head from '@docusaurus/Head';
+import { Bot, ChartScatter, Table, Share2 } from 'lucide-react';
 import { RosqlRepl } from '@site/src/components/RosqlRepl';
 
 const JSON_LD = JSON.stringify({
@@ -150,23 +151,27 @@ export default function Home(): ReactNode {
             <p style={{ textAlign: 'center', maxWidth: 640, margin: '0 auto 2.5rem', color: 'var(--ifm-color-emphasis-700)' }}>
               Robot observability is hard. ROS2 systems generate a firehose of traces, logs, and sensor
               data across dozens of nodes, but general-purpose query languages have no awareness of topics,
-              action graphs, or message causality. ROSQL closes that gap: write queries in the language of your robot, not your database.
+              action graphs, or message causality. ROSQL closes that gap: write queries in the language of your robot, <em>not your database.</em>
             </p>
             <div className="benefit-grid">
               <div className="benefit-card">
-                <h3>🤖 Robotics-native syntax</h3>
+                <Bot size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
+                <h3>Robotics-native syntax</h3>
                 <p>First-class support for ROS2 nodes, actions, topics, and <code>ParentSpanId</code>-based message causality. No glue code.</p>
               </div>
               <div className="benefit-card">
-                <h3>⚡ Cross-signal correlation</h3>
+                <ChartScatter size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
+                <h3>Cross-signal correlation</h3>
                 <p><code>DURING()</code> correlates events across traces, logs, metrics, and topics in a single query — something SQL has no primitive for.</p>
               </div>
               <div className="benefit-card">
-                <h3>📊 Unified results</h3>
+                <Table size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
+                <h3>Unified results</h3>
                 <p>Results are returned as structured objects ready for tables, charts, further programmatic processing, or graph visualization.</p>
               </div>
               <div className="benefit-card">
-                <h3>🔗 Causality graphs</h3>
+                <Share2 size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
+                <h3>Causality graphs</h3>
                 <p><code>MESSAGE JOURNEY</code> walks the <code>parent_span_id</code> chain recursively — see exactly how a message propagated through your robot's nodes.</p>
               </div>
             </div>

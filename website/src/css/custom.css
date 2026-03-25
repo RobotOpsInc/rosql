@@ -281,6 +281,9 @@
   border: 1px solid var(--ifm-color-emphasis-200);
   border-radius: 8px;
   padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .benefit-card h3 {
