@@ -161,7 +161,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Robot Ops, Inc. Licensed under Apache 2.0.`,
+      copyright: `<span style="opacity:0.6">Licensed under Apache 2.0.</span><br>Copyright © ${new Date().getFullYear()} Robot Ops, Inc.`,
     },
     prism: {
       theme: prismThemes.github,

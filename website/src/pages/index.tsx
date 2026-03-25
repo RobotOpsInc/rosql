@@ -97,24 +97,24 @@ export default function Home(): ReactNode {
       {/* Hero */}
       <header className="rosql-hero">
         <div className="container" style={{ textAlign: 'center' }}>
-          <h1 className="hero__title" style={{ fontSize: '3.5rem', fontWeight: 800, color: '#f1f5f9', marginBottom: '0.75rem' }}>
-            ROSQL™
+          {/* Level 1: name */}
+          <h1 className="hero__title" style={{ fontSize: '3.5rem', fontWeight: 800, color: '#F3F4F6', marginBottom: '1rem' }}>
+            ROSQL<sup style={{ fontSize: '0.45em', verticalAlign: 'super' }}>™</sup>
           </h1>
-          <p style={{ fontSize: '1.4rem', color: '#94a3b8', marginBottom: '1rem' }}>
+
+          {/* Level 2: tagline — tightly coupled to the name */}
+          <p style={{ fontSize: '1.35rem', fontWeight: 500, color: '#D1D5DB', maxWidth: 700, margin: '0 auto 0.5rem', lineHeight: 1.4 }}>
             {siteConfig.tagline}
           </p>
-          <p style={{ fontSize: '1rem', color: '#cbd5e1', maxWidth: 680, margin: '0 auto 1.5rem', lineHeight: 1.7 }}>
-            A SQL-like language and driver purpose-built for ROS2 telemetry data stored via{' '}
-            <a href="https://opentelemetry.io/" style={{ color: '#60a5fa' }}>OpenTelemetry</a>.
-            Query traces, logs, and metrics using familiar SQL-like syntax with first-class support
-            for ROS2 concepts — nodes, actions, topics, and message causality.
+
+          {/* Level 3: one-liner description — slightly more muted, indented away from tagline */}
+          <p style={{ fontSize: '1rem', color: '#9CA3AF', maxWidth: 600, margin: '0 auto 3rem', lineHeight: 1.7 }}>
+            A SQL-like language purpose-built for ROS2 telemetry — query traces, logs, and metrics
+            with first-class support for nodes, actions, topics, and message causality, stored via{' '}
+            <a href="https://opentelemetry.io/" style={{ color: 'var(--ifm-color-primary-lighter)' }}>OpenTelemetry</a>.
           </p>
-          <p style={{ fontSize: '0.9rem', color: '#64748b', maxWidth: 640, margin: '0 auto 2rem', lineHeight: 1.6 }}>
-            Results are unified across multiple signal types — tables for SQL consumers, structured objects
-            for programmatic processing, chart-ready data for visualization, and causality graphs for
-            message tracing. Available as a library, CLI, gRPC server, and{' '}
-            <a href="/docs/wasm" style={{ color: '#60a5fa' }}>WASM package</a>.
-          </p>
+
+          {/* Level 4: CTAs — visually separate group */}
           <div className="rosql-hero-buttons">
             <Link className="button button--primary button--lg" to="/docs/quickstart">
               Get started
@@ -122,17 +122,20 @@ export default function Home(): ReactNode {
             <Link className="button button--secondary button--lg" to="/playground">
               Try it live
             </Link>
-            <a
-              className="button button--secondary button--lg"
-              href="https://github.com/RobotOpsInc/rosql"
-            >
-              GitHub
-            </a>
           </div>
 
-          {/* Embedded REPL */}
-          <div style={{ maxWidth: 900, margin: '0 auto', textAlign: 'left' }}>
+          {/* Level 5: REPL demo */}
+          <div style={{ maxWidth: 900, margin: '2rem auto 0', textAlign: 'left' }}>
+            <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#6B7280', marginBottom: '0.75rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 500 }}>
+              <span style={{ color: 'var(--ifm-color-primary-lighter)' }}>Try it</span> — pick a query and hit Parse or Validate
+            </p>
             <RosqlRepl compact />
+            <p style={{ textAlign: 'center', fontSize: '0.9rem', color: '#6B7280', marginTop: '1.25rem', maxWidth: 680, margin: '1.25rem auto 0', lineHeight: 1.6 }}>
+              Results are unified across signal types — tables for SQL consumers, structured objects
+              for programmatic processing, chart-ready data for visualization, and causality graphs
+              for message tracing. Available as a library, CLI, gRPC server, and{' '}
+              <a href="/docs/wasm" style={{ color: 'var(--ifm-color-primary-lighter)' }}>WASM package</a>.
+            </p>
           </div>
         </div>
       </header>
@@ -243,7 +246,11 @@ export default function Home(): ReactNode {
         {/* Quick start */}
         <section style={{ padding: '3rem 0', borderBottom: '1px solid var(--ifm-color-emphasis-200)' }}>
           <div className="container">
-            <h2 style={{ textAlign: 'center', marginBottom: '2rem' }}>Quick start</h2>
+            <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>Quick start</h2>
+            <p style={{ textAlign: 'center', color: 'var(--ifm-color-emphasis-600)', marginBottom: '2rem', fontSize: '0.9rem' }}>
+              Requires the{' '}
+              <a href="https://rust-lang.org/tools/install/">Rust toolchain</a>.
+            </p>
             <div style={{ maxWidth: 720, margin: '0 auto' }}>
               <CodeBlock language="bash" title="Install the CLI">
                 {`cargo install rosql --features server,postgres`}

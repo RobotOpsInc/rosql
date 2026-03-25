@@ -51,6 +51,18 @@
   --ifm-color-emphasis-300: #3A3A3A;
 }
 
+/* Navbar title — append a small ™ via CSS */
+.navbar__title {
+  font-weight: 600;
+}
+
+.navbar__title::after {
+  content: '™';
+  font-size: 0.45em;
+  vertical-align: super;
+  margin-left: 1px;
+}
+
 /* GitHub icon in navbar */
 .header-github-link::before {
   content: '';
