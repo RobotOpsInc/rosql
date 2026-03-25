@@ -62,6 +62,9 @@ tonic-build = "0.12"
 pretty_assertions = "1"
 insta = { version = "1", features = ["yaml"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-proptest = "1"
 wasm-bindgen-test = "0.3"
 getrandom = { version = "0.3", features = ["wasm_js"] }
+
+# proptest doesn't compile for wasm32 (wait-timeout uses platform APIs)
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+proptest = "1"

@@ -1,4 +1,6 @@
 //! Property-based tests using proptest.
+//! Excluded from WASM builds (proptest doesn't support wasm32).
+#![cfg(not(target_arch = "wasm32"))]
 //!
 //! These test invariants that should hold for all inputs:
 //! - Unit conversion never panics and produces finite values
