@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   create-release:
@@ -109,13 +110,21 @@ jobs:
     name: Publish to npm
     needs: create-release
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
+
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Ensure latest npm (>= 11.5.1 for OIDC)
+        run: npm install -g npm@latest
 
       - name: Install wasm-pack
         run: cargo install wasm-pack
@@ -123,8 +132,6 @@ jobs:
       - name: Build WASM package
         run: wasm-pack build --target web --release
 
-      - name: Publish
+      - name: Publish with provenance (OIDC trusted publishing)
         working-directory: pkg
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: npm publish --access public --provenance
