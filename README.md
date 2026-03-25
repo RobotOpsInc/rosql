@@ -12,11 +12,9 @@
 
 ---
 
-ROSQL is a structured query language purpose-built for ROS2 telemetry data stored via [OpenTelemetry](https://opentelemetry.io/). It lets robotics engineers query traces, logs, and metrics using familiar SQL-like syntax with first-class support for ROS2 concepts like nodes, actions, and topic hierarchies. Built in Rust, available as a library, CLI, gRPC server, and WASM package.
+ROSQL is a structured query language purpose-built for ROS2 telemetry data stored via [OpenTelemetry](https://opentelemetry.io/). It lets robotics engineers query traces, logs, and metrics using familiar SQL-like syntax with first-class support for ROS2 concepts — nodes, actions, topics, and message causality. Built in Rust, available as a library, CLI, gRPC server, and WASM package.
 
 ## Architecture
-
-### Pipeline
 
 ```
   ROS2 System
@@ -25,10 +23,10 @@ ROSQL is a structured query language purpose-built for ROS2 telemetry data store
   OTel Collector (opentelemetry-collector-contrib)
        │  OTLP → SQL exporter
        ▼
-  SQL-compatible DB (PostgreSQL, SQLite, MySQL)
+  PostgreSQL / MySQL
        │  OTel standard schema
        ▼
-  rosql (parse + execute via ROSQLBackend)
+  rosql (parse + compile + execute)
        │
        ▼
   Query results
@@ -38,11 +36,11 @@ ROSQL is a structured query language purpose-built for ROS2 telemetry data store
 
 ```
   ┌─────────────────────────────────────────────────────┐
-  │ Mode 1: Parse + Execute (standalone)                │
+  │ Mode 1: Parse + Execute (library)                   │
   │   ROSQL text → parser → AST → ROSQLBackend → DB    │
   ├─────────────────────────────────────────────────────┤
-  │ Mode 2: gRPC Server + CLI                           │
-  │   rosql serve / parse / validate             │
+  │ Mode 2: CLI + gRPC Server                           │
+  │   rosql parse / compile / query / serve             │
   ├─────────────────────────────────────────────────────┤
   │ Mode 3: WASM (frontend editor)                      │
   │   parse() / validate() / get_completions()          │
@@ -51,14 +49,12 @@ ROSQL is a structured query language purpose-built for ROS2 telemetry data store
 
 ## Quick start
 
-Add ROSQL to your `Cargo.toml`:
+### As a library
 
 ```toml
 [dependencies]
 rosql = "0.1"
 ```
-
-Parse a query:
 
 ```rust
 use rosql::parse;
@@ -68,6 +64,8 @@ fn main() {
         SELECT span_name, duration
         FROM traces
         WHERE node = '/navigation/planner'
+          AND duration > 500 ms
+        SINCE 1 hour ago
         ORDER BY duration DESC
         LIMIT 10
     ").unwrap();
@@ -76,6 +74,33 @@ fn main() {
 }
 ```
 
+### As a CLI
+
+```sh
+# Build the CLI
+cargo build --features server,postgres --bin rosql
+
+# Parse a query to JSON AST
+rosql parse "FROM traces WHERE status = 'ERROR'"
+
+# Compile to SQL (no database needed)
+rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
+
+# Execute against a database
+rosql query "FROM traces WHERE status = 'ERROR'" \
+  --backend postgres --url postgresql://user:pass@localhost:5432/telemetry
+```
+
+## Driver support
+
+| Feature flag | Backend | Status |
+|-------------|---------|--------|
+| `postgres` | PostgreSQL / TimescaleDB | v0.1 |
+| `mysql` | MySQL / MariaDB | v0.1 |
+| `duckdb` | DuckDB (embedded) | Coming soon — [#18](https://github.com/RobotOpsInc/rosql/issues/18) |
+| `athena` | AWS Athena | Future — [#9](https://github.com/RobotOpsInc/rosql/issues/9) |
+| `bigquery` | Google BigQuery | Future — [#10](https://github.com/RobotOpsInc/rosql/issues/10) |
+
 ## Feature flags
 
 | Feature | What it enables | Dependencies |
@@ -83,27 +108,29 @@ fn main() {
 | *(default)* | Parser, AST, unit system, SQL compiler, proto types | logos, serde, prost |
 | `postgres` | PostgreSQL / TimescaleDB driver | sqlx, tokio |
 | `mysql` | MySQL / MariaDB driver | sqlx, tokio |
-| `server` | `rosql` gRPC server + CLI binary | tonic, tokio, clap |
+| `server` | `rosql` CLI binary + gRPC server | tonic, tokio, clap |
 | `wasm` | WASM exports for frontend editors | wasm-bindgen |
-| `duckdb` | DuckDB driver (coming soon — [#18](https://github.com/RobotOpsInc/rosql/issues/18)) | duckdb |
 
 ## CLI
 
-Build and use the `rosql` CLI:
-
 ```sh
-cargo build --features server --bin rosql
-
-# Parse a query to JSON AST
+# Parse → JSON AST
 rosql parse "FROM traces WHERE duration > 500 ms SINCE 1 hour ago"
 
-# Validate a query
+# Compile → SQL (shows what SQL ROSQL generates)
+rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
+
+# Execute → query results as JSON
+rosql query "FROM traces WHERE status = 'ERROR'" \
+  --backend postgres --url postgresql://user:pass@localhost:5432/db
+
+# Validate syntax
 rosql validate "SELECT * FROM logs"
 
-# Get completions at cursor position
+# Autocomplete suggestions at cursor position
 rosql completions "FROM " 5
 
-# Start gRPC server on a Unix socket
+# Start gRPC server on Unix socket
 rosql serve --socket /tmp/rosql.sock
 
 # Schema profiles (match your OTel Collector exporter):
@@ -111,29 +138,10 @@ rosql serve --socket /tmp/rosql.sock
 #   --schema otel-clickhouse  (PascalCase columns)
 ```
 
-## WASM API
-
-The `@robotops/rosql` npm package exposes parsing and validation for use in browser editors:
-
-```typescript
-import init, { parse, validate, get_completions } from '@robotops/rosql';
-
-await init();
-
-const result = parse('FROM traces WHERE duration > 500 ms SINCE 1 hour ago');
-console.log(result);
-
-const errors = validate('SELECT bad_column FROM not_a_table');
-console.log(errors);
-
-const completions = get_completions('FROM ', 5);
-console.log(completions);
-```
-
 ## Examples
 
 ```sql
--- Find slow navigation actions in the last hour
+-- Find slow navigation actions
 SELECT span_name, duration
 FROM traces
 WHERE action_name = '/navigate_to_pose' AND duration > 500 ms
@@ -162,20 +170,43 @@ FROM traces
 | COMPARE TO last week
 ```
 
-See the [`examples/`](examples/) directory for runnable demos ([#7](https://github.com/RobotOpsInc/rosql/issues/7)).
+See [`examples/`](examples/) for a full walkthrough with Docker Compose, PostgreSQL fixture data, and runnable queries.
+
+## WASM API
+
+The `@robotops/rosql` npm package exposes parsing and validation for browser editors:
+
+```typescript
+import init, { parse, validate, get_completions } from '@robotops/rosql';
+
+await init();
+
+const result = parse('FROM traces WHERE duration > 500 ms SINCE 1 hour ago');
+console.log(result);
+
+const errors = validate('INSERT INTO logs');
+console.log(errors); // { valid: false, errors: [...] }
+
+const completions = get_completions('FROM ', 5);
+console.log(completions); // [{ label: 'logs', ... }, { label: 'traces', ... }, ...]
+```
 
 ## Schema
 
-ROSQL expects telemetry data stored in the [OpenTelemetry schema conventions for ROS2](docs/ros2-otel-conventions.md). This includes standard OTel tables (`otel_traces`, `otel_logs`, `otel_metrics`) augmented with ROS2-specific span attributes (`ros.node`, `ros.action.*`, etc.).
+ROSQL expects telemetry data in the [OpenTelemetry schema conventions for ROS2](docs/ros2-otel-conventions.md). This includes standard OTel tables (`otel_traces`, `otel_logs`, `otel_metrics`) with ROS2-specific span attributes (`ros.node`, `ros.action.*`, `ros.topic`).
 
-## Options for running
+## Performance
 
-### Pre-built binaries
+See [BENCHMARKS.md](BENCHMARKS.md) for performance data (coming soon — [#35](https://github.com/RobotOpsInc/rosql/issues/35)).
+
+## Pre-built binaries
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
 | Linux | x86_64 | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
 | Linux | aarch64 | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
+
+Other platforms: build from source.
 
 ### Building from source
 
@@ -186,8 +217,11 @@ cd rosql
 # Library only (default)
 cargo build --release
 
-# gRPC server + CLI binary
+# CLI binary
 cargo build --release --features server --bin rosql
+
+# CLI with PostgreSQL query execution
+cargo build --release --features server,postgres --bin rosql
 ```
 
 ## Local development
@@ -201,19 +235,19 @@ just build-wasm  # build WASM package
 just check       # full CI: build + test + clippy + fmt + buf-lint
 ```
 
-Prerequisites: Rust (stable), protoc, buf (optional). See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+Prerequisites: Rust (stable, 1.80+), protoc, buf (optional). See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-## Guidelines for contributing
+## Contributing
 
-We want your help! ROSQL is in early development (v0.1) and contributions are welcome.
+ROSQL is in early development (v0.1) and contributions are welcome.
 
-- See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and coding standards
+- See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, build variants, and release process
 - File bugs and feature requests in the [issue tracker](https://github.com/RobotOpsInc/rosql/issues)
-- Questions or ideas? Reach out at [kristophm@robotops.com](mailto:kristophm@robotops.com)
+- Questions? Email [kristophm@robotops.com](mailto:kristophm@robotops.com)
 
 ## Robot Ops platform
 
-For fleet-scale telemetry with managed ingestion, storage, and dashboards, see the [Robot Ops platform](https://robotops.com).
+For fleet-scale telemetry with managed ingestion, storage, and dashboards — including lifecycle anchors, fleet-wide anomaly detection, and ClickHouse performance — see the [Robot Ops platform](https://robotops.com).
 
 ## License
 
