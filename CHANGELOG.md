@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-03-25
+
+### Added
+
+- **CI/CD**: Enhanced CI with parallel jobs (lint, test, test-postgres, buf-lint, cargo-deny)
+- **Release workflow**: Manual-trigger workflow for GitHub Releases, Linux binaries (x64 + arm64), crates.io and npm publishing
+- **npm OIDC**: Trusted publishing via GitHub OIDC (no NPM_TOKEN needed)
+- **CHANGELOG**: Keep-a-changelog format
+- **cargo-deny**: License, bans, and sources auditing
+
+### Changed
+
+- npm package scoped as `@robotops/rosql`
+- Added `cdylib` crate-type for WASM compilation
+- Fixture SQL files numbered for deterministic load order
+
 ## [0.1.0] - 2026-03-24
 
 ### Added
