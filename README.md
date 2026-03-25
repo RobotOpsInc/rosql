@@ -1,6 +1,6 @@
 <p align="center">
-  <h1 align="center">ROSQL</h1>
-  <p align="center"><em>The query language for ROS2 telemetry data</em></p>
+  <h1 align="center">ROSQL™</h1>
+  <p align="center"><em>The open-source query language that natively speaks robot</em></p>
 </p>
 
 <p align="center">
@@ -12,7 +12,15 @@
 
 ---
 
-ROSQL is a structured query language purpose-built for ROS2 telemetry data stored via [OpenTelemetry](https://opentelemetry.io/). It lets robotics engineers query traces, logs, and metrics using familiar SQL-like syntax with first-class support for ROS2 concepts — nodes, actions, topics, and message causality. Built in Rust, available as a library, CLI, gRPC server, and WASM package.
+**ROSQL** (pronounced *"RAW-skul"*) is **Robot Ops Structured Query Language** — a structured query language purpose-built for ROS2 telemetry data stored via [OpenTelemetry](https://opentelemetry.io/). It lets robotics engineers query traces, logs, and metrics using familiar SQL-like syntax with first-class support for ROS2 concepts — nodes, actions, topics, and message causality.
+
+Robot observability is hard. ROS2 systems generate a firehose of traces, logs, and sensor data across dozens of nodes, but general-purpose query languages have no awareness of topics, action graphs, or message causality. ROSQL closes that gap: write queries in the language of your robot, not your database.
+
+Built in Rust and available as a library, CLI, gRPC server, and WASM package, ROSQL is created and used by [Robot Ops, Inc.](https://robotops.com) to power the [Robot Ops observability platform](https://robotops.com).
+
+> **Docs, cookbook, and live demo → [rosql.org](https://rosql.org)**
+
+> ROSQL is a trademark of Robot Ops, Inc.
 
 ## Architecture
 
@@ -54,9 +62,8 @@ ROSQL is a structured query language purpose-built for ROS2 telemetry data store
 
 ### As a library
 
-```toml
-[dependencies]
-rosql = "0.1"
+```sh
+cargo add rosql
 ```
 
 ```rust
