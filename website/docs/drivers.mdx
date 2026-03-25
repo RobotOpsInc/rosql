@@ -1,0 +1,105 @@
+---
+title: Driver Support
+description: Supported database backends for ROSQL — PostgreSQL, MySQL, DuckDB, and more
+sidebar_position: 2
+keywords: [rosql, postgresql, mysql, duckdb, database, driver, backend]
+---
+
+# Driver Support
+
+ROSQL compiles to SQL and other database languages and executes against your existing telemetry database. Each backend is enabled via a Cargo feature flag.
+
+## Supported backends
+
+| Backend | Feature flag | Status |
+|---------|-------------|--------|
+| PostgreSQL / TimescaleDB | `postgres` | ✅ v0.1 |
+| MySQL / MariaDB | `mysql` | ✅ v0.1 |
+| DuckDB (embedded) | `duckdb` | 🔜 [Coming soon](https://github.com/RobotOpsInc/rosql/issues/18) |
+| AWS Athena | `athena` | 📋 [Planned](https://github.com/RobotOpsInc/rosql/issues/9) |
+| Google BigQuery | `bigquery` | 📋 [Planned](https://github.com/RobotOpsInc/rosql/issues/10) |
+
+## Feature flags
+
+| Feature | What it enables | Runtime deps |
+|---------|----------------|-------------|
+| *(default)* | Parser, AST, unit system, SQL compiler, proto types | logos, serde, prost |
+| `postgres` | PostgreSQL / TimescaleDB driver | sqlx, tokio |
+| `mysql` | MySQL / MariaDB driver | sqlx, tokio |
+| `server` | `rosql` CLI binary + gRPC server | tonic, tokio, clap |
+| `wasm` | WASM exports for browser editors | wasm-bindgen |
+
+## Installing with a specific backend
+
+```bash
+# PostgreSQL driver + CLI
+cargo install rosql --features server,postgres
+
+# MySQL driver + CLI
+cargo install rosql --features server,mysql
+
+# Multiple drivers
+cargo install rosql --features server,postgres,mysql
+
+# Library only (no CLI, no runtime)
+cargo add rosql
+```
+
+## Connection strings
+
+### PostgreSQL / TimescaleDB
+
+```bash
+rosql query "FROM traces WHERE status = 'ERROR'" \
+  --backend postgres \
+  --url postgresql://user:pass@localhost:5432/telemetry
+```
+
+Connection string format: `postgresql://[user[:password]@][host][:port]/database`
+
+TimescaleDB is fully supported — ROSQL uses standard PostgreSQL queries that work transparently with hypertables.
+
+### MySQL / MariaDB
+
+```bash
+rosql query "FROM traces WHERE status = 'ERROR'" \
+  --backend mysql \
+  --url mysql://user:pass@localhost:3306/telemetry
+```
+
+Connection string format: `mysql://[user[:password]@][host][:port]/database`
+
+## Schema profiles
+
+Different OTel Collector exporters use different column naming conventions. Select the profile matching your exporter:
+
+| Profile | Column convention | Example | Default for |
+|---------|------------------|---------|-------------|
+| `otel-postgres` | lowercase | `trace_id`, `status_code` | PostgreSQL, MySQL |
+| `otel-clickhouse` | PascalCase | `TraceId`, `StatusCode` | ClickHouse |
+
+```bash
+# Explicit schema profile
+rosql compile "FROM traces WHERE status = 'ERROR'" \
+  --backend postgres \
+  --schema otel-postgres
+
+rosql compile "FROM traces WHERE status = 'ERROR'" \
+  --backend clickhouse \
+  --schema otel-clickhouse
+```
+
+If your column names don't match either profile, custom schema profiles are tracked in [#22](https://github.com/RobotOpsInc/rosql/issues/22).
+
+## Schema requirements
+
+Your database must have the OTel tables ROSQL expects. See the [Schema Reference →](./schema-reference) for complete DDL.
+
+Required tables for basic functionality:
+- `otel_traces`
+- `otel_logs`
+- `otel_metrics`
+
+Optional tables for advanced features:
+- `topic_messages` — enables `FROM topics`, `PATH DEVIATION`, topic aliases
+- `mcap_metadata` — enables `SHOW RECORDING`

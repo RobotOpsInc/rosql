@@ -1,0 +1,146 @@
+---
+title: CLI Reference
+description: Complete reference for the rosql command-line tool — parse, compile, query, validate, and serve
+sidebar_position: 3
+keywords: [rosql, cli, command line, parse, compile, query, validate, serve]
+---
+
+# CLI Reference
+
+The `rosql` CLI requires the `server` feature flag:
+
+```bash
+cargo install rosql --features server,postgres
+```
+
+## Commands
+
+### `rosql parse`
+
+Parse a ROSQL query and output the AST as JSON.
+
+```bash
+rosql parse "FROM traces WHERE duration > 500 ms SINCE 1 hour ago"
+```
+
+Useful for inspecting the parsed structure of a query and verifying syntax.
+
+---
+
+### `rosql compile`
+
+Compile a ROSQL query to SQL. No database connection required.
+
+```bash
+rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
+```
+
+```sql
+SELECT * FROM otel_traces
+WHERE duration > 500000000
+ORDER BY timestamp DESC
+LIMIT 100
+```
+
+Flags:
+- `--backend` — target SQL dialect: `postgres`, `mysql` (required)
+- `--schema` — column naming profile: `otel-postgres` (default), `otel-clickhouse`
+
+---
+
+### `rosql query`
+
+Execute a ROSQL query and return results as JSON.
+
+```bash
+rosql query "FROM traces WHERE status = 'ERROR'" \
+  --backend postgres \
+  --url postgresql://user:pass@localhost:5432/db
+```
+
+Flags:
+- `--backend` — driver: `postgres`, `mysql` (required)
+- `--url` — database connection string (required)
+- `--schema` — column naming profile
+
+---
+
+### `rosql validate`
+
+Validate ROSQL query syntax. Exits with code 0 if valid, 1 if invalid.
+
+```bash
+rosql validate "SELECT * FROM logs"
+# exit 0 — valid
+
+rosql validate "INSERT INTO logs"
+# exit 1 — invalid: INSERT not supported
+```
+
+Useful in CI pipelines to validate stored queries.
+
+---
+
+### `rosql completions`
+
+Get autocomplete suggestions at a given cursor position.
+
+```bash
+rosql completions "FROM " 5
+```
+
+```json
+[
+  {"label": "logs", "kind": "DataSource"},
+  {"label": "traces", "kind": "DataSource"},
+  {"label": "metrics", "kind": "DataSource"},
+  {"label": "topics", "kind": "DataSource"}
+]
+```
+
+Arguments:
+- `<query>` — partial query string
+- `<cursor>` — cursor position (byte offset)
+
+---
+
+### `rosql serve`
+
+Start the gRPC server on a Unix socket. Used by language server integrations and IDE plugins.
+
+```bash
+# Default socket path
+rosql serve --socket /tmp/rosql.sock
+
+# Custom socket path
+rosql serve --socket /run/rosql/rosql.sock
+```
+
+The server exposes the `ParserService` proto interface (defined in `proto/rosql/v1/`). It accepts:
+- `Parse` — parse a query
+- `Compile` — compile to SQL
+- `Validate` — validate syntax
+- `GetCompletions` — get autocomplete suggestions
+
+---
+
+## Schema profiles
+
+All commands that interact with a database accept `--schema`:
+
+```bash
+# lowercase columns (PostgreSQL default OTel exporter)
+rosql query "FROM traces" --backend postgres --schema otel-postgres
+
+# PascalCase columns (ClickHouse OTel exporter)
+rosql query "FROM traces" --backend clickhouse --schema otel-clickhouse
+```
+
+## Pre-built binaries
+
+| Platform | Architecture | Download |
+|----------|-------------|----------|
+| Linux | x86_64 | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
+| Linux | aarch64 | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
+
+Other platforms: build from source (see [Quickstart →](./quickstart)).

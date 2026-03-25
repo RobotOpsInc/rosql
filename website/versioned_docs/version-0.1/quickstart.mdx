@@ -1,0 +1,152 @@
+---
+title: Quickstart
+description: Install ROSQL and run your first robotics telemetry query in under 5 minutes
+sidebar_position: 1
+keywords: [rosql, quickstart, install, ros2, cli, query, robotics]
+---
+
+# Quickstart
+
+Get ROSQL running against your ROS2 telemetry data in under 5 minutes.
+
+## Prerequisites
+
+- **ROS2 telemetry data** in an [OTel-compatible database](./schema-reference) (PostgreSQL recommended)
+- **Rust** (stable, 1.80+) — [rustup.rs](https://rustup.rs)
+
+## Install the CLI
+
+```bash
+cargo install rosql --features server,postgres
+```
+
+This builds the `rosql` binary with the PostgreSQL driver and gRPC server. Replace `postgres` with `mysql` for MySQL/MariaDB.
+
+## Your first query
+
+```sql
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+```
+
+Run it against your database:
+
+```bash
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend postgres \
+  --url postgresql://user:pass@localhost:5432/telemetry
+```
+
+```json
+{
+  "columns": ["timestamp", "trace_id", "span_id", "span_name_col", "service_name", "duration", "status_code"],
+  "rows": [
+    ["2025-03-25T14:32:11.012Z", "a3f1c9d2...", "f0e1d2c3...", "navigate_to_pose", "bt_navigator", 1423187000, "ERROR"]
+  ],
+  "metadata": { "rows_returned": 1, "elapsed_ms": 12 }
+}
+```
+
+## Cross-signal correlation
+
+The killer feature: `DURING` correlates events across data sources in a single query.
+
+Find navigation failures that happened while the battery was critically low:
+
+```sql
+SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+DURING(
+  FROM topics WHERE topic_name = '/battery_state'
+  AND fields['percentage'] < 15
+)
+SINCE 6 hours ago
+```
+
+```bash
+rosql query "SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+DURING(
+  FROM topics WHERE topic_name = '/battery_state'
+  AND fields['percentage'] < 15
+)
+SINCE 6 hours ago" \
+  --backend postgres \
+  --url postgresql://user:pass@localhost:5432/telemetry
+```
+
+## Message causality
+
+Trace the full causality chain from any span ID:
+
+```sql
+MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
+```
+
+This walks `parent_span_id → span_id` recursively and returns all spans in the causality chain — something plain SQL has no primitive for.
+
+## Compile to SQL
+
+Inspect what ROSQL generates (no DB needed):
+
+```bash
+rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
+```
+
+Output:
+```sql
+SELECT * FROM otel_traces
+WHERE duration > 500000000
+ORDER BY timestamp DESC
+LIMIT 100
+```
+
+## As a Rust library
+
+```bash
+cargo add rosql
+```
+
+```rust
+use rosql::{parse, drivers::{SqlBackend, ExecOptions}};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let backend = SqlBackend::new("postgresql://user:pass@localhost/telemetry").await?;
+    let query = parse("
+        SELECT trace_id, span_name_col, service_name, duration, status_code
+        FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+        DURING(
+          FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15
+        )
+        SINCE 6 hours ago
+    ")?;
+    let result = backend.execute(&query, &ExecOptions::default()).await?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+```
+
+## Building from source
+
+```bash
+git clone https://github.com/RobotOpsInc/rosql
+cd rosql
+
+# Library only (default)
+cargo build --release
+
+# CLI binary
+cargo build --release --features server --bin rosql
+
+# CLI with PostgreSQL query execution
+cargo build --release --features server,postgres --bin rosql
+```
+
+## Next steps
+
+- [Driver support →](./drivers) — configure your database backend
+- [CLI reference →](./cli) — all commands and flags
+- [Cookbook →](./cookbook) — more example queries
+- [Schema reference →](./schema-reference) — required table structure

@@ -1,0 +1,224 @@
+---
+title: Cookbook
+description: Practical ROSQL query recipes for common robotics observability tasks
+sidebar_position: 5
+keywords: [rosql, examples, queries, cookbook, ros2, robotics, telemetry]
+---
+
+# Cookbook
+
+Practical query recipes for common ROS2 observability tasks. Copy, adapt, and run against your telemetry data.
+
+## Basic queries
+
+### Find all error spans
+
+```sql
+FROM traces WHERE status = 'ERROR'
+```
+
+### Error logs at a specific severity
+
+```sql
+FROM logs WHERE severity = 'ERROR'
+```
+
+### Slowest actions (last hour)
+
+```sql
+SELECT span_name, duration
+FROM traces
+WHERE action_name = '/navigate_to_pose' AND duration > 500 ms
+SINCE 1 hour ago
+ORDER BY duration DESC
+LIMIT 20
+```
+
+### Filter by ROS2 node
+
+```sql
+FROM traces WHERE node = '/bt_navigator'
+```
+
+### Robot-scoped query
+
+```sql
+FOR ROBOT 'robot_sim_001' FROM logs WHERE severity = 'ERROR'
+```
+
+### Read topic messages
+
+```sql
+FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
+```
+
+### Topic alias
+
+```sql
+-- Shorthand for: FROM topics WHERE topic_name = '/odom'
+FROM odom LIMIT 5
+```
+
+---
+
+## Cross-signal correlation
+
+### Navigation failures during low battery
+
+```sql
+SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+DURING(
+  FROM topics WHERE topic_name = '/battery_state'
+  AND fields['percentage'] < 15
+)
+SINCE 6 hours ago
+```
+
+### Errors during high CPU load
+
+```sql
+FROM traces WHERE status = 'ERROR'
+DURING(
+  FROM metrics WHERE metric_name = 'system.cpu.total_usage_pct'
+  AND metric_value > 90
+)
+SINCE yesterday
+```
+
+---
+
+## Causality and message tracing
+
+### Trace full message causality chain
+
+```sql
+MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
+```
+
+Returns all spans in the causal chain by walking `parent_span_id → span_id` recursively.
+
+### Find message paths for a topic
+
+```sql
+MESSAGE PATHS FOR TOPIC '/cmd_vel'
+```
+
+Shows which nodes published and subscribed to `/cmd_vel`.
+
+### All spans for a specific trace
+
+```sql
+TRACE 'trace-002'
+```
+
+---
+
+## Robot health and anomaly detection
+
+### Robot health assessment
+
+```sql
+HEALTH() FOR ROBOT 'robot_sim_001'
+```
+
+Fan-out across traces, logs, and metrics to produce an overall health assessment.
+
+### Detect statistical anomalies in span duration
+
+```sql
+ANOMALY(duration)
+```
+
+Uses z-score (AVG/STDDEV) to find outlier spans — spans whose duration deviates significantly from the mean.
+
+### Path deviation
+
+```sql
+PATH DEVIATION FOR ROBOT 'robot_sim_001'
+```
+
+Queries `/odom` trajectory data from `topic_messages` to detect if the robot deviated from its planned path.
+
+---
+
+## MCAP recordings
+
+### Find the recording that covers a time window
+
+```sql
+SHOW RECORDING
+```
+
+Returns MCAP recording metadata (`s3_key`, time range, topics) that covers the most recent event window.
+
+---
+
+## Pipeline syntax
+
+Pipeline syntax uses `|` to chain stages, making complex queries more readable:
+
+### Find slow error spans, grouped by robot
+
+```sql
+FROM traces
+| WHERE duration > 500 ms
+| WHERE status = 'ERROR'
+| FACET robot_id
+```
+
+### Navigation failures vs. last week
+
+```sql
+FROM traces
+| WHERE action_name = '/navigate_to_pose'
+| WHERE status = 'ERROR'
+| FACET robot_id
+| COMPARE TO last week
+```
+
+### Log analysis with ordering
+
+```sql
+FROM logs
+| WHERE severity IN ('ERROR', 'WARN')
+| ORDER BY severity DESC
+| LIMIT 20
+```
+
+---
+
+## Time-series and aggregations
+
+### Average span duration per robot
+
+```sql
+SELECT AVG(duration) FROM traces FACET robot_id
+```
+
+### Error count by severity
+
+```sql
+SELECT COUNT(*) FROM logs WHERE severity = 'ERROR' FACET robot_id
+```
+
+### Percentile latency for navigation
+
+```sql
+SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose'
+```
+
+### Multiple aggregations
+
+```sql
+SELECT AVG(duration) AS avg_dur, MAX(duration) AS max_dur, COUNT(*) AS total FROM traces
+```
+
+---
+
+## See also
+
+- [Command Reference →](./command-reference) — full syntax for every ROSQL statement
+- [Schema Reference →](./schema-reference) — table structure ROSQL expects
+- [Examples page →](/examples) — killer demos with detailed explanations
