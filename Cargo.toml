@@ -12,6 +12,9 @@ repository = "https://github.com/RobotOpsInc/rosql"
 keywords = ["ros2", "robotics", "telemetry", "query-language", "opentelemetry"]
 categories = ["parser-implementations", "science::robotics"]
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [[bin]]
 name = "rosql"
 path = "src/bin/rosql.rs"
