@@ -79,12 +79,9 @@ jobs:
           PGPASSWORD: rosql
           PGDATABASE: rosql_examples
         run: |
-          psql -f examples/postgres/fixtures/schema.sql
-          psql -f examples/postgres/fixtures/traces.sql
-          psql -f examples/postgres/fixtures/logs.sql
-          psql -f examples/postgres/fixtures/metrics.sql
-          psql -f examples/postgres/fixtures/topic_messages.sql
-          psql -f examples/postgres/fixtures/mcap_metadata.sql
+          for f in examples/postgres/fixtures/*.sql; do
+            psql -f "$f"
+          done
 
       - name: Test with PostgreSQL
         env:
