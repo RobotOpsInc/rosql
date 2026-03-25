@@ -52,6 +52,10 @@ test-examples:
     echo "Tearing down..."
     docker compose -f examples/postgres/docker-compose.yml down -v
 
+# Run WASM tests (requires wasm-pack + Chrome)
+test-wasm:
+    wasm-pack test --headless --chrome --features wasm
+
 # Lint (clippy + fmt)
 lint: clippy fmt
 
