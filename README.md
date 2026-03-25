@@ -18,12 +18,20 @@ ROSQL is a structured query language purpose-built for ROS2 telemetry data store
 
 ```
   ROS2 System
-       │  ros.node, ros.action.*, ParentSpanId
-       ▼
-  OTel Collector (opentelemetry-collector-contrib)
-       │  OTLP → SQL exporter
-       ▼
-  PostgreSQL / MySQL
+       │
+       │  Instrumented with OTel attributes
+       │  (ros.node, ros.action.*, ros.topic, ParentSpanId)
+       │
+       ├──────────────────────────────────┐
+       ▼                                  ▼
+  Robot Ops Agent              OTel Collector (community)
+  (robotops.com)               (opentelemetry-collector-contrib)
+       │                                  │
+       │  OTLP gRPC                       │  OTLP → SQL exporter
+       ▼                                  ▼
+  Datastore                          Datastore
+  (e.g. PostgreSQL + TimescaleDB, ClickHouse, or any SQL-compatible DB)
+       │
        │  OTel standard schema
        ▼
   rosql (parse + compile + execute)
@@ -93,13 +101,13 @@ rosql query "FROM traces WHERE status = 'ERROR'" \
 
 ## Driver support
 
-| Feature flag | Backend | Status |
-|-------------|---------|--------|
-| `postgres` | PostgreSQL / TimescaleDB | v0.1 |
-| `mysql` | MySQL / MariaDB | v0.1 |
-| `duckdb` | DuckDB (embedded) | Coming soon — [#18](https://github.com/RobotOpsInc/rosql/issues/18) |
-| `athena` | AWS Athena | Future — [#9](https://github.com/RobotOpsInc/rosql/issues/9) |
-| `bigquery` | Google BigQuery | Future — [#10](https://github.com/RobotOpsInc/rosql/issues/10) |
+| Backend | Feature flag | Status |
+|---------|-------------|--------|
+| <img src="https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL" height="20"> PostgreSQL / TimescaleDB | `postgres` | ![v0.1](https://img.shields.io/badge/v0.1-green) |
+| <img src="https://img.shields.io/badge/MySQL-4479A1?logo=mysql&logoColor=white" alt="MySQL" height="20"> MySQL / MariaDB | `mysql` | ![v0.1](https://img.shields.io/badge/v0.1-green) |
+| <img src="https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black" alt="DuckDB" height="20"> DuckDB (embedded) | `duckdb` | [![Coming soon](https://img.shields.io/badge/coming_soon-yellow)](https://github.com/RobotOpsInc/rosql/issues/18) |
+| <img src="https://img.shields.io/badge/AWS_Athena-232F3E?logo=amazonaws&logoColor=white" alt="Athena" height="20"> AWS Athena | `athena` | [![Future](https://img.shields.io/badge/future-lightgrey)](https://github.com/RobotOpsInc/rosql/issues/9) |
+| <img src="https://img.shields.io/badge/BigQuery-4285F4?logo=googlebigquery&logoColor=white" alt="BigQuery" height="20"> Google BigQuery | `bigquery` | [![Future](https://img.shields.io/badge/future-lightgrey)](https://github.com/RobotOpsInc/rosql/issues/10) |
 
 ## Feature flags
 

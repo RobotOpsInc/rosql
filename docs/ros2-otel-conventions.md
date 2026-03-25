@@ -1,8 +1,10 @@
 # ROS2 OpenTelemetry Attribute Conventions
 
-This document defines the OTel span attributes and metric names that ROSQL expects from a ROS2 telemetry pipeline. If you're building a ROS2-to-OTel bridge, implement these conventions to get full ROSQL feature support.
+This document defines the complete schema that ROSQL expects from a ROS2 telemetry pipeline. If you're building a ROS2-to-OTel bridge or setting up your own telemetry storage, implement these conventions to get full ROSQL feature support.
 
-## Span attributes for ROS2 action executions
+## Span attributes
+
+### ROS2 action executions
 
 | Attribute | Type | Example | Used by ROSQL for |
 |-----------|------|---------|-------------------|
@@ -11,18 +13,17 @@ This document defines the OTel span attributes and metric names that ROSQL expec
 | `ros.action.type` | string | `nav2_msgs/action/NavigateToPose` | Action type filtering |
 | `ros.action.goal_id` | string | UUID | Goal correlation |
 | `ros.action.status` | string | `succeeded` / `aborted` / `canceled` | Action status filtering |
-| `ros.topic` | string | `/cmd_vel` | Topic span attribution |
 
-## Span attributes for ROS2 pub/sub tracing
+### ROS2 pub/sub tracing
 
 | Attribute | Type | Example | Used by ROSQL for |
 |-----------|------|---------|-------------------|
-| `ros.topic` | string | `/cmd_vel` | Topic filtering |
+| `ros.topic` | string | `/cmd_vel` | Topic filtering, `MESSAGE PATHS` |
 | `ros.message_type` | string | `geometry_msgs/msg/Twist` | Message type filtering |
 | `ros.publisher_node` | string | `/controller_server` | Publisher attribution |
 | `ros.subscriber_node` | string | `/motor_driver` | Subscriber attribution |
 
-## ParentSpanId convention for MESSAGE JOURNEY
+### ParentSpanId convention for MESSAGE JOURNEY
 
 The publish span's `SpanId` must be set as the `ParentSpanId` of the corresponding subscribe span. This creates the causal chain that `MESSAGE JOURNEY` traverses.
 
@@ -44,36 +45,163 @@ Implementing this correctly requires middleware-level instrumentation — it can
 | `system.cpu.total_usage_pct` | % | Total CPU usage |
 | `system.memory.usage_pct` | % | Memory usage |
 
-## Required OTel tables
+## Complete table definitions
 
-ROSQL expects telemetry stored in standard OTel Collector output tables:
+These are the exact tables ROSQL queries against. The DDL below uses PostgreSQL syntax with the `otel-postgres` schema profile (lowercase column names). For the `otel-clickhouse` profile, column names are PascalCase (e.g. `TraceId`, `StatusCode`).
 
-| Table | Required columns | Used by |
-|-------|-----------------|---------|
-| `otel_traces` | trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, timestamp | `FROM traces`, `MESSAGE JOURNEY`, `TRACE` |
-| `otel_logs` | timestamp, body, severity_text, severity_number, service_name | `FROM logs` |
-| `otel_metrics` | timestamp, metric_name, value, attributes, service_name | `FROM metrics` |
+### Required tables
 
-### Optional tables (enable additional features)
+These three tables are required for basic ROSQL functionality.
 
-| Table | Required columns | Enables |
-|-------|-----------------|---------|
-| `topic_messages` | robot_id, topic_name, timestamp, fields, message_type | `FROM topics`, `PATH DEVIATION`, topic aliases |
-| `mcap_metadata` | robot_id, session_id, start_time, end_time, s3_key, topics | `SHOW RECORDING`, `FROM recordings` |
+#### `otel_traces`
 
-If optional tables are absent, ROSQL returns a clear `DataSourceUnavailable` error with guidance on how to configure the missing data source.
+```sql
+CREATE TABLE otel_traces (
+    timestamp            TIMESTAMPTZ NOT NULL,
+    trace_id             TEXT NOT NULL,
+    span_id              TEXT NOT NULL,
+    parent_span_id       TEXT NOT NULL DEFAULT '',
+    span_name_col        TEXT NOT NULL,
+    span_kind            TEXT NOT NULL DEFAULT 'INTERNAL',
+    service_name         TEXT NOT NULL DEFAULT '',
+    duration             BIGINT NOT NULL,          -- nanoseconds
+    status_code          TEXT NOT NULL DEFAULT 'OK',
+    span_attributes      JSONB NOT NULL DEFAULT '{}',
+    resource_attributes  JSONB NOT NULL DEFAULT '{}'
+);
+```
+
+Used by: `FROM traces`, `MESSAGE JOURNEY`, `MESSAGE PATHS`, `TRACE`, `HEALTH()`, `ANOMALY()`, `DURING()`, `CORRELATE`, `SINCE last action failure`
+
+#### `otel_logs`
+
+```sql
+CREATE TABLE otel_logs (
+    timestamp            TIMESTAMPTZ NOT NULL,
+    trace_id             TEXT NOT NULL DEFAULT '',
+    span_id              TEXT NOT NULL DEFAULT '',
+    severity_text        TEXT NOT NULL DEFAULT 'INFO',
+    severity_number      INTEGER NOT NULL DEFAULT 9,
+    service_name         TEXT NOT NULL DEFAULT '',
+    body                 TEXT NOT NULL DEFAULT '',
+    resource_attributes  JSONB NOT NULL DEFAULT '{}',
+    log_attributes       JSONB NOT NULL DEFAULT '{}'
+);
+```
+
+Used by: `FROM logs`, `HEALTH()`
+
+#### `otel_metrics`
+
+```sql
+CREATE TABLE otel_metrics (
+    timestamp            TIMESTAMPTZ NOT NULL,
+    metric_name          TEXT NOT NULL,
+    value                DOUBLE PRECISION NOT NULL,
+    attributes           JSONB NOT NULL DEFAULT '{}',
+    service_name         TEXT NOT NULL DEFAULT ''
+);
+```
+
+Used by: `FROM metrics`, `HEALTH()`, `CORRELATE`
+
+### Optional tables
+
+These tables enable additional ROSQL features. If absent, ROSQL returns a clear `DataSourceUnavailable` error with guidance.
+
+#### `topic_messages`
+
+```sql
+CREATE TABLE topic_messages (
+    robot_id             TEXT NOT NULL,
+    topic_name           TEXT NOT NULL,
+    timestamp            TIMESTAMPTZ NOT NULL,
+    fields               JSONB NOT NULL DEFAULT '{}',
+    message_type         TEXT NOT NULL DEFAULT ''
+);
+```
+
+Used by: `FROM topics`, `FROM odom` (and other topic aliases), `PATH DEVIATION`
+
+#### `mcap_metadata`
+
+```sql
+CREATE TABLE mcap_metadata (
+    robot_id             TEXT NOT NULL,
+    session_id           TEXT NOT NULL,
+    start_time           TIMESTAMPTZ NOT NULL,
+    end_time             TIMESTAMPTZ NOT NULL,
+    s3_key               TEXT NOT NULL,
+    topics               TEXT[] NOT NULL DEFAULT '{}'
+);
+```
+
+Used by: `FROM recordings`, `SHOW RECORDING`
+
+## ROSQL field mappings
+
+These are the ROSQL field names and what columns they resolve to.
+
+### From `otel_traces`
+
+| ROSQL field | Column | Storage unit |
+|-------------|--------|-------------|
+| `trace_id` | `trace_id` | — |
+| `span_id` | `span_id` | — |
+| `parent_span_id` | `parent_span_id` | — |
+| `span_name` | `span_name_col` | — |
+| `service` | `service_name` | — |
+| `duration` | `duration` | nanoseconds |
+| `status` | `status_code` | OK / ERROR |
+| `node` | `span_attributes->>'ros.node'` | — |
+| `action_name` | `span_attributes->>'ros.action.name'` | — |
+| `action_status` | `span_attributes->>'ros.action.status'` | — |
+| `topic` | `span_attributes->>'ros.topic'` | — |
+
+### From `otel_metrics`
+
+| ROSQL field | Resolved as | Storage unit |
+|-------------|------------|-------------|
+| `metric_name` | `metric_name` | — |
+| `metric_value` | `value` | varies |
+| `publish_rate` | `value` WHERE `metric_name = 'ros2.topic.rx_rate_hz'` | Hz |
+| `bandwidth` | `value` WHERE `metric_name = 'ros2.topic.rx_bandwidth_bps'` | B/s |
+| `cpu_usage` | `value` WHERE `metric_name = 'system.cpu.total_usage_pct'` | % |
+| `memory_usage` | `value` WHERE `metric_name = 'system.memory.usage_pct'` | % |
+
+### From `otel_logs`
+
+| ROSQL field | Column |
+|-------------|--------|
+| `message` | `body` |
+| `severity` | `severity_text` |
+| `severity_number` | `severity_number` |
 
 ## Schema profiles
 
-Column naming varies by OTel Collector exporter:
+Different OTel Collector exporters use different column naming conventions. ROSQL supports multiple profiles:
 
-| Profile | Convention | Example columns | Used by |
-|---------|-----------|-----------------|---------|
-| `otel-postgres` | Lowercase | `trace_id`, `status_code`, `span_attributes` | OTel Collector PostgreSQL exporter |
-| `otel-clickhouse` | PascalCase | `TraceId`, `StatusCode`, `SpanAttributes` | OTel Collector ClickHouse exporter |
+| Profile | Convention | Example | Default for |
+|---------|-----------|---------|-------------|
+| `otel-postgres` | Lowercase | `trace_id`, `status_code` | PostgreSQL, MySQL |
+| `otel-clickhouse` | PascalCase | `TraceId`, `StatusCode` | ClickHouse |
 
-Select the profile with the `--schema` flag:
+Select the profile with the `--schema` CLI flag:
 
 ```sh
 rosql compile "FROM traces WHERE status = 'ERROR'" --backend postgres --schema otel-postgres
 ```
+
+Custom schema profiles (user-defined column mappings) are tracked in [#22](https://github.com/RobotOpsInc/rosql/issues/22).
+
+## Topic aliases
+
+These ROSQL source names are aliases for common ROS2 topics:
+
+| ROSQL source | Resolves to |
+|-------------|------------|
+| `FROM odom` | `FROM topics WHERE topic_name = '/odom'` |
+| `FROM joint_states` | `FROM topics WHERE topic_name = '/joint_states'` |
+| `FROM battery` | `FROM topics WHERE topic_name = '/battery_state'` |
+| `FROM cmd_vel` | `FROM topics WHERE topic_name = '/cmd_vel'` |
+| `FROM imu` | `FROM topics WHERE topic_name = '/imu/data'` |
