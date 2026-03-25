@@ -3246,7 +3246,7 @@ dependencies = [
 
 [[package]]
 name = "rosql"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "async-trait",
  "aws-config",
