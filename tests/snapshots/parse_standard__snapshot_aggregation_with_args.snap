@@ -1,0 +1,22 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Aggregation:
+        function: Percentile
+        args:
+          - Field: duration
+          - Literal:
+              Integer: 95
+  data_source: Logs
+  robot_scope: ~
+  conditions: ~
+  facet: ~
+  time_range: ~
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~

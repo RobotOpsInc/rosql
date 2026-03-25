@@ -1,0 +1,49 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Field: span_name
+    - Aliased:
+        expr:
+          Aggregation:
+            function: Avg
+            args:
+              - Field: duration
+        alias: avg_dur
+  data_source: Logs
+  robot_scope: ~
+  conditions:
+    And:
+      - Comparison:
+          left:
+            Field: duration
+          op: Gt
+          right:
+            UnitValue:
+              raw_value: 500
+              unit: ms
+              si_value: 0.5
+              si_unit: s
+      - Comparison:
+          left:
+            Field: ros.node
+          op: Eq
+          right:
+            Literal:
+              String: /planner
+  facet:
+    dimension: robot_id
+  time_range:
+    Since:
+      Relative:
+        amount: 30
+        unit: minutes
+  time_basis: RosTime
+  order_by:
+    field: duration
+    direction: Desc
+  limit: 10
+  output_format: ~
+  baseline: LastWeek

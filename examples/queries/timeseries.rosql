@@ -1,0 +1,13 @@
+-- Time-series queries — aggregations and temporal analysis
+
+-- Average span duration over time
+SELECT AVG(duration) FROM traces FACET robot_id
+
+-- Count errors by severity
+SELECT COUNT(*) FROM logs WHERE severity = 'ERROR' FACET robot_id
+
+-- Aggregation with alias
+SELECT AVG(duration) AS avg_dur, MAX(duration) AS max_dur, COUNT(*) AS total FROM traces
+
+-- Percentile analysis
+SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose'

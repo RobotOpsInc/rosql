@@ -1,0 +1,22 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause:
+    Correlate:
+      with_source: Metrics
+  robot_scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 7
+        unit: days
+  time_basis: ~
+  conditions: ~
+  facet:
+    dimension: robot_id
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~

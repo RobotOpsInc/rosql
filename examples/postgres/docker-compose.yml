@@ -1,0 +1,25 @@
+# ROSQL example — PostgreSQL with OTel fixture data
+#
+# Usage:
+#   docker compose up -d          # start PostgreSQL + load fixtures
+#   docker compose down -v        # stop and remove data
+#
+# Fixture SQL files are numbered (01_, 02_, ...) and mounted into
+# /docker-entrypoint-initdb.d/ which PostgreSQL runs in alphabetical order.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: rosql_examples
+      POSTGRES_USER: rosql
+      POSTGRES_PASSWORD: rosql
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./fixtures:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rosql -d rosql_examples"]
+      interval: 2s
+      timeout: 5s
+      retries: 10

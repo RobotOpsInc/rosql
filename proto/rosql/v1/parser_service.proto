@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package rosql.v1;
+
+import "rosql/v1/ast.proto";
+
+// Parse-only gRPC service. No Execute RPC — the Go backend consumes
+// the AST and handles execution itself via its proprietary planner.
+service ROSQLParserService {
+  // Parse ROSQL text into a typed AST.
+  rpc Parse(ParseRequest) returns (ParseResponse);
+
+  // Validate ROSQL text without full parse (faster, for editor feedback).
+  rpc Validate(ValidateRequest) returns (ValidateResponse);
+
+  // Get autocomplete suggestions at a cursor position.
+  rpc GetCompletions(GetCompletionsRequest) returns (GetCompletionsResponse);
+}
+
+// --- Parse ---
+
+message ParseRequest {
+  string query = 1;
+  ParseOptions options = 2;
+}
+
+message ParseOptions {
+  // If true, include source location spans in the AST nodes.
+  bool include_spans = 1;
+}
+
+message ParseResponse {
+  oneof result {
+    ROSQLQuery query = 1;
+    ParseErrorDetail error = 2;
+  }
+}
+
+message ParseErrorDetail {
+  string message = 1;
+  SourceLocation location = 2;
+  // Optional "did you mean?" suggestion.
+  string suggestion = 3;
+}
+
+message SourceLocation {
+  uint32 line = 1;
+  uint32 column = 2;
+  uint32 offset = 3;
+}
+
+// --- Validate ---
+
+message ValidateRequest {
+  string query = 1;
+}
+
+message ValidateResponse {
+  bool valid = 1;
+  repeated ValidationDiagnostic errors = 2;
+  repeated ValidationDiagnostic warnings = 3;
+}
+
+message ValidationDiagnostic {
+  string message = 1;
+  SourceLocation location = 2;
+  DiagnosticSeverity severity = 3;
+  string suggestion = 4;
+}
+
+enum DiagnosticSeverity {
+  DIAGNOSTIC_SEVERITY_UNSPECIFIED = 0;
+  DIAGNOSTIC_SEVERITY_ERROR = 1;
+  DIAGNOSTIC_SEVERITY_WARNING = 2;
+  DIAGNOSTIC_SEVERITY_INFO = 3;
+}
+
+// --- Completions ---
+
+message GetCompletionsRequest {
+  string query = 1;
+  // 0-based byte offset of the cursor position.
+  uint32 cursor_position = 2;
+}
+
+message GetCompletionsResponse {
+  repeated Completion completions = 1;
+}
+
+message Completion {
+  // The text to insert.
+  string label = 1;
+  // Human-readable description.
+  string detail = 2;
+  CompletionKind kind = 3;
+}
+
+enum CompletionKind {
+  COMPLETION_KIND_UNSPECIFIED = 0;
+  COMPLETION_KIND_KEYWORD = 1;
+  COMPLETION_KIND_DATA_SOURCE = 2;
+  COMPLETION_KIND_FIELD = 3;
+  COMPLETION_KIND_FUNCTION = 4;
+  COMPLETION_KIND_UNIT = 5;
+}

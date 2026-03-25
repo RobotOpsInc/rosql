@@ -1,0 +1,61 @@
+[workspace]
+exclude = ["examples"]
+
+[package]
+name = "rosql"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "Apache-2.0"
+description = "The query language for ROS2 telemetry data"
+repository = "https://github.com/RobotOpsInc/rosql"
+keywords = ["ros2", "robotics", "telemetry", "query-language", "opentelemetry"]
+categories = ["parser-implementations", "science::robotics"]
+
+[[bin]]
+name = "rosql"
+path = "src/bin/rosql.rs"
+required-features = ["server"]
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
+server = ["dep:tonic", "dep:tokio", "dep:clap", "dep:tokio-stream"]
+postgres = ["dep:sqlx", "dep:tokio"]
+mysql = ["dep:sqlx", "dep:tokio"]
+duckdb = ["dep:duckdb"]
+athena = ["dep:aws-sdk-athena", "dep:aws-config"]
+bigquery = ["dep:gcp-bigquery-client"]
+
+[dependencies]
+logos = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+strsim = "0.11"
+async-trait = "0.1"
+prost = "0.13"
+prost-types = "0.13"
+
+# Feature-gated optional dependencies
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+tonic = { version = "0.12", optional = true }
+clap = { version = "4", optional = true, features = ["derive"] }
+sqlx = { version = "0.8", optional = true, features = ["runtime-tokio", "postgres", "mysql", "chrono", "json"] }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio-stream = { version = "0.1", optional = true, features = ["net"] }
+duckdb = { version = "1", optional = true }
+aws-sdk-athena = { version = "1", optional = true }
+aws-config = { version = "1", optional = true }
+gcp-bigquery-client = { version = "0.22", optional = true }
+
+[build-dependencies]
+prost-build = "0.13"
+tonic-build = "0.12"
+
+[dev-dependencies]
+pretty_assertions = "1"
+insta = { version = "1", features = ["yaml"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

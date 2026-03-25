@@ -1,0 +1,25 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source: Logs
+  robot_scope: ~
+  conditions:
+    In:
+      expr:
+        Field: severity
+      values:
+        - Literal:
+            String: ERROR
+        - Literal:
+            String: WARN
+  facet: ~
+  time_range: ~
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~

@@ -1,0 +1,23 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause:
+    Anomaly:
+      field: duration
+      compared_to: Fleet
+  robot_scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 24
+        unit: hours
+  time_basis: ~
+  conditions: ~
+  facet:
+    dimension: robot_id
+  order_by: ~
+  limit: ~
+  output_format: ~
+  baseline: ~
