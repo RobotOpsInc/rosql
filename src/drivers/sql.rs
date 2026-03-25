@@ -289,7 +289,6 @@ async fn probe_table(pool: &Pool, table: &str) -> bool {
     let sql = format!("SELECT 1 FROM {table} LIMIT 0");
     match pool {
         Pool::Postgres(p) => sqlx::query(&sql).fetch_optional(p).await.is_ok(),
-        Pool::Sqlite(p) => sqlx::query(&sql).fetch_optional(p).await.is_ok(),
         Pool::MySql(p) => sqlx::query(&sql).fetch_optional(p).await.is_ok(),
     }
 }
