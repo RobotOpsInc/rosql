@@ -1,0 +1,299 @@
+/**
+ * ROSQL site theme — Robot Ops design system
+ * Fonts: Space Grotesk (body), JetBrains Mono (code)
+ * Primary: #E74C3C (brand red)
+ */
+
+:root {
+  /* Fonts */
+  --ifm-font-family-base: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', 'Fira Code', monospace;
+  --ifm-code-font-size: 93%;
+
+  /* Brand red primary */
+  --ifm-color-primary: #E74C3C;
+  --ifm-color-primary-dark: #D43F31;
+  --ifm-color-primary-darker: #CC4433;
+  --ifm-color-primary-darkest: #A33528;
+  --ifm-color-primary-light: #EB6A5C;
+  --ifm-color-primary-lighter: #F5A399;
+  --ifm-color-primary-lightest: #FCECEA;
+
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+
+  /* Custom ROSQL variables — Robot Ops palette */
+  --rosql-hero-bg: #0F0F0F;
+  --rosql-hero-text: #F3F4F6;
+  --rosql-repl-bg: #1A1A1A;
+  --rosql-repl-border: #2A2A2A;
+  --rosql-repl-output-bg: #0F0F0F;
+}
+
+[data-theme='dark'] {
+  /* Lighter red for readability on dark backgrounds */
+  --ifm-color-primary: #F07067;
+  --ifm-color-primary-dark: #E74C3C;
+  --ifm-color-primary-darker: #D43F31;
+  --ifm-color-primary-darkest: #CC4433;
+  --ifm-color-primary-light: #F5A399;
+  --ifm-color-primary-lighter: #F9C4BD;
+  --ifm-color-primary-lightest: #FCECEA;
+
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+
+  /* Dark mode page background — Robot Ops #0F0F0F */
+  --ifm-background-color: #0F0F0F;
+  --ifm-background-surface-color: #1A1A1A;
+  --ifm-navbar-background-color: #0F0F0F;
+  --ifm-footer-background-color: #0F0F0F;
+  --ifm-toc-border-color: #2A2A2A;
+  --ifm-color-emphasis-200: #2A2A2A;
+  --ifm-color-emphasis-300: #3A3A3A;
+}
+
+/* Navbar title — append a small ™ via CSS */
+.navbar__title {
+  font-weight: 600;
+}
+
+.navbar__title::after {
+  content: '™';
+  font-size: 0.45em;
+  vertical-align: super;
+  margin-left: 1px;
+}
+
+/* GitHub icon in navbar */
+.header-github-link::before {
+  content: '';
+  width: 24px;
+  height: 24px;
+  display: flex;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12'/%3E%3C/svg%3E")
+    no-repeat;
+}
+
+[data-theme='dark'] .header-github-link::before {
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='white' d='M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12'/%3E%3C/svg%3E")
+    no-repeat;
+}
+
+/* REPL styles */
+.rosql-repl {
+  border: 1px solid var(--rosql-repl-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--rosql-repl-bg);
+  font-family: var(--ifm-font-family-monospace);
+}
+
+.rosql-repl-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--rosql-repl-bg);
+  border-bottom: 1px solid var(--rosql-repl-border);
+  flex-wrap: wrap;
+}
+
+.rosql-repl-toolbar select {
+  flex: 1;
+  min-width: 0;
+  background: #0F0F0F;
+  color: #9CA3AF;
+  border: 1px solid #2A2A2A;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: var(--ifm-font-family-monospace);
+}
+
+.rosql-repl-toolbar button {
+  background: var(--ifm-color-primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 14px;
+  font-size: 13px;
+  font-family: var(--ifm-font-family-base);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rosql-repl-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rosql-repl-toolbar button:not(:disabled):hover {
+  background: var(--ifm-color-primary-dark);
+}
+
+.rosql-repl-panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 200px;
+}
+
+@media (max-width: 768px) {
+  .rosql-repl-panes {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rosql-repl-editor {
+  border-right: 1px solid var(--rosql-repl-border);
+}
+
+.rosql-repl-editor .cm-editor {
+  height: 100%;
+  min-height: 200px;
+}
+
+.rosql-repl-output {
+  background: var(--rosql-repl-output-bg);
+  padding: 12px;
+  overflow: auto;
+}
+
+.rosql-repl-output pre {
+  margin: 0;
+  color: #9CA3AF;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.rosql-repl-output pre.success {
+  color: #6EE7B7;
+}
+
+.rosql-repl-output pre.error {
+  color: #FCA5A5;
+}
+
+/* Hero section */
+.rosql-hero {
+  background: var(--rosql-hero-bg);
+  color: var(--rosql-hero-text);
+  padding: 4rem 0;
+}
+
+.rosql-hero h1 {
+  font-size: 3.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 768px) {
+  .rosql-hero h1 {
+    font-size: 2.5rem;
+  }
+}
+
+.rosql-hero-subtitle {
+  font-size: 1.25rem;
+  color: #9CA3AF;
+  max-width: 600px;
+  margin: 0 auto 1.5rem;
+}
+
+.rosql-hero-description {
+  font-size: 1rem;
+  color: #D1D5DB;
+  max-width: 700px;
+  margin: 0 auto 2rem;
+  line-height: 1.7;
+}
+
+.rosql-hero-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 3rem;
+}
+
+/* Driver table */
+.driver-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.driver-table th,
+.driver-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--ifm-table-border-color);
+}
+
+/* Architecture diagram */
+.arch-diagram {
+  background: var(--ifm-code-background);
+  border-radius: 8px;
+  padding: 1.5rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* Centered navbar — brand stays left, nav links centered, right items stay right */
+@media (min-width: 997px) {
+  .navbar__inner {
+    position: relative;
+  }
+
+  .navbar__brand {
+    position: absolute;
+    left: var(--ifm-navbar-padding-horizontal);
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+  }
+
+  .navbar__items--right {
+    position: absolute;
+    right: var(--ifm-navbar-padding-horizontal);
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .navbar__items:not(.navbar__items--right) {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+/* Benefit cards */
+.benefit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.benefit-card {
+  background: var(--ifm-card-background-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.benefit-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.benefit-card p {
+  font-size: 0.9rem;
+  color: var(--ifm-color-emphasis-700);
+  margin: 0;
+}

@@ -64,6 +64,37 @@ The generated Rust types (`src/proto/rosql.v1.rs`) are not committed — they're
 4. Increment the version using `just bump-version [major|minor|patch]` depending on the level of the proposed change
 4. Open a pull request against `development`
 
+## Documentation
+
+The docs site at [rosql.org](https://rosql.org) is built with Docusaurus and lives in `website/`. To run it locally:
+
+```sh
+cd website
+pnpm install
+pnpm start
+```
+
+### Updating existing docs
+
+For patch releases (e.g. 0.2.0 → 0.2.1), edit the files in `versioned_docs/version-0.2/` directly. No new snapshot needed — changes go live on the next deploy.
+
+### Cutting a new docs version
+
+A new docs snapshot is cut for every **minor** version bump (e.g. 0.2 → 0.3). Do this after updating the content in `docs/` to reflect the new version:
+
+```sh
+cd website
+pnpm docusaurus docs:version 0.3
+```
+
+This creates `versioned_docs/version-0.3/` and adds `"0.3"` to `versions.json`. The new version becomes the default in the dropdown. The previous version remains accessible.
+
+> **Convention:** one snapshot per minor version. Do not cut a new snapshot for patch releases — edit the existing `versioned_docs/version-X.Y/` files in place.
+
+### Deploying
+
+The site deploys automatically via GitHub Actions when any `website/**` file is merged to `main`. No manual step required.
+
 ## Releasing
 
 Releases are created via a manual GitHub Actions workflow. Only maintainers can trigger releases.

@@ -1,0 +1,11 @@
+{
+  "docs": [
+    "quickstart",
+    "drivers",
+    "cli",
+    "wasm",
+    "cookbook",
+    "schema-reference",
+    "command-reference"
+  ]
+}
