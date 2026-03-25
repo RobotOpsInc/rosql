@@ -208,6 +208,33 @@
   white-space: pre;
 }
 
+/* Centered navbar — brand stays left, nav links centered, right items stay right */
+@media (min-width: 997px) {
+  .navbar__inner {
+    position: relative;
+  }
+
+  .navbar__brand {
+    position: absolute;
+    left: var(--ifm-navbar-padding-horizontal);
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+  }
+
+  .navbar__items--right {
+    position: absolute;
+    right: var(--ifm-navbar-padding-horizontal);
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .navbar__items:not(.navbar__items--right) {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
 /* Benefit cards */
 .benefit-grid {
   display: grid;

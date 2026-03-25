@@ -3,7 +3,23 @@ import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import CodeBlock from '@theme/CodeBlock';
+import Head from '@docusaurus/Head';
 import { RosqlRepl } from '@site/src/components/RosqlRepl';
+
+const JSON_LD = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'ROSQL',
+  description: 'Open source SQL-like query language purpose-built for ROS2 telemetry data — traces, logs, and metrics with first-class support for nodes, actions, topics, and message causality.',
+  url: 'https://rosql.org',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Linux, macOS, Windows',
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  license: 'https://www.apache.org/licenses/LICENSE-2.0',
+  codeRepository: 'https://github.com/RobotOpsInc/rosql',
+  programmingLanguage: 'Rust',
+  keywords: 'ROS2, robotics, telemetry, query language, OpenTelemetry, SQL, observability',
+});
 
 const DURING_QUERY = `SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
 FROM traces
@@ -75,6 +91,9 @@ export default function Home(): ReactNode {
       title="The query language for robotics telemetry"
       description="ROSQL is an open source SQL-like query language purpose-built for ROS2 telemetry data. Query traces, logs, and metrics with first-class support for nodes, actions, topics, and message causality."
     >
+      <Head>
+        <script type="application/ld+json">{JSON_LD}</script>
+      </Head>
       {/* Hero */}
       <header className="rosql-hero">
         <div className="container" style={{ textAlign: 'center' }}>
