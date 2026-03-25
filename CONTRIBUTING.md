@@ -61,16 +61,16 @@ The generated Rust types (`src/proto/rosql.v1.rs`) are not committed — they're
 1. Fork the repo and create a feature branch from `development`
 2. Make your changes
 3. Run `just check` (or the individual commands above) and ensure everything passes
+4. Increment the version using `just bump-version [major|minor|patch]` depending on the level of the proposed change
 4. Open a pull request against `development`
 
 ## Releasing
 
 Releases are created via a manual GitHub Actions workflow. Only maintainers can trigger releases.
 
-1. **Bump the version** in `Cargo.toml` (e.g. `version = "0.2.0"`)
-2. **Add a CHANGELOG entry** under `## [0.2.0] - YYYY-MM-DD` in `CHANGELOG.md`
-3. **Merge to `main`** via a PR through `development`
-4. **Trigger the release** — go to Actions → Release → Run workflow (from `main`)
+1. **Add a CHANGELOG entry** under `## [0.2.0] - YYYY-MM-DD` in `CHANGELOG.md`
+2. **Merge to `main`** via a PR through `development`
+3. **Trigger the release** — go to Actions → Release → Run workflow (from `main`)
 
 The workflow will:
 - Create a git tag `v0.2.0`
