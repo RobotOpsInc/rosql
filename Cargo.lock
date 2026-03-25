@@ -3230,6 +3230,7 @@ dependencies = [
  "clap",
  "duckdb",
  "gcp-bigquery-client",
+ "getrandom 0.3.4",
  "insta",
  "logos",
  "pretty_assertions",
