@@ -60,6 +60,73 @@ Built in Rust and available as a library, CLI, gRPC server, and WASM package, RO
 
 ## Quick start
 
+### What ROSQL looks like
+
+Express in one sentence what would take a page of SQL: find every navigation failure that happened while the battery was critically low.
+
+```sql
+SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+DURING(
+  FROM topics WHERE topic_name = '/battery_state'
+  AND fields['percentage'] < 15
+)
+SINCE 6 hours ago
+```
+
+```json
+{
+  "columns": ["trace_id", "span_name_col", "service_name", "duration", "status_code", "span_attributes"],
+  "rows": [
+    ["a3f1c9d2e8b04f7a", "navigate_to_pose", "bt_navigator", 1423187000, "ERROR",
+      {"ros.node": "/bt_navigator", "ros.action.name": "/navigate_to_pose", "ros.action.status": "aborted"}],
+    ["c7d2f1a3b9e54c2b", "navigate_to_pose", "bt_navigator",  873456000, "ERROR",
+      {"ros.node": "/bt_navigator", "ros.action.name": "/navigate_to_pose", "ros.action.status": "aborted"}]
+  ],
+  "metadata": { "rows_returned": 2, "elapsed_ms": 14 }
+}
+```
+
+> `duration` is stored as nanoseconds (`BIGINT`). 1423187000 ns ≈ 1.42 s.
+
+Or trace the full message causality chain from a single span — something SQL has no primitive for. `MESSAGE JOURNEY` walks `parent_span_id → span_id` recursively and returns all columns from `otel_traces`:
+
+```sql
+MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
+```
+
+```json
+{
+  "columns": ["timestamp", "trace_id", "span_id", "parent_span_id", "span_name_col", "span_kind", "service_name", "duration", "status_code", "span_attributes", "resource_attributes"],
+  "rows": [
+    ["2025-03-25T14:32:11.012Z", "a3f1c9d2e8b04f7a", "f0e1d2c3b4a59687", "",                 "goal_received",     "INTERNAL", "bt_navigator",       0,         "OK",    {"ros.node": "/bt_navigator"},                                       {"host.name": "robot_03"}],
+    ["2025-03-25T14:32:11.013Z", "a3f1c9d2e8b04f7a", "1a2b3c4d5e6f7089", "f0e1d2c3b4a59687", "compute_path",      "INTERNAL", "planner_server",    38000000,  "OK",    {"ros.node": "/planner_server",    "ros.topic": "/plan"},              {"host.name": "robot_03"}],
+    ["2025-03-25T14:32:11.051Z", "a3f1c9d2e8b04f7a", "9876543210abcdef", "1a2b3c4d5e6f7089", "follow_path",       "INTERNAL", "controller_server", 412000000, "ERROR", {"ros.node": "/controller_server", "ros.topic": "/cmd_vel"},            {"host.name": "robot_03"}],
+    ["2025-03-25T14:32:11.463Z", "a3f1c9d2e8b04f7a", "fedcba9876543210", "9876543210abcdef", "obstacle_detected", "INTERNAL", "local_costmap",       6000000, "OK",    {"ros.node": "/local_costmap",     "ros.topic": "/costmap_update"},    {"host.name": "robot_03"}]
+  ],
+  "metadata": { "rows_returned": 4, "elapsed_ms": 3 }
+}
+```
+
+### As a CLI
+
+```sh
+# Install
+cargo install rosql --features server,postgres
+
+# Execute a query against your database
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend postgres --url postgresql://user:pass@localhost:5432/telemetry
+
+# Compile to SQL (inspect what ROSQL generates — no DB needed)
+rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
+
+# Trace a message causality chain
+rosql query "MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'" \
+  --backend postgres --url postgresql://user:pass@localhost:5432/telemetry
+```
+
 ### As a library
 
 ```sh
@@ -67,38 +134,23 @@ cargo add rosql
 ```
 
 ```rust
-use rosql::parse;
+use rosql::{parse, drivers::{SqlBackend, ExecOptions}};
 
-fn main() {
-    let ast = parse("
-        SELECT span_name, duration
-        FROM traces
-        WHERE node = '/navigation/planner'
-          AND duration > 500 ms
-        SINCE 1 hour ago
-        ORDER BY duration DESC
-        LIMIT 10
-    ").unwrap();
-
-    println!("{ast:?}");
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let backend = SqlBackend::new("postgresql://user:pass@localhost/telemetry").await?;
+    let query = parse("
+        SELECT trace_id, span_name_col, service_name, duration, status_code
+        FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+        DURING(
+          FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15
+        )
+        SINCE 6 hours ago
+    ")?;
+    let result = backend.execute(&query, &ExecOptions::default()).await?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
 }
-```
-
-### As a CLI
-
-```sh
-# Build the CLI
-cargo build --features server,postgres --bin rosql
-
-# Parse a query to JSON AST
-rosql parse "FROM traces WHERE status = 'ERROR'"
-
-# Compile to SQL (no database needed)
-rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
-
-# Execute against a database
-rosql query "FROM traces WHERE status = 'ERROR'" \
-  --backend postgres --url postgresql://user:pass@localhost:5432/telemetry
 ```
 
 ## Driver support
