@@ -114,7 +114,7 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
       rosqlRef.current = mod as unknown as typeof rosqlRef.current;
       setWasmReady(true);
     }).catch(() => {
-      // WASM load failed silently — buttons stay disabled
+      setOutput({ kind: 'error', text: 'Failed to load WASM parser.' });
     });
   }, []);
 
@@ -144,11 +144,16 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
     if (!rosqlRef.current) return;
     setOutput({ kind: 'loading' });
     try {
-      const raw = mode === 'parse'
+      const result = mode === 'parse'
         ? rosqlRef.current.parse(query)
         : rosqlRef.current.validate(query);
-      const parsed = JSON.parse(raw);
-      setOutput({ kind: 'success', text: JSON.stringify(parsed, null, 2) });
+      // serde_wasm_bindgen returns JS Maps for Rust map types — convert recursively to plain objects
+      function normalize(val: unknown): unknown {
+        if (val instanceof Map) return Object.fromEntries([...val].map(([k, v]) => [k, normalize(v)]));
+        if (Array.isArray(val)) return val.map(normalize);
+        return val;
+      }
+      setOutput({ kind: 'success', text: JSON.stringify(normalize(result), null, 2) });
     } catch (err) {
       setOutput({ kind: 'error', text: String(err) });
     }

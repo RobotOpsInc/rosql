@@ -10,7 +10,7 @@ test:
 
 # Build WASM package
 build-wasm:
-    cargo build --target wasm32-unknown-unknown --features wasm
+    wasm-pack build --target web --features wasm
 
 # Run clippy lints
 clippy:

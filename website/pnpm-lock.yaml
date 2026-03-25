@@ -33,8 +33,8 @@ importers:
         specifier: ^3.0.0
         version: 3.1.1(@types/react@19.2.14)(react@19.2.4)
       '@robotops/rosql':
-        specifier: ^0.1.5
-        version: 0.1.5
+        specifier: link:../pkg
+        version: link:../pkg
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
@@ -1486,9 +1486,6 @@ packages:
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
-
-  '@robotops/rosql@0.1.5':
-    resolution: {integrity: sha512-MAXhmUqCZXGsf2nEVe4iL7AypgSr+cnkJbTnYjQJX/V6EwpEUL/BM1/dsUSIAue0Hm3O3P7i4jZEp20xTw2XyQ==}
 
   '@sideway/address@4.1.5':
     resolution: {integrity: sha512-IqO/DUQHUkPeixNQ8n0JA6102hT9CmaljNTPmQ1u8MEhBo/R4Q8eKLN/vGZxuebwOroDB4cbpjheD4+/sKFK4Q==}
@@ -7463,8 +7460,6 @@ snapshots:
       config-chain: 1.1.13
 
   '@polka/url@1.0.0-next.29': {}
-
-  '@robotops/rosql@0.1.5': {}
 
   '@sideway/address@4.1.5':
     dependencies:
