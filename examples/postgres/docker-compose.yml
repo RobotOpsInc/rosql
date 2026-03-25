@@ -4,8 +4,8 @@
 #   docker compose up -d          # start PostgreSQL + load fixtures
 #   docker compose down -v        # stop and remove data
 #
-# The fixture SQL files are mounted into /docker-entrypoint-initdb.d/
-# and run automatically on first startup (alphabetical order).
+# Fixture SQL files are numbered (01_, 02_, ...) and mounted into
+# /docker-entrypoint-initdb.d/ which PostgreSQL runs in alphabetical order.
 
 services:
   postgres:
@@ -17,12 +17,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./fixtures/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
-      - ./fixtures/traces.sql:/docker-entrypoint-initdb.d/02_traces.sql:ro
-      - ./fixtures/logs.sql:/docker-entrypoint-initdb.d/03_logs.sql:ro
-      - ./fixtures/metrics.sql:/docker-entrypoint-initdb.d/04_metrics.sql:ro
-      - ./fixtures/topic_messages.sql:/docker-entrypoint-initdb.d/05_topic_messages.sql:ro
-      - ./fixtures/mcap_metadata.sql:/docker-entrypoint-initdb.d/06_mcap_metadata.sql:ro
+      - ./fixtures:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rosql -d rosql_examples"]
       interval: 2s
