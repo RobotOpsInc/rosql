@@ -63,5 +63,12 @@ lint: clippy fmt
 validate-version:
     @grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'
 
+# Run DuckDB integration tests (no Docker needed — embedded database)
+test-duckdb:
+    cargo test --features duckdb
+
+# Run all integration tests (postgres requires Docker; duckdb does not)
+test-all: test test-examples test-duckdb
+
 # Run all checks (build + test + clippy + fmt + buf-lint)
 check: build test clippy fmt buf-lint

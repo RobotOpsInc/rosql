@@ -1,4 +1,4 @@
-//! SQL dialect abstraction — handles differences between PostgreSQL and MySQL.
+//! SQL dialect abstraction — handles differences between PostgreSQL, MySQL, and DuckDB.
 
 use crate::error::ROSQLError;
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum SqlDialect {
     PostgreSQL,
     MySQL,
+    DuckDB,
 }
 
 impl SqlDialect {
@@ -17,30 +18,32 @@ impl SqlDialect {
             Ok(SqlDialect::PostgreSQL)
         } else if url.starts_with("mysql://") || url.starts_with("mariadb://") {
             Ok(SqlDialect::MySQL)
+        } else if url.starts_with("duckdb://") || url.starts_with("md:") {
+            Ok(SqlDialect::DuckDB)
         } else {
             Err(ROSQLError::DriverError {
                 message: format!(
                     "unsupported connection string scheme: '{url}'. \
-                     Expected postgres:// or mysql://"
+                     Expected postgres://, mysql://, or duckdb://"
                 ),
             })
         }
     }
 
     /// Quote an identifier (table or column name) to preserve case.
-    /// PostgreSQL lowercases unquoted identifiers; the OTel schema uses PascalCase.
+    /// PostgreSQL and DuckDB lowercase unquoted identifiers; MySQL does not.
     pub fn quote_ident(&self, ident: &str) -> String {
         match self {
-            SqlDialect::PostgreSQL => format!("\"{ident}\""),
+            SqlDialect::PostgreSQL | SqlDialect::DuckDB => format!("\"{ident}\""),
             SqlDialect::MySQL => ident.to_string(),
         }
     }
 
-    /// Generate a JSON/JSONB field access expression.
+    /// Generate a JSON field access expression.
     pub fn json_access(&self, column: &str, key: &str) -> String {
         let col = self.quote_ident(column);
         match self {
-            SqlDialect::PostgreSQL => format!("{col}->>'{key}'"),
+            SqlDialect::PostgreSQL | SqlDialect::DuckDB => format!("{col}->>'{key}'"),
             SqlDialect::MySQL => {
                 format!("JSON_UNQUOTE(JSON_EXTRACT({col}, '$.{key}'))")
             }
@@ -59,6 +62,10 @@ impl SqlDialect {
             SqlDialect::PostgreSQL => {
                 format!("{} - INTERVAL '{} {}'", self.now_expr(), amount, sql_unit)
             }
+            // DuckDB's NOW() returns TIMESTAMPTZ; cast to TIMESTAMP for interval arithmetic.
+            SqlDialect::DuckDB => {
+                format!("{}::TIMESTAMP - INTERVAL '{} {}'", self.now_expr(), amount, sql_unit)
+            }
             SqlDialect::MySQL => {
                 format!("{} - INTERVAL {} {}", self.now_expr(), amount, sql_unit)
             }
@@ -68,7 +75,7 @@ impl SqlDialect {
     /// Generate a DATE_TRUNC expression for time bucketing.
     pub fn date_trunc(&self, unit: &str, column: &str) -> String {
         match self {
-            SqlDialect::PostgreSQL => format!("DATE_TRUNC('{unit}', {column})"),
+            SqlDialect::PostgreSQL | SqlDialect::DuckDB => format!("DATE_TRUNC('{unit}', {column})"),
             SqlDialect::MySQL => {
                 let fmt = match unit {
                     "minute" => "%Y-%m-%d %H:%i:00",
@@ -84,7 +91,7 @@ impl SqlDialect {
     /// Generate a PERCENTILE_CONT expression.
     pub fn percentile_cont(&self, fraction: f64, column: &str) -> String {
         match self {
-            SqlDialect::PostgreSQL => {
+            SqlDialect::PostgreSQL | SqlDialect::DuckDB => {
                 format!("PERCENTILE_CONT({fraction}) WITHIN GROUP (ORDER BY {column})")
             }
             SqlDialect::MySQL => {
@@ -102,7 +109,7 @@ impl SqlDialect {
     /// Generate a CORR() aggregate expression.
     pub fn corr_aggregate(&self, col_a: &str, col_b: &str) -> String {
         match self {
-            SqlDialect::PostgreSQL => format!("CORR({col_a}, {col_b})"),
+            SqlDialect::PostgreSQL | SqlDialect::DuckDB => format!("CORR({col_a}, {col_b})"),
             SqlDialect::MySQL => {
                 format!(
                     "(AVG({col_a} * {col_b}) - AVG({col_a}) * AVG({col_b})) / \
@@ -115,7 +122,7 @@ impl SqlDialect {
     /// Generate a timestamp conversion from Unix epoch seconds.
     pub fn from_epoch_seconds(&self, value: u64) -> String {
         match self {
-            SqlDialect::PostgreSQL => format!("to_timestamp({value})"),
+            SqlDialect::PostgreSQL | SqlDialect::DuckDB => format!("to_timestamp({value})"),
             SqlDialect::MySQL => format!("FROM_UNIXTIME({value})"),
         }
     }
@@ -193,6 +200,13 @@ mod tests {
     fn interval_ago_postgres() {
         let expr = SqlDialect::PostgreSQL.interval_ago(30.0, "minutes");
         assert_eq!(expr, "NOW() - INTERVAL '30 minute'");
+    }
+
+    #[test]
+    fn interval_ago_duckdb() {
+        // DuckDB NOW() returns TIMESTAMPTZ; must cast to TIMESTAMP for interval arithmetic.
+        let expr = SqlDialect::DuckDB.interval_ago(1.0, "hour");
+        assert_eq!(expr, "NOW()::TIMESTAMP - INTERVAL '1 hour'");
     }
 
     #[test]

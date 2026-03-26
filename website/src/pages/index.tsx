@@ -101,7 +101,7 @@ export default function Home(): ReactNode {
         <div className="container" style={{ textAlign: 'center' }}>
           {/* Level 1: name */}
           <h1 className="hero__title" style={{ fontSize: '3.5rem', fontWeight: 800, color: '#F3F4F6', marginBottom: '1rem' }}>
-            ROSQL<sup style={{ fontSize: '0.45em', verticalAlign: 'super' }}>™</sup>
+            ROSQL<sup style={{ fontSize: '0.3em', verticalAlign: 'super' }}>™</sup>
           </h1>
 
           {/* Level 2: tagline — tightly coupled to the name */}
@@ -129,10 +129,14 @@ export default function Home(): ReactNode {
           {/* Level 5: REPL demo */}
           <div style={{ maxWidth: 900, margin: '2rem auto 0', textAlign: 'left' }}>
             <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#6B7280', marginBottom: '0.75rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 500 }}>
-              <span style={{ color: 'var(--ifm-color-primary-lighter)' }}>Try it</span> — pick a query and hit Parse or Validate
+              <span style={{ color: 'var(--ifm-color-primary-lighter)' }}>Try it</span> — pick a query and hit Run
             </p>
             <RosqlRepl compact />
-            <p style={{ textAlign: 'center', fontSize: '0.9rem', color: '#6B7280', marginTop: '1.25rem', maxWidth: 680, margin: '1.25rem auto 0', lineHeight: 1.6 }}>
+            <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#6B7280', marginTop: '0.75rem' }}>
+              Querying sample ROS2 telemetry data from{' '}
+              <a href="https://github.com/RobotOpsInc/rosql/tree/main/examples/postgres/fixtures" style={{ color: 'var(--ifm-color-primary-lighter)' }}>fixture files</a>
+            </p>
+            <p style={{ textAlign: 'center', fontSize: '0.9rem', color: '#6B7280', marginTop: '1.25rem', maxWidth: 680, margin: '1rem auto 0', lineHeight: 1.6 }}>
               Results are unified across signal types — tables for SQL consumers, structured objects
               for programmatic processing, chart-ready data for visualization, and causality graphs
               for message tracing. Available as a library, CLI, gRPC server, and{' '}
