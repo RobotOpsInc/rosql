@@ -58,8 +58,19 @@ impl<'a> CompileCtx<'a> {
         let table = self.resolve_table(&q.data_source)?;
         let mut parts = Vec::new();
 
-        // SELECT
-        let select_clause = self.compile_selections(&q.selections, &table)?;
+        // SELECT — when FACET is present and no explicit columns chosen, emit
+        // "{facet_col}, COUNT(*) AS count" instead of the invalid "SELECT * … GROUP BY col"
+        let select_clause = if let Some(ref facet) = q.facet {
+            let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
+            if is_star {
+                let col = self.resolve_column(&facet.dimension, &table)?;
+                format!("{col}, COUNT(*) AS count")
+            } else {
+                self.compile_selections(&q.selections, &table)?
+            }
+        } else {
+            self.compile_selections(&q.selections, &table)?
+        };
         parts.push(format!("SELECT {select_clause}"));
 
         // FROM (with topic alias filter)

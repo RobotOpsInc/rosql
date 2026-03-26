@@ -1657,6 +1657,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+
+[[package]]
 name = "h2"
 version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2292,6 +2298,7 @@ version = "1.10501.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12096c1694924782b3fe21e790630b77bacb4fcb7ad9d7ee0fec626f985bf248"
 dependencies = [
+ "cc",
  "flate2",
  "pkg-config",
  "reqwest",
@@ -3246,7 +3253,7 @@ dependencies = [
 
 [[package]]
 name = "rosql"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -3256,6 +3263,7 @@ dependencies = [
  "duckdb",
  "gcp-bigquery-client",
  "getrandom 0.3.4",
+ "glob",
  "insta",
  "js-sys",
  "logos",
@@ -3269,6 +3277,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "strsim",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
