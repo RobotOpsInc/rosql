@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-25
+
+### Added
+
+- DuckDB embedded driver (`duckdb` feature flag) — no Docker or external server required
+- `SqlDialect::DuckDB` with correct `NOW()::TIMESTAMP` cast for interval arithmetic
+- DuckDB CLI support: `--backend duckdb --url duckdb:///path/to/db`
+- DuckDB integration tests (10 tests, no Docker needed)
+- `examples/duckdb/` with fixtures and setup guide
+- `test-duckdb` and `test-all` justfile recipes
+
+### Fixed
+
+- `FACET` compiler: `SELECT * GROUP BY col` now generates `SELECT col, COUNT(*) AS count GROUP BY col`
+- WASM REPL `compile()` now uses `SqlDialect::DuckDB` for correct interval SQL
+- REPL BigInt serialization error for `HEALTH()` and `ANOMALY()` results
+
 ## [0.2.0] - 2026-03-25
 
 ### Added

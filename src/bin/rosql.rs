@@ -123,7 +123,7 @@ enum Backend {
     Postgres,
     /// MySQL / MariaDB
     Mysql,
-    /// DuckDB (coming soon)
+    /// DuckDB (embedded)
     Duckdb,
     /// AWS Athena (coming soon)
     Athena,
@@ -136,7 +136,7 @@ impl Backend {
         match self {
             Backend::Postgres => Ok(rosql::drivers::dialect::SqlDialect::PostgreSQL),
             Backend::Mysql => Ok(rosql::drivers::dialect::SqlDialect::MySQL),
-            Backend::Duckdb => Err("DuckDB backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/18".into()),
+            Backend::Duckdb => Ok(rosql::drivers::dialect::SqlDialect::DuckDB),
             Backend::Athena => Err("Athena backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/9".into()),
             Backend::Bigquery => Err("BigQuery backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/10".into()),
         }
@@ -247,7 +247,7 @@ fn cmd_compile(query: &str, backend: Backend, schema: Schema) {
 
 #[allow(unused_variables)]
 async fn cmd_query(query: &str, backend: Backend, _schema: Schema, url: &str) {
-    #[cfg(any(feature = "postgres", feature = "mysql"))]
+    #[cfg(any(feature = "postgres", feature = "mysql", feature = "duckdb"))]
     {
         use rosql::drivers::ROSQLBackend;
 
@@ -292,11 +292,14 @@ async fn cmd_query(query: &str, backend: Backend, _schema: Schema, url: &str) {
         }
     }
 
-    #[cfg(not(any(feature = "postgres", feature = "mysql")))]
+    #[cfg(not(any(feature = "postgres", feature = "mysql", feature = "duckdb")))]
     {
         eprintln!(
-            "Error: the `query` subcommand requires the `sql` feature.\n\
-             Rebuild with: cargo build --features server,postgres --bin rosql"
+            "Error: the `query` subcommand requires a database driver feature.\n\
+             Rebuild with one of:\n\
+             cargo build --features server,postgres --bin rosql\n\
+             cargo build --features server,mysql --bin rosql\n\
+             cargo build --features server,duckdb --bin rosql"
         );
         std::process::exit(1);
     }

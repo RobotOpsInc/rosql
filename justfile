@@ -10,7 +10,7 @@ test:
 
 # Build WASM package
 build-wasm:
-    cargo build --target wasm32-unknown-unknown --features wasm
+    wasm-pack build --target web --features wasm
 
 # Run clippy lints
 clippy:
@@ -62,6 +62,13 @@ lint: clippy fmt
 # Extract version from Cargo.toml
 validate-version:
     @grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'
+
+# Run DuckDB integration tests (no Docker needed — embedded database)
+test-duckdb:
+    cargo test --features duckdb
+
+# Run all integration tests (postgres requires Docker; duckdb does not)
+test-all: test test-examples test-duckdb
 
 # Run all checks (build + test + clippy + fmt + buf-lint)
 check: build test clippy fmt buf-lint

@@ -15,7 +15,7 @@ ROSQL compiles to SQL and other database languages and executes against your exi
 |---------|-------------|--------|
 | PostgreSQL / TimescaleDB | `postgres` | ✅ v0.1 |
 | MySQL / MariaDB | `mysql` | ✅ v0.1 |
-| DuckDB (embedded) | `duckdb` | 🔜 [Coming soon](https://github.com/RobotOpsInc/rosql/issues/18) |
+| DuckDB (embedded) | `duckdb` | ✅ v0.2 |
 | AWS Athena | `athena` | 📋 [Planned](https://github.com/RobotOpsInc/rosql/issues/9) |
 | Google BigQuery | `bigquery` | 📋 [Planned](https://github.com/RobotOpsInc/rosql/issues/10) |
 
@@ -26,6 +26,7 @@ ROSQL compiles to SQL and other database languages and executes against your exi
 | *(default)* | Parser, AST, unit system, SQL compiler, proto types | logos, serde, prost |
 | `postgres` | PostgreSQL / TimescaleDB driver | sqlx, tokio |
 | `mysql` | MySQL / MariaDB driver | sqlx, tokio |
+| `duckdb` | DuckDB embedded driver | duckdb (bundled), tokio |
 | `server` | `rosql` CLI binary + gRPC server | tonic, tokio, clap |
 | `wasm` | WASM exports for browser editors | wasm-bindgen |
 
@@ -38,8 +39,11 @@ cargo install rosql --features server,postgres
 # MySQL driver + CLI
 cargo install rosql --features server,mysql
 
+# DuckDB driver + CLI (no external database required)
+cargo install rosql --features server,duckdb
+
 # Multiple drivers
-cargo install rosql --features server,postgres,mysql
+cargo install rosql --features server,postgres,mysql,duckdb
 
 # Library only (no CLI, no runtime)
 cargo add rosql
@@ -68,6 +72,33 @@ rosql query "FROM traces WHERE status = 'ERROR'" \
 ```
 
 Connection string format: `mysql://[user[:password]@][host][:port]/database`
+
+### DuckDB
+
+DuckDB runs embedded — no external server required. The database is compiled into the binary.
+
+```bash
+# In-memory database (data is lost when the process exits)
+rosql query "FROM traces WHERE status = 'ERROR'" \
+  --backend duckdb \
+  --url duckdb://
+
+# File-based persistent database
+rosql query "FROM traces WHERE status = 'ERROR'" \
+  --backend duckdb \
+  --url duckdb:///path/to/telemetry.db
+```
+
+Connection string formats:
+- `duckdb://` — in-memory database
+- `duckdb:///absolute/path/to/file.db` — file-based database
+- `md:my_database` — [MotherDuck](https://motherduck.com) (cloud DuckDB)
+
+DuckDB is particularly useful for:
+- **Local analytics** on MCAP/bag files converted to Parquet
+- **CI/testing** — no Docker or external service required
+- **Offline environments** where a database server is unavailable
+- **Embedded robotics systems** with local telemetry storage
 
 ## Schema profiles
 

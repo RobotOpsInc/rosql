@@ -159,7 +159,7 @@ async fn main() -> anyhow::Result<()> {
 |---------|-------------|--------|
 | <img src="https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL" height="20"> PostgreSQL / TimescaleDB | `postgres` | ![v0.1](https://img.shields.io/badge/v0.1-green) |
 | <img src="https://img.shields.io/badge/MySQL-4479A1?logo=mysql&logoColor=white" alt="MySQL" height="20"> MySQL / MariaDB | `mysql` | ![v0.1](https://img.shields.io/badge/v0.1-green) |
-| <img src="https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black" alt="DuckDB" height="20"> DuckDB (embedded) | `duckdb` | [![Coming soon](https://img.shields.io/badge/coming_soon-yellow)](https://github.com/RobotOpsInc/rosql/issues/18) |
+| <img src="https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black" alt="DuckDB" height="20"> DuckDB (embedded) | `duckdb` | ![v0.2](https://img.shields.io/badge/v0.2-green) |
 | <img src="https://img.shields.io/badge/AWS_Athena-232F3E?logo=amazonaws&logoColor=white" alt="Athena" height="20"> AWS Athena | `athena` | [![Future](https://img.shields.io/badge/future-lightgrey)](https://github.com/RobotOpsInc/rosql/issues/9) |
 | <img src="https://img.shields.io/badge/BigQuery-4285F4?logo=googlebigquery&logoColor=white" alt="BigQuery" height="20"> Google BigQuery | `bigquery` | [![Future](https://img.shields.io/badge/future-lightgrey)](https://github.com/RobotOpsInc/rosql/issues/10) |
 
@@ -170,6 +170,7 @@ async fn main() -> anyhow::Result<()> {
 | *(default)* | Parser, AST, unit system, SQL compiler, proto types | logos, serde, prost |
 | `postgres` | PostgreSQL / TimescaleDB driver | sqlx, tokio |
 | `mysql` | MySQL / MariaDB driver | sqlx, tokio |
+| `duckdb` | DuckDB embedded driver | duckdb (bundled), tokio |
 | `server` | `rosql` CLI binary + gRPC server | tonic, tokio, clap |
 | `wasm` | WASM exports for frontend editors | wasm-bindgen |
 

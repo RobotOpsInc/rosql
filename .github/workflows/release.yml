@@ -131,7 +131,7 @@ jobs:
         run: cargo install wasm-pack
 
       - name: Build WASM package
-        run: wasm-pack build --target web --release --scope robotops
+        run: wasm-pack build --target web --release --scope robotops -- --features wasm
 
       - name: Publish with provenance (OIDC trusted publishing)
         working-directory: pkg

@@ -17,6 +17,9 @@ examples/
 │   └── README.md
 ├── mysql/                      ← MySQL backend (guide)
 │   └── README.md
+├── duckdb/                     ← DuckDB backend (embedded, no Docker needed)
+│   ├── fixtures/
+│   └── README.md
 └── README.md                   ← this file
 ```
 
@@ -46,9 +49,25 @@ cargo run --features server,mysql --bin rosql -- query \
   --backend mysql --url mysql://user:pass@localhost:3306/telemetry
 ```
 
-### DuckDB (coming soon)
+### DuckDB
 
-See [#18](https://github.com/RobotOpsInc/rosql/issues/18).
+Embedded database — no Docker or external server required. See [duckdb/](duckdb/).
+
+```sh
+# Build the example database from fixtures
+duckdb examples/duckdb/rosql_examples.db < examples/duckdb/fixtures/01_schema.sql
+for f in examples/duckdb/fixtures/0[2-6]*.sql; do duckdb examples/duckdb/rosql_examples.db < "$f"; done
+
+# Run a query
+cargo run --features server,duckdb --bin rosql -- query \
+  "FROM traces WHERE status = 'ERROR'" \
+  --backend duckdb --url "duckdb:///$(pwd)/examples/duckdb/rosql_examples.db"
+```
+
+Or run the integration tests (no setup needed — uses in-memory fixture database):
+```sh
+just test-duckdb
+```
 
 ## What the fixture data represents
 
