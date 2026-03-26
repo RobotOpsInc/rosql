@@ -64,7 +64,12 @@ impl SqlDialect {
             }
             // DuckDB's NOW() returns TIMESTAMPTZ; cast to TIMESTAMP for interval arithmetic.
             SqlDialect::DuckDB => {
-                format!("{}::TIMESTAMP - INTERVAL '{} {}'", self.now_expr(), amount, sql_unit)
+                format!(
+                    "{}::TIMESTAMP - INTERVAL '{} {}'",
+                    self.now_expr(),
+                    amount,
+                    sql_unit
+                )
             }
             SqlDialect::MySQL => {
                 format!("{} - INTERVAL {} {}", self.now_expr(), amount, sql_unit)
@@ -75,7 +80,9 @@ impl SqlDialect {
     /// Generate a DATE_TRUNC expression for time bucketing.
     pub fn date_trunc(&self, unit: &str, column: &str) -> String {
         match self {
-            SqlDialect::PostgreSQL | SqlDialect::DuckDB => format!("DATE_TRUNC('{unit}', {column})"),
+            SqlDialect::PostgreSQL | SqlDialect::DuckDB => {
+                format!("DATE_TRUNC('{unit}', {column})")
+            }
             SqlDialect::MySQL => {
                 let fmt = match unit {
                     "minute" => "%Y-%m-%d %H:%i:00",

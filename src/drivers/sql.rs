@@ -289,9 +289,11 @@ fn execute_duckdb(
     // Execute a LIMIT 0 query to get column metadata without fetching all rows.
     // column_count() / column_name() require the statement to be executed first.
     let meta_sql = format!("SELECT * FROM ({sql}) AS __rosql_meta LIMIT 0");
-    let mut meta = conn.prepare(&meta_sql).map_err(|e| ROSQLError::DriverError {
-        message: format!("query preparation failed: {e}"),
-    })?;
+    let mut meta = conn
+        .prepare(&meta_sql)
+        .map_err(|e| ROSQLError::DriverError {
+            message: format!("query preparation failed: {e}"),
+        })?;
     // Execute and immediately drop Rows<'_> so the borrow on `meta` is released.
     let _ = meta.query([]).map_err(|e| ROSQLError::DriverError {
         message: format!("query metadata failed: {e}"),
@@ -299,7 +301,10 @@ fn execute_duckdb(
     let col_count = meta.column_count();
     let columns: Vec<ColumnMeta> = (0..col_count)
         .map(|i| ColumnMeta {
-            name: meta.column_name(i).cloned().unwrap_or_else(|_| "?".to_string()),
+            name: meta
+                .column_name(i)
+                .cloned()
+                .unwrap_or_else(|_| "?".to_string()),
             data_type: "unknown".to_string(),
             unit: None,
         })
