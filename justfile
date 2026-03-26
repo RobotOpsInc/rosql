@@ -70,5 +70,13 @@ test-duckdb:
 # Run all integration tests (postgres requires Docker; duckdb does not)
 test-all: test test-examples test-duckdb
 
+# Generate THIRD_PARTY_NOTICES from cargo-about
+notices:
+    cargo about generate about.hbs > THIRD_PARTY_NOTICES
+
+# Check that all dependency licenses are approved (fails on unapproved license)
+check-licenses:
+    cargo about generate about.hbs > /dev/null
+
 # Run all checks (build + test + clippy + fmt + buf-lint)
 check: build test clippy fmt buf-lint

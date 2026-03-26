@@ -73,10 +73,19 @@ jobs:
       - name: Build
         run: cargo build --release --features server --bin rosql
 
+      - name: Install cargo-about
+        run: cargo install cargo-about --locked
+
+      - name: Generate third-party notices
+        run: cargo about generate about.hbs > THIRD_PARTY_NOTICES
+
       - name: Package
         run: |
+          mkdir -p staging
+          cp target/release/rosql staging/
+          cp NOTICE LICENSE THIRD_PARTY_NOTICES staging/
           tar czf rosql-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz \
-            -C target/release rosql
+            -C staging .
 
       - name: Upload to release
         env:

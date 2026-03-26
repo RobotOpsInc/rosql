@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-03-26
+
+### Added
+
+- `NOTICE` file (Apache 2.0 copyright attribution for Robot Ops Inc.)
+- `about.toml` and `about.hbs` for `cargo-about` third-party license attribution
+- `just notices` recipe to generate `THIRD_PARTY_NOTICES`
+- `just check-licenses` recipe to verify all dependency licenses are approved
+- CI `license-check` job: validates attribution can be generated on every PR
+- Release binaries now include `NOTICE`, `LICENSE`, and `THIRD_PARTY_NOTICES` in tarballs
+
 ## [0.3.1] - 2026-03-26
 
 ### Fixed

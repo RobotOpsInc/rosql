@@ -1,0 +1,18 @@
+ROSQL
+Copyright 2026 Robot Ops Inc.
+
+This product is licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+---
+
+This product includes third-party software with their own licenses.
+A complete list of third-party attributions is available in THIRD_PARTY_NOTICES
+in each release asset, or by running:
+
+    cargo install cargo-about
+    cargo about generate about.hbs
+
+ROSQL™ is a trademark of Robot Ops Inc.
