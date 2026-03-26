@@ -4,7 +4,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import CodeBlock from '@theme/CodeBlock';
 import Head from '@docusaurus/Head';
-import { Bot, ChartScatter, Table, Share2 } from 'lucide-react';
+import { Bot, ChartScatter, Table, Share2, Terminal, Database, Braces, BarChart2, ArrowRight } from 'lucide-react';
 import { RosqlRepl } from '@site/src/components/RosqlRepl';
 
 const JSON_LD = JSON.stringify({
@@ -51,22 +51,22 @@ const ARCH_DIAGRAM = `  ROS2 System
 
 type DriverStatus = 'available' | 'coming-soon' | 'planned';
 
-const DRIVERS: { name: string; flag: string; status: DriverStatus; issue?: string }[] = [
-  { name: 'PostgreSQL / TimescaleDB', flag: 'postgres', status: 'available' },
-  { name: 'MySQL / MariaDB', flag: 'mysql', status: 'available' },
-  { name: 'DuckDB (embedded)', flag: 'duckdb', status: 'coming-soon', issue: '18' },
+const DRIVERS: { name: string; flag: string; status: DriverStatus; version?: string; issue?: string }[] = [
+  { name: 'PostgreSQL / TimescaleDB', flag: 'postgres', status: 'available', version: 'v0.1' },
+  { name: 'MySQL / MariaDB', flag: 'mysql', status: 'available', version: 'v0.1' },
+  { name: 'DuckDB (embedded)', flag: 'duckdb', status: 'available', version: 'v0.3' },
   { name: 'AWS Athena', flag: 'athena', status: 'planned', issue: '9' },
   { name: 'Google BigQuery', flag: 'bigquery', status: 'planned', issue: '10' },
 ];
 
-function StatusBadge({ status, issue }: { status: DriverStatus; issue?: string }) {
+function StatusBadge({ status, version, issue }: { status: DriverStatus; version?: string; issue?: string }) {
   const styles: Record<DriverStatus, React.CSSProperties> = {
     available: { background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0' },
     'coming-soon': { background: '#fef9c3', color: '#854d0e', border: '1px solid #fef08a' },
     planned: { background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1' },
   };
   const labels: Record<DriverStatus, string> = {
-    available: '✅ v0.1',
+    available: `✅ ${version ?? 'v0.1'}`,
     'coming-soon': '🔜 Coming soon',
     planned: '📋 Planned',
   };
@@ -136,10 +136,8 @@ export default function Home(): ReactNode {
               Querying sample ROS2 telemetry data from{' '}
               <a href="https://github.com/RobotOpsInc/rosql/tree/main/examples/postgres/fixtures" style={{ color: 'var(--ifm-color-primary-lighter)' }}>fixture files</a>
             </p>
-            <p style={{ textAlign: 'center', fontSize: '0.9rem', color: '#6B7280', marginTop: '1.25rem', maxWidth: 680, margin: '1rem auto 0', lineHeight: 1.6 }}>
-              Results are unified across signal types — tables for SQL consumers, structured objects
-              for programmatic processing, chart-ready data for visualization, and causality graphs
-              for message tracing. Available as a library, CLI, gRPC server, and{' '}
+            <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#4B5563', marginTop: '1rem' }}>
+              Available as a library, CLI, gRPC server, and{' '}
               <a href="/docs/wasm" style={{ color: 'var(--ifm-color-primary-lighter)' }}>WASM package</a>.
             </p>
           </div>
@@ -147,6 +145,55 @@ export default function Home(): ReactNode {
       </header>
 
       <main>
+        {/* Unified output flow */}
+        <section className="unified-output-section">
+          <div className="container">
+            <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>One query. Every format you need.</h2>
+            <p style={{ textAlign: 'center', maxWidth: 580, margin: '0 auto 3rem', color: 'var(--ifm-color-emphasis-700)' }}>
+              Results are unified across signal types — tables for SQL consumers, structured objects
+              for programmatic processing, chart-ready data for visualization, and causality graphs
+              for message tracing.
+            </p>
+            <div className="unified-flow">
+              {/* ROSQL source */}
+              <div className="unified-flow-node unified-flow-node--source">
+                <Terminal size={26} strokeWidth={1.5} className="unified-flow-icon" />
+                <span className="unified-flow-label">ROSQL Query</span>
+                <span className="unified-flow-sub">Your robot's language</span>
+              </div>
+
+              <ArrowRight size={20} className="unified-flow-arrow" />
+
+              {/* Telemetry database */}
+              <div className="unified-flow-node unified-flow-node--db">
+                <Database size={26} strokeWidth={1.5} className="unified-flow-icon" />
+                <span className="unified-flow-label">Robot Telemetry</span>
+                <span className="unified-flow-sub">PostgreSQL · MySQL · DuckDB</span>
+              </div>
+
+              <ArrowRight size={20} className="unified-flow-arrow" />
+
+              {/* Outputs */}
+              <div className="unified-flow-outputs">
+                {([
+                  { Icon: Table,    label: 'Tabular rows',      desc: 'For SQL consumers & data tools' },
+                  { Icon: Braces,   label: 'Structured objects', desc: 'For programmatic processing' },
+                  { Icon: BarChart2,label: 'Chart-ready data',   desc: 'Feed directly into dashboards' },
+                  { Icon: Share2,   label: 'Causality graphs',   desc: 'Trace message propagation' },
+                ] as const).map(({ Icon, label, desc }) => (
+                  <div key={label} className="unified-output-card">
+                    <Icon size={16} strokeWidth={1.5} className="unified-output-icon" />
+                    <div>
+                      <strong className="unified-output-label">{label}</strong>
+                      <span className="unified-output-desc">{desc}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Benefits */}
         <section style={{ padding: '3rem 0', borderBottom: '1px solid var(--ifm-color-emphasis-200)' }}>
           <div className="container">
@@ -237,11 +284,11 @@ export default function Home(): ReactNode {
                   </tr>
                 </thead>
                 <tbody>
-                  {DRIVERS.map(({ name, flag, status, issue }) => (
+                  {DRIVERS.map(({ name, flag, status, version, issue }) => (
                     <tr key={flag}>
                       <td>{name}</td>
                       <td><code>{flag}</code></td>
-                      <td><StatusBadge status={status} issue={issue} /></td>
+                      <td><StatusBadge status={status} version={version} issue={issue} /></td>
                     </tr>
                   ))}
                 </tbody>
