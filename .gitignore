@@ -1,5 +1,6 @@
 /target
 src/proto/rosql.v1.rs
+THIRD_PARTY_NOTICES
 .claude
 website/node_modules
 website/.docusaurus
