@@ -123,3 +123,20 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses bans sources
+
+  license-check:
+    name: License Attribution Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Install cargo-about
+        run: cargo install cargo-about --locked
+
+      - name: Check licenses and generate attribution
+        run: cargo about generate about.hbs > /dev/null
