@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-03-26
+
+### Fixed
+
+- CI: build WASM package before website build in deploy workflow
+- `cargo fmt`: line-length reformatting in `dialect.rs`, `sql.rs`, `wasm.rs`
+- Homepage OG image replaced with actual homepage screenshot
+- Homepage unified output flow diagram section added between REPL and Why ROSQL?
+
 ## [0.3.0] - 2026-03-25
 
 ### Added
