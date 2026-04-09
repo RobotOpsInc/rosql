@@ -5,19 +5,14 @@ expression: ast
 Standard:
   selections:
     - Star
-  data_source:
-    TopicAlias: Odom
+  data_source: Logs
   robot_scope: ~
   conditions: ~
   facet: ~
-  time_range:
-    Since:
-      Relative:
-        amount: 10
-        unit: minutes
+  time_range: ~
   time_basis: ~
   order_by: ~
   limit: ~
-  offset: ~
+  offset: 10
   output_format: ~
   baseline: ~

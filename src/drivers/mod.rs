@@ -64,6 +64,9 @@ pub struct ExecOptions {
     pub max_rows: Option<u64>,
     /// If true, return the compiled SQL without executing it.
     pub dry_run: bool,
+    /// Default LIMIT to apply when no explicit LIMIT is in the query.
+    /// Defaults to Some(100) at execution time when not set.
+    pub default_limit: Option<u64>,
 }
 
 /// The result of executing a ROSQL query.
@@ -99,4 +102,6 @@ pub struct ResultMetadata {
     pub execution_time_ms: u64,
     /// The compiled SQL string (for debugging / dry_run).
     pub compiled_sql: String,
+    /// Whether a default LIMIT of 100 was automatically applied to this query.
+    pub default_limit_applied: bool,
 }

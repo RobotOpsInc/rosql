@@ -31,6 +31,7 @@ message StandardQuery {
   optional uint64 limit = 9;
   OutputFormat output_format = 10;
   Baseline baseline = 11;
+  optional uint64 offset = 12;
 }
 
 // Pipeline query: FROM source | WHERE ... | FACET ...
@@ -52,6 +53,7 @@ message PipelineStage {
     Baseline compare_to = 10;
     RobotScope for_robot = 11;
     CompoundClause compound_clause = 12;
+    uint64 offset = 13;
   }
 }
 
@@ -71,6 +73,7 @@ message CompoundQuery {
   optional uint64 limit = 8;
   OutputFormat output_format = 9;
   Baseline baseline = 10;
+  optional uint64 offset = 11;
 }
 
 // ==========================================================================

@@ -45,5 +45,6 @@ Standard:
     field: duration
     direction: Desc
   limit: 10
+  offset: ~
   output_format: ~
   baseline: LastWeek

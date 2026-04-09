@@ -215,6 +215,10 @@ impl<'src> Parser<'src> {
             return Err(ROSQLError::ReservedSyntax {
                 keyword: "ALERT".into(),
                 location: loc,
+                message: "ALERT is a reserved keyword but is not supported in ROSQL. \
+                           Alert rules should be configured in the Robot Ops platform. \
+                           ROSQL is a read-only query language."
+                    .into(),
             });
         }
         if matches!(self.peek(), Some(Token::Define)) {
@@ -222,6 +226,9 @@ impl<'src> Parser<'src> {
             return Err(ROSQLError::ReservedSyntax {
                 keyword: "DEFINE".into(),
                 location: loc,
+                message: "DEFINE is a reserved keyword but is not supported in ROSQL. \
+                           Saved queries can be managed in the Robot Ops platform dashboard."
+                    .into(),
             });
         }
         Ok(())
@@ -247,6 +254,7 @@ impl<'src> Parser<'src> {
             time_basis: None,
             order_by: None,
             limit: None,
+            offset: None,
             output_format: None,
             baseline: None,
         };
@@ -312,6 +320,15 @@ impl<'src> Parser<'src> {
                 Some(Token::Limit) => {
                     self.advance();
                     query.limit = Some(self.parse_limit_value()?);
+                    // Support inline LIMIT N OFFSET M
+                    if matches!(self.peek(), Some(Token::Offset)) {
+                        self.advance();
+                        query.offset = Some(self.parse_limit_value()?);
+                    }
+                }
+                Some(Token::Offset) => {
+                    self.advance();
+                    query.offset = Some(self.parse_limit_value()?);
                 }
                 Some(Token::Format) => {
                     self.advance();
@@ -385,6 +402,10 @@ impl<'src> Parser<'src> {
                 self.advance();
                 Ok(PipelineStage::Limit(self.parse_limit_value()?))
             }
+            Some(Token::Offset) => {
+                self.advance();
+                Ok(PipelineStage::Offset(self.parse_limit_value()?))
+            }
             Some(Token::Format) => {
                 self.advance();
                 Ok(PipelineStage::Format(self.parse_output_format()?))
@@ -415,6 +436,7 @@ impl<'src> Parser<'src> {
             facet: None,
             order_by: None,
             limit: None,
+            offset: None,
             output_format: None,
             baseline: None,
         };
@@ -449,6 +471,15 @@ impl<'src> Parser<'src> {
                 Some(Token::Limit) => {
                     self.advance();
                     cq.limit = Some(self.parse_limit_value()?);
+                    // Support inline LIMIT N OFFSET M
+                    if matches!(self.peek(), Some(Token::Offset)) {
+                        self.advance();
+                        cq.offset = Some(self.parse_limit_value()?);
+                    }
+                }
+                Some(Token::Offset) => {
+                    self.advance();
+                    cq.offset = Some(self.parse_limit_value()?);
                 }
                 Some(Token::Format) => {
                     self.advance();

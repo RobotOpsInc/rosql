@@ -225,11 +225,11 @@ fn cmd_compile(query: &str, backend: Backend, schema: Schema) {
         recording_index: true,
     };
 
-    match rosql::drivers::compiler::compile(&ast, &registry, &dialect, &capabilities) {
-        Ok(sql) => {
+    match rosql::drivers::compiler::compile(&ast, &registry, &dialect, &capabilities, None) {
+        Ok(cr) => {
             let json = serde_json::json!({
                 "ok": true,
-                "sql": sql,
+                "sql": cr.sql,
                 "backend": format!("{backend:?}").to_lowercase(),
             });
             println!("{}", serde_json::to_string_pretty(&json).unwrap());

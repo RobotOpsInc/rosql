@@ -31,3 +31,15 @@ fn snapshot_pipeline_with_limit() {
     .unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
+
+#[test]
+fn snapshot_pipeline_with_offset() {
+    let ast = parse(
+        "FROM logs \
+         | WHERE ros.node = '/planner' \
+         | LIMIT 10 \
+         | OFFSET 20",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}

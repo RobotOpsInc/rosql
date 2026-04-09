@@ -84,3 +84,15 @@ fn snapshot_aggregation_with_args() {
     let ast = parse("SELECT PERCENTILE(duration, 95) FROM logs").unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
+
+#[test]
+fn snapshot_limit_offset() {
+    let ast = parse("FROM logs LIMIT 20 OFFSET 40").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_offset_only() {
+    let ast = parse("FROM logs OFFSET 10").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}

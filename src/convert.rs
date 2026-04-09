@@ -36,6 +36,7 @@ fn standard_query_to_proto(sq: &ast::ROSQLQuery) -> pb::StandardQuery {
             .unwrap_or(0),
         order_by: sq.order_by.as_ref().map(order_by_to_proto),
         limit: sq.limit,
+        offset: sq.offset,
         output_format: sq
             .output_format
             .map(|f| output_format_to_proto(f) as i32)
@@ -68,6 +69,7 @@ fn pipeline_stage_to_proto(stage: &ast::PipelineStage) -> pb::PipelineStage {
             pb::pipeline_stage::Stage::OrderBy(order_by_to_proto(ob))
         }
         ast::PipelineStage::Limit(n) => pb::pipeline_stage::Stage::Limit(*n),
+        ast::PipelineStage::Offset(n) => pb::pipeline_stage::Stage::Offset(*n),
         ast::PipelineStage::Format(f) => {
             pb::pipeline_stage::Stage::Format(output_format_to_proto(*f) as i32)
         }
@@ -99,6 +101,7 @@ fn compound_query_to_proto(cq: &ast::CompoundQuery) -> pb::CompoundQuery {
         facet: cq.facet.as_ref().map(facet_to_proto),
         order_by: cq.order_by.as_ref().map(order_by_to_proto),
         limit: cq.limit,
+        offset: cq.offset,
         output_format: cq
             .output_format
             .map(|f| output_format_to_proto(f) as i32)

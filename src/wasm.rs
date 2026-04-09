@@ -53,18 +53,38 @@ pub fn parse(query: &str) -> JsValue {
     }
 }
 
-/// Validate a ROSQL query string without full AST construction.
+/// Validate a ROSQL query string.
 ///
 /// Returns a JSON object:
 /// `{ valid: bool, errors: [...], warnings: [...] }`
+///
+/// Warnings are surfaced for features that parse correctly but cannot be compiled
+/// (e.g. `NotImplemented` features like `HEALTH()` or `NODE_STATUS()`).
 #[wasm_bindgen]
 pub fn validate(query: &str) -> JsValue {
     match crate::parser::parse(query) {
-        Ok(_) => {
+        Ok(ast) => {
+            // Second phase: attempt compilation to surface NotImplemented warnings.
+            let registry = default_otel_registry();
+            let dialect = SqlDialect::DuckDB;
+            let capabilities = BackendCapabilities {
+                topic_data: true,
+                recording_index: true,
+            };
+            let warnings = match compiler::compile(&ast, &registry, &dialect, &capabilities, None) {
+                Ok(_) => vec![],
+                Err(crate::error::ROSQLError::NotImplemented { feature, message }) => {
+                    vec![serde_json::json!({
+                        "feature": feature,
+                        "message": message,
+                    })]
+                }
+                Err(_) => vec![],
+            };
             let result = serde_json::json!({
                 "valid": true,
                 "errors": [],
-                "warnings": [],
+                "warnings": warnings,
             });
             serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
         }
@@ -81,6 +101,15 @@ pub fn validate(query: &str) -> JsValue {
                         "line": location.line,
                         "column": location.column,
                         "suggestion": suggestion,
+                    }),
+                    crate::error::ROSQLError::ReservedSyntax {
+                        message,
+                        location,
+                        ..
+                    } => serde_json::json!({
+                        "message": message,
+                        "line": location.line,
+                        "column": location.column,
                     }),
                     other => serde_json::json!({
                         "message": other.to_string(),
@@ -112,9 +141,13 @@ pub fn compile(query: &str) -> JsValue {
         recording_index: true,
     };
     match crate::parser::parse(query) {
-        Ok(ast) => match compiler::compile(&ast, &registry, &dialect, &capabilities) {
-            Ok(sql) => {
-                let result = serde_json::json!({ "ok": true, "sql": sql });
+        Ok(ast) => match compiler::compile(&ast, &registry, &dialect, &capabilities, Some(100)) {
+            Ok(cr) => {
+                let result = serde_json::json!({
+                    "ok": true,
+                    "sql": cr.sql,
+                    "default_limit_applied": cr.default_limit_applied,
+                });
                 serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
             }
             Err(e) => {

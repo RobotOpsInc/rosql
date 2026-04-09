@@ -29,6 +29,7 @@ pub struct ROSQLQuery {
     pub time_basis: Option<TimeBasis>,
     pub order_by: Option<OrderBy>,
     pub limit: Option<u64>,
+    pub offset: Option<u64>,
     pub output_format: Option<OutputFormat>,
     pub baseline: Option<Baseline>,
 }
@@ -50,6 +51,7 @@ pub enum PipelineStage {
     Using(TimeBasis),
     OrderBy(OrderBy),
     Limit(u64),
+    Offset(u64),
     Format(OutputFormat),
     CompareTo(Baseline),
     ForRobot(RobotScope),
@@ -67,6 +69,7 @@ pub struct CompoundQuery {
     pub facet: Option<FacetClause>,
     pub order_by: Option<OrderBy>,
     pub limit: Option<u64>,
+    pub offset: Option<u64>,
     pub output_format: Option<OutputFormat>,
     pub baseline: Option<Baseline>,
 }
