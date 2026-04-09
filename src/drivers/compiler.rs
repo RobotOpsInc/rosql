@@ -5,10 +5,22 @@
 
 use crate::ast::*;
 use crate::error::ROSQLError;
+use serde::{Deserialize, Serialize};
 
 use super::dialect::SqlDialect;
 use super::field_registry::FieldRegistry;
-use super::BackendCapabilities;
+use super::{BackendCapabilities, VisualizationConfig};
+
+/// A structured, non-fatal compiler warning.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompilerWarning {
+    /// Machine-readable warning code (e.g. `"ANOMALY_NO_FACET"`).
+    pub code: String,
+    /// Human-readable warning message.
+    pub message: String,
+    /// Optional actionable suggestion.
+    pub suggestion: Option<String>,
+}
 
 /// Result of compiling a ROSQL AST to SQL.
 #[derive(Debug)]
@@ -20,7 +32,11 @@ pub struct CompileResult {
     /// Enrichment plans to execute in phase 2 (empty for non-enriched queries).
     pub enrichments: Vec<EnrichmentPlan>,
     /// Non-fatal compiler warnings (e.g. ANOMALY without FACET).
-    pub warnings: Vec<String>,
+    pub warnings: Vec<CompilerWarning>,
+    /// Inferred presentation-layer format hint.
+    pub format_hint: FormatHint,
+    /// Visualization configuration (axes, series key, etc.).
+    pub visualization: Option<VisualizationConfig>,
 }
 
 /// A compiled enrichment plan for two-phase execution (ENRICH WITH).
@@ -69,25 +85,35 @@ pub fn compile(
     // Collect non-fatal warnings (e.g. ANOMALY without FACET).
     let warnings = collect_warnings(query_ref);
 
+    // Infer the presentation-layer format hint from the query shape.
+    let (format_hint, visualization) = super::format_inference::infer_format(query_ref);
+
     Ok(CompileResult {
         sql,
         default_limit_applied,
         enrichments,
         warnings,
+        format_hint,
+        visualization,
     })
 }
 
 /// Collect non-fatal compiler warnings from the (possibly limit-adjusted) query.
-fn collect_warnings(query: &Query) -> Vec<String> {
+fn collect_warnings(query: &Query) -> Vec<CompilerWarning> {
     let mut warnings = Vec::new();
     if let Query::Compound(cq) = query {
         if let CompoundClause::Anomaly { .. } = &cq.clause {
             if cq.facet.is_none() {
-                warnings.push(
-                    "ANOMALY without FACET compares heterogeneous spans (e.g. heartbeats vs \
-                     navigation). Add FACET robot_id or FACET action_name for meaningful z-scores."
+                warnings.push(CompilerWarning {
+                    code: "ANOMALY_NO_FACET".into(),
+                    message: "ANOMALY without FACET compares heterogeneous spans (e.g. heartbeats \
+                              vs navigation), producing misleading z-scores."
                         .into(),
-                );
+                    suggestion: Some(
+                        "Add FACET robot_id or FACET action_name to compare like-for-like spans."
+                            .into(),
+                    ),
+                });
             }
         }
     }
@@ -303,11 +329,11 @@ impl<'a> CompileCtx<'a> {
                 .unwrap();
             let base = if let Some(ref facet) = q.facet {
                 let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
+                let col = self.resolve_column(&facet.dimension, &table)?;
                 if is_star {
-                    let col = self.resolve_column(&facet.dimension, &table)?;
                     format!("{col}, COUNT(*) AS count")
                 } else {
-                    self.compile_selections(&q.selections, &table)?
+                    format!("{col}, {}", self.compile_selections(&q.selections, &table)?)
                 }
             } else if matches!(q.selections.as_slice(), [crate::ast::Selection::Star]) {
                 // Default: COUNT(*) for timeseries without explicit aggregation
@@ -318,11 +344,11 @@ impl<'a> CompileCtx<'a> {
             format!("{ts_expr} AS time_bucket, {base}")
         } else if let Some(ref facet) = q.facet {
             let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
+            let col = self.resolve_column(&facet.dimension, &table)?;
             if is_star {
-                let col = self.resolve_column(&facet.dimension, &table)?;
                 format!("{col}, COUNT(*) AS count")
             } else {
-                self.compile_selections(&q.selections, &table)?
+                format!("{col}, {}", self.compile_selections(&q.selections, &table)?)
             }
         } else {
             self.compile_selections(&q.selections, &table)?
@@ -938,6 +964,14 @@ impl<'a> CompileCtx<'a> {
         plan_index: Option<i64>,
         cq: &CompoundQuery,
     ) -> Result<String, ROSQLError> {
+        if !self.capabilities.topic_data {
+            return Err(ROSQLError::DataSourceUnavailable {
+                data_source: "topic_messages".into(),
+                message: "PATH DEVIATION requires topic ingest (topic_messages table). \
+                          Configure topic ingest to enable this feature."
+                    .into(),
+            });
+        }
         let tbl = self.qtable("topic_messages");
         let plan_offset = match plan_index.unwrap_or(-1) {
             -1 => 0i64,       // latest plan = most recent = OFFSET 0 after DESC sort
@@ -989,10 +1023,7 @@ impl<'a> CompileCtx<'a> {
              SQRT(POWER(a.actual_x::FLOAT - p.x::FLOAT, 2) + \
                   POWER(a.actual_y::FLOAT - p.y::FLOAT, 2)) AS lateral_deviation_m \
              FROM actual_poses a \
-             CROSS JOIN LATERAL (\
-               SELECT x, y FROM planned_path ORDER BY ABS(EXTRACT(EPOCH FROM \
-               (planned_path.timestamp - a.timestamp))) LIMIT 1\
-             ) p\
+             CROSS JOIN planned_path p\
              ) SELECT \
              MAX(lateral_deviation_m) AS max_lateral_deviation_m, \
              AVG(lateral_deviation_m) AS mean_lateral_deviation_m, \
@@ -1009,6 +1040,14 @@ impl<'a> CompileCtx<'a> {
         target: &DeviationTarget,
         cq: &CompoundQuery,
     ) -> Result<String, ROSQLError> {
+        if !self.capabilities.topic_data {
+            return Err(ROSQLError::DataSourceUnavailable {
+                data_source: "topic_messages".into(),
+                message: "JOINT DEVIATION requires topic ingest (topic_messages table). \
+                          Configure topic ingest to enable this feature."
+                    .into(),
+            });
+        }
         let tbl = self.qtable("topic_messages");
         let fields = self.col("fields");
 
@@ -1276,36 +1315,40 @@ impl<'a> CompileCtx<'a> {
             // TOPIC_RATE([topic_name]) → query otel_metrics for ros2.topic.message_rate
             AggregationFn::TopicRate => {
                 let metrics_table = self.dialect.quote_ident("otel_metrics");
+                let value_col = self.col("metric_value");
+                let metric_name_col = self.col("metric_name");
                 let topic_filter = if let Some(arg) = agg.args.first() {
                     let topic = self.compile_expr(arg, table)?;
-                    format!(" AND topic_name = {topic}")
+                    let topic_attr = self.dialect.json_access_text("attributes", "topic");
+                    format!(" AND {topic_attr} = {topic}")
                 } else {
                     String::new()
                 };
                 Ok(format!(
-                    "(SELECT AVG(metric_value) FROM {metrics_table} \
-                     WHERE metric_name = 'ros2.topic.message_rate'{topic_filter})"
+                    "(SELECT AVG({value_col}) FROM {metrics_table} \
+                     WHERE {metric_name_col} = 'ros2.topic.message_rate'{topic_filter})"
                 ))
             }
 
             // ACTION_SUCCESS_RATE([action_name]) → CASE WHEN ratio
             AggregationFn::ActionSuccessRate => {
+                let status_col = self.col("action_status");
+                let name_col = self.col("action_name");
                 if let Some(arg) = agg.args.first() {
                     // With action filter: wrap as subquery
                     let action = self.compile_expr(arg, table)?;
                     let quoted_table = self.dialect.quote_ident(table);
                     Ok(format!(
-                        "(SELECT CAST(COUNT(CASE WHEN action_status = 'succeeded' THEN 1 END) \
+                        "(SELECT CAST(COUNT(CASE WHEN {status_col} = 'succeeded' THEN 1 END) \
                          AS DOUBLE PRECISION) / NULLIF(COUNT(*), 0) \
-                         FROM {quoted_table} WHERE action_name = {action})"
+                         FROM {quoted_table} WHERE {name_col} = {action})"
                     ))
                 } else {
                     // Without filter: inline expression
-                    Ok(
-                        "CAST(COUNT(CASE WHEN action_status = 'succeeded' THEN 1 END) \
+                    Ok(format!(
+                        "CAST(COUNT(CASE WHEN {status_col} = 'succeeded' THEN 1 END) \
                          AS DOUBLE PRECISION) / NULLIF(COUNT(*), 0)"
-                            .into(),
-                    )
+                    ))
                 }
             }
 
@@ -1680,12 +1723,12 @@ impl<'a> CompileCtx<'a> {
             })
     }
 
-    fn resolve_column(&self, field_name: &str, _table: &str) -> Result<String, ROSQLError> {
+    fn resolve_column(&self, field_name: &str, table: &str) -> Result<String, ROSQLError> {
         if field_name == "*" {
             return Ok("*".into());
         }
 
-        if let Some(field_def) = self.registry.resolve(field_name) {
+        if let Some(field_def) = self.registry.resolve_for_table(field_name, table) {
             if field_def.is_map_access {
                 if let (Some(ref map_col), Some(ref map_key)) =
                     (&field_def.map_column, &field_def.map_key)
@@ -1841,8 +1884,14 @@ mod tests {
 
     #[test]
     fn facet_group_by() {
+        // robot_id on otel_logs resolves to resource_attributes->>'robot.id' (not a bare column).
         let sql = compile_pg("FROM logs FACET robot_id");
-        assert!(sql.contains(r#"GROUP BY "robot_id""#), "got: {sql}");
+        assert!(
+            sql.contains("resource_attributes") && sql.contains("robot.id"),
+            "got: {sql}"
+        );
+        // The facet column must appear in both SELECT and GROUP BY.
+        assert!(sql.contains("GROUP BY"), "got: {sql}");
     }
 
     #[test]

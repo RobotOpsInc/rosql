@@ -424,7 +424,7 @@ pub enum SortDirection {
     Desc,
 }
 
-/// Output format (FORMAT clause).
+/// Output format (FORMAT clause) — user-facing keyword after `FORMAT`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OutputFormat {
     Table,
@@ -433,6 +433,38 @@ pub enum OutputFormat {
     TraceTree,
     Graph,
     Path,
+}
+
+/// Presentation-layer format hint — inferred from query shape for frontends.
+///
+/// Unlike `OutputFormat` (which reflects the user's explicit `FORMAT` clause),
+/// `FormatHint` is automatically inferred from the query structure and tells
+/// consumers how to best visualize the result (e.g. line chart, gantt, etc.).
+/// An explicit `FORMAT` clause overrides inference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FormatHint {
+    /// Generic tabular display (default fallback).
+    Table,
+    /// Time-bucketed line chart (TIMESERIES without FACET).
+    LineChart,
+    /// Multi-series time-bucketed line chart (TIMESERIES with FACET).
+    StackedLineChart,
+    /// Bar chart (FACET without TIMESERIES, or aggregation by category).
+    BarChart,
+    /// Horizontal bar chart (SHOW SPAN SUMMARY).
+    HorizontalBars,
+    /// Gantt / waterfall chart (TRACE 'id').
+    Gantt,
+    /// Directed graph (MESSAGE FLOW).
+    DirectedGraph,
+    /// Undirected node graph (SHOW NODE GRAPH).
+    NodeGraph,
+    /// Metric cards for scalar aggregations.
+    ScalarCards,
+    /// Log viewer with severity coloring (FROM logs).
+    LogTable,
+    /// Recording / bag file list (FROM recordings).
+    RecordingList,
 }
 
 // ===========================================================================

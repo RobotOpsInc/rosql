@@ -474,8 +474,208 @@ FROM logs | ORDER BY timestamp DESC | LIMIT 20 | OFFSET 40
 
 ---
 
+## Investigating failed navigation with ENRICH WITH
+
+Use `ENRICH WITH` to pull correlated data from a second source alongside your primary query. Here we fetch the error trace and enrich it with log context from the same trace.
+
+### Step 1: find the failed navigation trace
+
+```sql
+FROM traces
+WHERE action_name = '/navigate_to_pose' AND status = 'ERROR'
+SINCE 2 hours ago
+ORDER BY timestamp DESC
+LIMIT 5
+```
+
+### Step 2: enrich with logs for the same trace
+
+```sql
+FROM traces
+WHERE action_name = '/navigate_to_pose' AND status = 'ERROR'
+SINCE 2 hours ago
+ENRICH WITH logs
+```
+
+The result includes all primary trace columns plus `_enriched.logs` — a nested array of log rows sharing the same `trace_id`.
+
+### Step 3: inspect the trace tree
+
+```sql
+TRACE 'a3f1c9d2e8b04f7a'
+```
+
+Returns a nested span tree (`format_hint: Gantt`) showing the full execution timeline for that navigation attempt.
+
+---
+
+## Finding anomalous robots after deployment
+
+### Spot robots behaving differently from the fleet after a code push
+
+```sql
+ANOMALY(duration)
+COMPARED TO fleet
+FACET robot_id
+SINCE 1 hour ago
+```
+
+Returns one row per robot with `z_score`, `is_anomalous`, and `direction` (higher/lower). Robots with `|z_score| > 2` are flagged as anomalous.
+
+:::tip
+Always add `FACET robot_id` or `FACET action_name` to `ANOMALY`. Without a FACET, the comparison mixes heterogeneous spans (heartbeats, navigation, diagnostics) producing meaningless z-scores. ROSQL will warn you if you forget.
+:::
+
+### Compare this version to the previous one
+
+```sql
+FROM traces
+WHERE action_name = '/navigate_to_pose'
+COMPARE VERSION 'v2.3.1' TO VERSION 'v2.3.0'
+```
+
+---
+
+## REPL showcase examples
+
+These six queries illustrate the range of visualizations available. Each uses a distinct `format_hint`.
+
+### 1. Line chart — error rate over time
+
+```sql
+SELECT COUNT(*) FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 6 hours ago
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "LineChart",
+  "visualization": { "x_axis": "time_bucket", "y_axis": "count" }
+}
+```
+
+### 2. Gantt chart — trace waterfall
+
+```sql
+TRACE 'abc123'
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "Gantt",
+  "visualization": null
+}
+```
+
+### 3. Directed graph — pub/sub topology
+
+```sql
+MESSAGE FLOW FROM TOPIC '/cmd_vel'
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "DirectedGraph",
+  "visualization": null
+}
+```
+
+### 4. Severity-colored log table
+
+```sql
+FROM logs WHERE severity IN ('ERROR', 'FATAL') SINCE 1 hour ago
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "LogTable",
+  "visualization": { "color_field": "severity" }
+}
+```
+
+### 5. Scalar cards — KPI summary
+
+```sql
+SELECT COUNT(*) AS total_errors, AVG(duration) AS avg_duration FROM traces SINCE 1 hour ago
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "ScalarCards",
+  "visualization": { "label_field": "total_errors" }
+}
+```
+
+### 6. Bar chart — error count by robot
+
+```sql
+SELECT action_name, COUNT(*) FROM traces FACET action_name SINCE 1 hour ago
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "BarChart",
+  "visualization": { "x_axis": "action_name", "y_axis": "count" }
+}
+```
+
+---
+
+## Session and mission data model
+
+A ROSQL *session* corresponds to a ROS2 run scoped by `ros.session.id`. All spans, logs, and metrics emitted during a single robot operation (delivery, inspection, etc.) share this attribute.
+
+### Setting session attributes (Python)
+
+```python
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.resources import Resource
+
+resource = Resource.create({
+    "robot.id": "robot_42",
+    "ros.session.id": "delivery_042",
+    "ros.session.type": "delivery",
+    "service.version": "2.3.1",
+    "deployment.environment": "production",
+})
+
+provider = TracerProvider(resource=resource)
+trace.set_tracer_provider(provider)
+```
+
+### Setting session attributes (C++)
+
+```cpp
+#include "opentelemetry/sdk/resource/resource.h"
+
+auto resource = opentelemetry::sdk::resource::Resource::Create({
+    {"robot.id", "robot_42"},
+    {"ros.session.id", "delivery_042"},
+    {"ros.session.type", "delivery"},
+    {"service.version", "2.3.1"},
+    {"deployment.environment", "production"},
+});
+```
+
+### Querying by session
+
+```sql
+FOR SESSION 'delivery_042' FROM traces WHERE status = 'ERROR'
+FOR SESSION 'delivery_042' FROM logs ORDER BY timestamp DESC
+```
+
+---
+
 ## See also
 
 - [Command Reference →](./command-reference) — full syntax for every ROSQL statement
+- [Schema Reference →](./schema-reference) — tables, fields, and OTel conventions
+- [Concepts →](./concepts) — SHOW vs FROM, scoping, joint indexing
 - [Schema Reference →](./schema-reference) — table structure ROSQL expects
 - [Examples page →](/examples) — killer demos with detailed explanations

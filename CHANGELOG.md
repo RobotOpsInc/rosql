@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-04-09
+
+### Added
+
+- **`FormatHint` inference** — every query response now includes a `format_hint` in `ResultMetadata` that tells frontends how to render the result (`LineChart`, `StackedLineChart`, `BarChart`, `Gantt`, `DirectedGraph`, `NodeGraph`, `HorizontalBars`, `ScalarCards`, `LogTable`, `RecordingList`, `Table`)
+- **`VisualizationConfig`** — optional `visualization` field in `ResultMetadata` carries axis, series key, color field, and label hints for charting libraries
+- **`FORMAT` clause wires through to hints** — explicit `FORMAT table|timeseries|scalar|trace_tree|graph|path` overrides inferred format hint; inference applies automatically when FORMAT is absent
+- **`ExecutionError`** — new `ROSQLError` variant wraps all database execution failures with data source context and an actionable `suggestion`; no raw `sqlx`/`duckdb` error text ever reaches the user
+- **`CompilerWarning` struct** — replaces `Vec<String>` warnings with structured `{ code, message, suggestion }` objects (e.g. `ANOMALY_NO_FACET`)
+- **OTel conventions doc** — `docs/ros2-otel-conventions.md` updated with the full robot_agent metric set: 17 system metrics, 10 ROS2 runtime metrics, 2 process metrics, deprecated name table, updated ROSQL field alias table
+- **Position field mappings** — added `gps.lat`/`gps.lon` aliases, `position.x`/`position.y` aliases, `orientation.yaw` (computed from quaternion), `velocity[N]` and `effort[N]` joint state paths
+- **New otel_registry shorthand fields** — `publish_rate`, `bandwidth`, `cpu_usage`, `memory_usage` now point to canonical metric names; 20+ new shorthand aliases for system, ROS2, and process metrics
+- **Proto additions** — `result.proto` adds `FormatHint` enum, `VisualizationConfig` message, `CompilerWarning` message, and three new fields on `QueryResult` (field numbers 8, 9, 16)
+- **WASM `compile()` response** — now includes `format_hint`, `visualization`, and `warnings` fields
+- **WASM `validate()` warnings** — structured `{ code, message, suggestion }` objects instead of raw strings; also surfaces `NOT_IMPLEMENTED` with a code field
+- **Cross-repo ticket** — RobotOpsInc/rmw_robotops#42 created for `ros.plan.id` span attribute injection on `/plan` and `/joint_trajectory` spans
+- **Documentation** — new `website/docs/concepts.mdx` covering: SHOW vs FROM, scoping with FOR, joint state array indexing, and ANOMALY FACET guidance
+- **Cookbook** — added: investigating failed navigation with ENRICH WITH, anomalous robots after deployment, REPL showcase examples (6 queries with expected `format_hint` and `visualization` responses), session/mission data model with Python and C++ examples
+- **Command reference** — added FORMAT clause docs, format hint inference table, visualization config field reference, error taxonomy table
+- **Schema reference** — updated metric field table with canonical names, expanded position field mappings table, added error taxonomy and warnings section
+
+### Changed
+
+- `ResultMetadata` now carries `format_hint: FormatHint`, `visualization: Option<VisualizationConfig>`, and `warnings: Vec<CompilerWarning>`
+- `CompileResult.warnings` changed from `Vec<String>` to `Vec<CompilerWarning>`
+- Metric field aliases `cpu_usage` and `memory_usage` now point to canonical OTel metric names (`system.cpu.utilization`, `system.memory.utilization`) instead of legacy names
+- `publish_rate` and `bandwidth` now point to `ros2.topic.message_rate` and `ros2.topic.bandwidth` (canonical names)
+- `ExecutionError` replaces `DriverError` for post-connection query execution failures; `DriverError` is retained for connection/setup failures only
+
 ## [0.4.3] - 2026-04-09
 
 ### Added

@@ -58,13 +58,14 @@ pub fn parse(query: &str) -> JsValue {
 /// Returns a JSON object:
 /// `{ valid: bool, errors: [...], warnings: [...] }`
 ///
-/// Warnings are surfaced for features that parse correctly but cannot be compiled
-/// (e.g. `NotImplemented` features like `HEALTH()` or `NODE_STATUS()`).
+/// Warnings are structured `{ code, message, suggestion }` objects surfaced
+/// for non-fatal issues (e.g. `ANOMALY without FACET`) as well as
+/// `NotImplemented` features like `HEALTH()` or `NODE_STATUS()`.
 #[wasm_bindgen]
 pub fn validate(query: &str) -> JsValue {
     match crate::parser::parse(query) {
         Ok(ast) => {
-            // Second phase: attempt compilation to surface NotImplemented warnings.
+            // Second phase: attempt compilation to surface warnings.
             let registry = default_otel_registry();
             let dialect = SqlDialect::DuckDB;
             let capabilities = BackendCapabilities {
@@ -72,11 +73,22 @@ pub fn validate(query: &str) -> JsValue {
                 recording_index: true,
             };
             let warnings = match compiler::compile(&ast, &registry, &dialect, &capabilities, None) {
-                Ok(_) => vec![],
+                Ok(cr) => cr
+                    .warnings
+                    .into_iter()
+                    .map(|w| {
+                        serde_json::json!({
+                            "code": w.code,
+                            "message": w.message,
+                            "suggestion": w.suggestion,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
                 Err(crate::error::ROSQLError::NotImplemented { feature, message }) => {
                     vec![serde_json::json!({
-                        "feature": feature,
-                        "message": message,
+                        "code": "NOT_IMPLEMENTED",
+                        "message": format!("{feature}: {message}"),
+                        "suggestion": null,
                     })]
                 }
                 Err(_) => vec![],
@@ -125,10 +137,10 @@ pub fn validate(query: &str) -> JsValue {
     }
 }
 
-/// Compile a ROSQL query string to SQL (PostgreSQL dialect).
+/// Compile a ROSQL query string to SQL (DuckDB dialect).
 ///
 /// Returns a JSON object:
-/// - `{ ok: true, sql: "SELECT ..." }` on success
+/// - `{ ok: true, sql: "SELECT ...", default_limit_applied: bool, format_hint: "...", visualization: {...}, warnings: [...] }` on success
 /// - `{ ok: false, error: { message, ... } }` on failure
 #[wasm_bindgen]
 pub fn compile(query: &str) -> JsValue {
@@ -141,10 +153,24 @@ pub fn compile(query: &str) -> JsValue {
     match crate::parser::parse(query) {
         Ok(ast) => match compiler::compile(&ast, &registry, &dialect, &capabilities, Some(100)) {
             Ok(cr) => {
+                let warnings: Vec<serde_json::Value> = cr
+                    .warnings
+                    .iter()
+                    .map(|w| {
+                        serde_json::json!({
+                            "code": w.code,
+                            "message": w.message,
+                            "suggestion": w.suggestion,
+                        })
+                    })
+                    .collect();
                 let result = serde_json::json!({
                     "ok": true,
                     "sql": cr.sql,
                     "default_limit_applied": cr.default_limit_applied,
+                    "format_hint": format!("{:?}", cr.format_hint),
+                    "visualization": serde_json::to_value(&cr.visualization).unwrap_or(serde_json::Value::Null),
+                    "warnings": warnings,
                 });
                 serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
             }

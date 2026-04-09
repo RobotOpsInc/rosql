@@ -5,9 +5,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// A registry mapping ROSQL field names to their database column definitions.
+///
+/// Multiple definitions can be registered under the same field name when a
+/// field has different representations across tables (e.g. `robot_id` is a
+/// bare column on `topic_messages` but a JSON-extracted value on OTel tables).
+/// `resolve_for_table` prefers the entry whose `source_table` matches; `resolve`
+/// falls back to the first registered entry for backwards compatibility.
 #[derive(Debug, Clone)]
 pub struct FieldRegistry {
-    fields: HashMap<String, FieldDef>,
+    fields: HashMap<String, Vec<FieldDef>>,
     /// Maps DataSource variants to their underlying table names.
     table_names: HashMap<String, String>,
 }
@@ -42,9 +48,13 @@ impl FieldRegistry {
         }
     }
 
-    /// Register a field definition.
+    /// Register a field definition. Multiple definitions for the same field
+    /// name are allowed (table-scoped overloads).
     pub fn register(&mut self, field: FieldDef) {
-        self.fields.insert(field.name.clone(), field);
+        self.fields
+            .entry(field.name.clone())
+            .or_default()
+            .push(field);
     }
 
     /// Register a table name mapping for a data source key.
@@ -53,15 +63,30 @@ impl FieldRegistry {
             .insert(source_key.to_string(), table_name.to_string());
     }
 
-    /// Resolve a ROSQL field name to its definition.
+    /// Resolve a ROSQL field name, preferring the definition whose
+    /// `source_table` matches `table`. Falls back to the first registered
+    /// definition if no table-specific entry exists.
+    pub fn resolve_for_table<'a>(&'a self, field_name: &str, table: &str) -> Option<&'a FieldDef> {
+        let defs = self.fields.get(field_name)?;
+        // Prefer an exact table match.
+        if let Some(def) = defs.iter().find(|d| d.source_table == table) {
+            return Some(def);
+        }
+        // Fall back to the first (and historically only) entry.
+        defs.first()
+    }
+
+    /// Resolve a ROSQL field name without table context.
+    /// Returns the first registered definition for the name.
     pub fn resolve(&self, field_name: &str) -> Option<&FieldDef> {
-        self.fields.get(field_name)
+        self.fields.get(field_name)?.first()
     }
 
     /// Get all fields defined for a given source table.
     pub fn fields_for_table(&self, table_name: &str) -> Vec<&FieldDef> {
         self.fields
             .values()
+            .flatten()
             .filter(|f| f.source_table == table_name)
             .collect()
     }
@@ -139,5 +164,56 @@ mod tests {
             reg.table_name(&DataSource::TopicAlias(crate::ast::TopicAlias::Odom)),
             Some("topic_messages")
         );
+    }
+
+    #[test]
+    fn table_scoped_resolution_prefers_matching_table() {
+        let mut reg = FieldRegistry::new();
+        // Register the same field name for two tables.
+        reg.register(FieldDef {
+            name: "robot_id".into(),
+            source_table: "topic_messages".into(),
+            column: "robot_id".into(),
+            storage_unit: None,
+            is_map_access: false,
+            map_column: None,
+            map_key: None,
+            metric_filter: None,
+        });
+        reg.register(FieldDef {
+            name: "robot_id".into(),
+            source_table: "otel_traces".into(),
+            column: "resource_attributes".into(),
+            storage_unit: None,
+            is_map_access: true,
+            map_column: Some("resource_attributes".into()),
+            map_key: Some("robot.id".into()),
+            metric_filter: None,
+        });
+        let for_traces = reg.resolve_for_table("robot_id", "otel_traces").unwrap();
+        assert!(for_traces.is_map_access);
+        let for_topics = reg.resolve_for_table("robot_id", "topic_messages").unwrap();
+        assert!(!for_topics.is_map_access);
+        // resolve() returns first registered (topic_messages)
+        let fallback = reg.resolve("robot_id").unwrap();
+        assert_eq!(fallback.source_table, "topic_messages");
+    }
+
+    #[test]
+    fn resolve_for_table_falls_back_when_no_table_match() {
+        let mut reg = FieldRegistry::new();
+        reg.register(FieldDef {
+            name: "duration".into(),
+            source_table: "otel_traces".into(),
+            column: "Duration".into(),
+            storage_unit: Some("ns".into()),
+            is_map_access: false,
+            map_column: None,
+            map_key: None,
+            metric_filter: None,
+        });
+        // Unknown table falls back to the one entry.
+        let def = reg.resolve_for_table("duration", "some_other_table").unwrap();
+        assert_eq!(def.column, "Duration");
     }
 }
