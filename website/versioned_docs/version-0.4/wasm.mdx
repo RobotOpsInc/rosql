@@ -1,0 +1,139 @@
+---
+title: WASM / Browser
+description: Use the @robotops/rosql npm package to parse and validate ROSQL queries in the browser
+sidebar_position: 4
+keywords: [rosql, wasm, webassembly, browser, npm, typescript, javascript]
+---
+
+# WASM / Browser
+
+The `@robotops/rosql` npm package exposes the ROSQL parser and validator for browser environments. Use it to build editor integrations, live query validation, or custom UIs.
+
+## Install
+
+```bash
+npm install @robotops/rosql
+# or
+pnpm add @robotops/rosql
+```
+
+## Usage
+
+```typescript
+import init, { parse, validate, get_completions } from '@robotops/rosql';
+
+// Initialize the WASM module (call once before using other functions)
+await init();
+
+// Parse a query — returns the AST as a JSON string
+const result = parse('FROM traces WHERE duration > 500 ms SINCE 1 hour ago');
+console.log(JSON.parse(result));
+
+// Validate syntax — returns { valid: boolean, errors: string[] }
+const validation = validate('INSERT INTO logs');
+console.log(JSON.parse(validation));
+// { "valid": false, "errors": ["Unsupported statement: INSERT"] }
+
+// Get autocomplete suggestions at cursor position
+const completions = get_completions('FROM ', 5);
+console.log(JSON.parse(completions));
+// [{ "label": "traces", "kind": "DataSource" }, { "label": "logs", ... }, ...]
+```
+
+## API reference
+
+### `init(url?: string): Promise<void>`
+
+Initializes the WASM module. Must be called before using `parse`, `validate`, or `get_completions`.
+
+Optionally accepts a URL to the `.wasm` file. If omitted, the module is resolved relative to the package.
+
+### `parse(query: string): string`
+
+Parses a ROSQL query and returns the AST as a JSON string. Throws an error if the query is syntactically invalid.
+
+### `validate(query: string): string`
+
+Validates a ROSQL query. Returns a JSON string with shape:
+```typescript
+{
+  valid: boolean;
+  errors: string[];
+}
+```
+
+Unlike `parse`, `validate` never throws — it returns errors as structured data. Use this for live editor feedback.
+
+### `get_completions(query: string, cursor: number): string`
+
+Returns autocomplete suggestions for an in-progress query at the given cursor position. Returns a JSON string with shape:
+```typescript
+Array<{
+  label: string;
+  kind: 'DataSource' | 'Keyword' | 'Field' | 'Function';
+}>
+```
+
+## React editor integration
+
+Example using `validate` for live error highlighting in a `<textarea>`:
+
+```tsx
+import { useState, useEffect } from 'react';
+import init, { validate } from '@robotops/rosql';
+
+export function RosqlEditor() {
+  const [query, setQuery] = useState('FROM traces WHERE status = \'ERROR\'');
+  const [errors, setErrors] = useState<string[]>([]);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    init().then(() => setReady(true));
+  }, []);
+
+  const handleChange = (value: string) => {
+    setQuery(value);
+    if (ready) {
+      const result = JSON.parse(validate(value));
+      setErrors(result.errors);
+    }
+  };
+
+  return (
+    <div>
+      <textarea
+        value={query}
+        onChange={(e) => handleChange(e.target.value)}
+        rows={6}
+        style={{ width: '100%', fontFamily: 'monospace' }}
+      />
+      {errors.length > 0 && (
+        <ul style={{ color: 'red' }}>
+          {errors.map((err, i) => <li key={i}>{err}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+```
+
+## Bundle size
+
+The WASM binary adds approximately ~500KB to your bundle (gzipped). To avoid impacting initial load time, load it lazily:
+
+```typescript
+// Lazy load on first use
+let rosql: typeof import('@robotops/rosql') | null = null;
+
+async function getRosql() {
+  if (!rosql) {
+    rosql = await import('@robotops/rosql');
+    await rosql.default();
+  }
+  return rosql;
+}
+```
+
+## Try it live
+
+→ [Try ROSQL in your browser](/playground)

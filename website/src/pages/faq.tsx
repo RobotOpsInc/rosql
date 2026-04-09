@@ -30,7 +30,7 @@ const FAQS: FaqItem[] = [
         No — ROSQL <em>compiles to SQL</em> and other database languages. When you write a ROSQL query, the library parses it and generates
         the equivalent query for your target database. ROSQL adds robotics semantics on top of SQL: duration
         units, <code>DURING()</code> cross-signal correlation, <code>MESSAGE JOURNEY</code> causality traversal,
-        <code>HEALTH()</code>, <code>ANOMALY()</code>, and more. You can use <code>rosql compile</code> to
+        <code>TOPIC_RATE()</code>, <code>ACTION_SUCCESS_RATE()</code>, <code>MOVING_AVG()</code>, and more. You can use <code>rosql compile</code> to
         see exactly what SQL a ROSQL query generates.
       </>
     ),
