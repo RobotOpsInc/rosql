@@ -5,14 +5,16 @@ expression: ast
 Standard:
   selections:
     - Star
-  data_source: Logs
-  scope:
-    robot:
-      Single: robot_42
-    version: ~
-    environment: ~
-    session: ~
-  conditions: ~
+  data_source: Traces
+  scope: ~
+  conditions:
+    Comparison:
+      left:
+        Field: status
+      op: Eq
+      right:
+        Literal:
+          String: ERROR
   facet: ~
   time_range:
     Since:
@@ -26,4 +28,8 @@ Standard:
   output_format: ~
   baseline: ~
   timeseries: ~
-  enrichments: []
+  enrichments:
+    - source: Logs
+      join_key: ~
+      limit: ~
+      sample_full: false

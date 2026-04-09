@@ -134,6 +134,13 @@ impl<'src> Parser<'src> {
             "LIKE",
             "HAVING",
             "WITH",
+            "TIMESERIES",
+            "ENRICH",
+            "TOPICS",
+            "NODES",
+            "GRAPH",
+            "SAMPLE",
+            "FULL",
         ];
 
         let got_upper = got.to_uppercase();
@@ -257,6 +264,8 @@ impl<'src> Parser<'src> {
             offset: None,
             output_format: None,
             baseline: None,
+            timeseries: None,
+            enrichments: Vec::new(),
         };
 
         // Optional FOR ... scope clause(s) at the start
@@ -343,6 +352,17 @@ impl<'src> Parser<'src> {
                     let scope = query.scope.get_or_insert_with(QueryScope::empty);
                     self.parse_scope_clause(scope)?;
                 }
+                Some(Token::Timeseries) => {
+                    self.advance();
+                    query.timeseries = Some(TimeseriesClause {
+                        interval: self.parse_timeseries_interval()?,
+                    });
+                }
+                Some(Token::Enrich) => {
+                    self.advance();
+                    self.expect(&Token::With)?;
+                    query.enrichments.push(self.parse_enrichment_clause()?);
+                }
                 Some(Token::Semicolon) => {
                     self.advance();
                     break;
@@ -425,8 +445,19 @@ impl<'src> Parser<'src> {
                 let clause = self.parse_show_clause()?;
                 Ok(PipelineStage::CompoundClause(clause))
             }
+            Some(Token::Timeseries) => {
+                self.advance();
+                Ok(PipelineStage::Timeseries(TimeseriesClause {
+                    interval: self.parse_timeseries_interval()?,
+                }))
+            }
+            Some(Token::Enrich) => {
+                self.advance();
+                self.expect(&Token::With)?;
+                Ok(PipelineStage::EnrichWith(self.parse_enrichment_clause()?))
+            }
             _ => {
-                Err(self.error("expected pipeline stage (WHERE, SELECT, FACET, SINCE, ...)".into()))
+                Err(self.error("expected pipeline stage (WHERE, SELECT, FACET, SINCE, TIMESERIES, ENRICH WITH, ...)".into()))
             }
         }
     }
@@ -685,8 +716,27 @@ impl<'src> Parser<'src> {
                     };
                 Ok(CompoundClause::ShowPlans { trace_id })
             }
+            Some(Token::Topics) => {
+                self.advance();
+                Ok(CompoundClause::ShowTopics)
+            }
+            Some(Token::Nodes) => {
+                self.advance();
+                Ok(CompoundClause::ShowNodes)
+            }
+            Some(Token::Node) => {
+                self.advance();
+                // SHOW NODE GRAPH
+                match self.peek() {
+                    Some(Token::Graph) => {
+                        self.advance();
+                        Ok(CompoundClause::ShowNodeGraph)
+                    }
+                    _ => Err(self.error("expected GRAPH after SHOW NODE".into())),
+                }
+            }
             _ => Err(self.error(
-                "expected RECORDING, TRACE_BREAKDOWN, DEPLOYMENTS, SPAN SUMMARY, or PLANS after SHOW"
+                "expected RECORDING, TRACE_BREAKDOWN, DEPLOYMENTS, SPAN SUMMARY, PLANS, TOPICS, NODES, or NODE GRAPH after SHOW"
                     .into(),
             )),
         }
@@ -716,6 +766,106 @@ impl<'src> Parser<'src> {
             inner_source,
             inner_conditions,
             inner_time_range,
+        })
+    }
+
+    // ── TIMESERIES / ENRICH WITH helpers ───────────────────────────
+
+    fn parse_timeseries_interval(&mut self) -> Result<UnitValue, ROSQLError> {
+        // Accept Integer/Float followed by either:
+        //   - A SI unit symbol known to the unit registry (e.g. "min", "h", "ms")
+        //   - A long-form English time word (e.g. "hours", "minutes", "day")
+        let num_str = match self.peek() {
+            Some(Token::Integer(s)) => {
+                let s = s.to_string();
+                self.advance();
+                s
+            }
+            Some(Token::Float(s)) => {
+                let s = s.to_string();
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(self.error(
+                    "expected time interval after TIMESERIES (e.g. '5 min', '1 hour')".into(),
+                ))
+            }
+        };
+
+        let unit_sym = match self.peek() {
+            Some(Token::Identifier(u)) if units::lookup_unit(u).is_some() => {
+                let s = u.to_string();
+                self.advance();
+                s
+            }
+            Some(Token::Identifier(u)) if is_time_unit_word(&u.to_lowercase()) => {
+                // Map long-form to SI symbol
+                let mapped = match u.to_lowercase().as_str() {
+                    "nanosecond" | "nanoseconds" => "ns",
+                    "microsecond" | "microseconds" => "us",
+                    "millisecond" | "milliseconds" => "ms",
+                    "second" | "seconds" => "s",
+                    "minute" | "minutes" => "min",
+                    "hour" | "hours" => "h",
+                    "day" | "days" => "days",
+                    "week" | "weeks" => "days", // 1 week ≈ 7 days handled via raw_value
+                    _ => "s",
+                };
+                self.advance();
+                mapped.to_string()
+            }
+            _ => {
+                return Err(self.error(
+                    "expected time unit after TIMESERIES interval (e.g. 'min', 'hour', 'day')"
+                        .into(),
+                ))
+            }
+        };
+
+        let raw: f64 = num_str
+            .parse()
+            .map_err(|_| self.error(format!("invalid number '{num_str}'")))?;
+        let (si_val, si_unit) =
+            units::convert_to_si(raw, &unit_sym, None).map_err(|e| match e {
+                ROSQLError::UnitError { message, .. } => self.error(message),
+                other => other,
+            })?;
+
+        Ok(UnitValue {
+            raw_value: raw,
+            unit: unit_sym,
+            si_value: si_val,
+            si_unit,
+        })
+    }
+
+    fn parse_enrichment_clause(&mut self) -> Result<EnrichmentClause, ROSQLError> {
+        let source = self.parse_data_source()?;
+        let mut limit = None;
+        let mut sample_full = false;
+
+        // Parse optional LIMIT N and SAMPLE FULL modifiers in any order
+        loop {
+            match self.peek() {
+                Some(Token::Limit) => {
+                    self.advance();
+                    limit = Some(self.parse_limit_value()?);
+                }
+                Some(Token::Sample) => {
+                    self.advance();
+                    self.expect(&Token::Full)?;
+                    sample_full = true;
+                }
+                _ => break,
+            }
+        }
+
+        Ok(EnrichmentClause {
+            source,
+            join_key: None,
+            limit,
+            sample_full,
         })
     }
 
@@ -791,12 +941,34 @@ impl<'src> Parser<'src> {
                 self.advance();
                 Ok(s)
             }
-            // Some data source names overlap with keywords
+            // Keywords that are also valid data source names
             Some(Token::Trace) => {
                 self.advance();
-                // Check if followed by 's' identifier to form "traces"
-                // Actually "traces" is an identifier, not "trace". Let's handle it.
                 Ok("trace".to_string())
+            }
+            Some(Token::Topics) => {
+                self.advance();
+                Ok("topics".to_string())
+            }
+            Some(Token::Nodes) => {
+                self.advance();
+                Ok("nodes".to_string())
+            }
+            Some(Token::Node) => {
+                self.advance();
+                Ok("node".to_string())
+            }
+            Some(Token::Graph) => {
+                self.advance();
+                Ok("graph".to_string())
+            }
+            Some(Token::Recording) => {
+                self.advance();
+                Ok("recordings".to_string())
+            }
+            Some(Token::Session) => {
+                self.advance();
+                Ok("events".to_string())
             }
             _ => {
                 // Try to consume any identifier-like token
@@ -1591,20 +1763,28 @@ fn is_time_unit_word(s: &str) -> bool {
         s,
         "nanoseconds"
             | "nanosecond"
+            | "ns"
             | "microseconds"
             | "microsecond"
+            | "us"
             | "milliseconds"
             | "millisecond"
+            | "ms"
             | "seconds"
             | "second"
+            | "s"
             | "minutes"
             | "minute"
+            | "min"
             | "hours"
             | "hour"
+            | "h"
             | "days"
             | "day"
+            | "d"
             | "weeks"
             | "week"
+            | "w"
     )
 }
 

@@ -50,6 +50,20 @@ impl SqlDialect {
         }
     }
 
+    /// Generate a JSON field access that is guaranteed to return a VARCHAR/TEXT value.
+    /// Use this when ordering or comparing extracted values, to avoid DuckDB type cast errors
+    /// with JSON typed columns.
+    pub fn json_access_text(&self, column: &str, key: &str) -> String {
+        let col = self.quote_ident(column);
+        match self {
+            SqlDialect::DuckDB => format!("CAST({col}->>'{key}' AS VARCHAR)"),
+            SqlDialect::PostgreSQL => format!("{col}->>'{key}'"),
+            SqlDialect::MySQL => {
+                format!("JSON_UNQUOTE(JSON_EXTRACT({col}, '$.{key}'))")
+            }
+        }
+    }
+
     /// The expression for the current timestamp.
     pub fn now_expr(&self) -> &'static str {
         "NOW()"
@@ -171,11 +185,52 @@ impl SqlDialect {
     pub fn timestamp_column(&self) -> &'static str {
         "Timestamp"
     }
+
+    /// Generate a time-bucket expression for arbitrary intervals (TIMESERIES support).
+    ///
+    /// `seconds` is the bucket width in SI seconds (derived from UnitValue.si_value).
+    /// Returns an expression that truncates a timestamp to the nearest bucket boundary.
+    pub fn time_bucket(&self, seconds: f64, column: &str) -> String {
+        let interval = seconds_to_interval_string(seconds);
+        match self {
+            SqlDialect::DuckDB => {
+                // DuckDB native time_bucket function
+                format!("time_bucket(INTERVAL '{interval}', {column}::TIMESTAMP)")
+            }
+            SqlDialect::PostgreSQL => {
+                // date_bin available in PG14+; widely supported
+                format!("date_bin('{interval}', {column}, TIMESTAMP '1970-01-01')")
+            }
+            SqlDialect::MySQL => {
+                let secs = seconds.ceil() as u64;
+                format!("FROM_UNIXTIME(UNIX_TIMESTAMP({column}) DIV {secs} * {secs})")
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Convert an SI seconds value to a human-readable SQL interval string.
+/// Examples: 300.0 → "5 minutes", 3600.0 → "1 hour", 86400.0 → "1 day"
+fn seconds_to_interval_string(seconds: f64) -> String {
+    // Choose the coarsest unit that divides evenly (up to floating-point tolerance)
+    let s = seconds.round() as u64;
+    if s % 86400 == 0 {
+        let days = s / 86400;
+        format!("{days} day{}", if days == 1 { "" } else { "s" })
+    } else if s % 3600 == 0 {
+        let hours = s / 3600;
+        format!("{hours} hour{}", if hours == 1 { "" } else { "s" })
+    } else if s % 60 == 0 {
+        let minutes = s / 60;
+        format!("{minutes} minute{}", if minutes == 1 { "" } else { "s" })
+    } else {
+        format!("{s} second{}", if s == 1 { "" } else { "s" })
+    }
+}
 
 fn normalize_time_unit(unit: &str) -> &str {
     match unit.to_lowercase().as_str() {

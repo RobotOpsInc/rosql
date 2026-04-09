@@ -113,3 +113,58 @@ fn snapshot_for_session() {
     let ast = parse("FROM traces FOR SESSION 'sess_abc123' SINCE 30 minutes ago").unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
+
+// ── TIMESERIES ───────────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_timeseries_basic() {
+    let ast = parse(
+        "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 6 hours ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_timeseries_with_facet() {
+    let ast = parse(
+        "SELECT AVG(duration) FROM traces TIMESERIES 1 min FACET action_name SINCE 1 hour ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_timeseries_1_hour() {
+    let ast = parse("FROM traces TIMESERIES 1 hour SINCE 24 hours ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+// ── ENRICH WITH ──────────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_enrich_with_logs() {
+    let ast =
+        parse("FROM traces WHERE status = 'ERROR' ENRICH WITH logs SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_enrich_with_limit() {
+    let ast =
+        parse("FROM traces WHERE status = 'ERROR' ENRICH WITH logs LIMIT 200 SINCE 1 hour ago")
+            .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_enrich_with_sample_full() {
+    let ast = parse("FROM traces ENRICH WITH joint_states SAMPLE FULL SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_enrich_multiple() {
+    let ast = parse("SELECT * FROM traces WHERE status = 'ERROR' ENRICH WITH logs ENRICH WITH recordings SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}

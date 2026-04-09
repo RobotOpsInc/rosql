@@ -48,3 +48,5 @@ Standard:
   offset: ~
   output_format: ~
   baseline: LastWeek
+  timeseries: ~
+  enrichments: []

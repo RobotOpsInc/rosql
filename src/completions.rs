@@ -70,6 +70,18 @@ pub fn get_completions(query: &str, cursor_pos: usize) -> Vec<Completion> {
         return lifecycle_anchor_completions();
     }
 
+    if upper.ends_with("TIMESERIES ") || upper.ends_with("TIMESERIES") {
+        return unit_completions();
+    }
+
+    if upper.ends_with("ENRICH WITH ") || upper.ends_with("ENRICH WITH") {
+        return data_source_completions();
+    }
+
+    if upper.ends_with("SHOW ") || upper.ends_with("SHOW") {
+        return show_completions();
+    }
+
     // After a number, suggest unit suffixes
     if trimmed.chars().last().is_some_and(|c| c.is_ascii_digit()) {
         return unit_completions();
@@ -87,14 +99,14 @@ fn query_start_completions() -> Vec<Completion> {
     vec![
         kw("SELECT", "Select specific fields"),
         kw("FROM", "Query a data source"),
-        kw("MESSAGE JOURNEY", "Trace message causality graph"),
-        kw("MESSAGE PATHS", "Find message paths for a topic"),
-        kw("MESSAGE PATH", "Find path between topic and node"),
+        kw("SHOW TOPICS", "List active ROS2 topics"),
+        kw("SHOW NODES", "List active ROS2 nodes"),
+        kw("SHOW NODE GRAPH", "Visualise topic/node edges"),
         kw("HEALTH()", "Derived robot health assessment"),
         kw("ANOMALY()", "Statistical anomaly detection"),
         kw("PATH DEVIATION", "Spatial trajectory analysis"),
         kw("TRACE", "Show spans for a trace ID"),
-        kw("SHOW RECORDING", "Find MCAP recordings"),
+        kw("MESSAGE FLOW", "Trace message flow between topics/nodes"),
         kw("CORRELATE", "Cross-signal correlation"),
     ]
 }
@@ -135,6 +147,17 @@ fn field_completions() -> Vec<Completion> {
         field("cpu_usage", "CPU usage"),
         field("memory_usage", "Memory usage"),
         field("robot_id", "Robot identifier"),
+    ]
+}
+
+fn show_completions() -> Vec<Completion> {
+    vec![
+        kw("TOPICS", "List active ROS2 topics"),
+        kw("NODES", "List active ROS2 nodes"),
+        kw("NODE GRAPH", "Visualise topic/node edges"),
+        kw("DEPLOYMENTS", "List software deployments"),
+        kw("SPAN SUMMARY", "Span latency summary"),
+        kw("PLANS", "List navigation plans"),
     ]
 }
 
@@ -210,6 +233,11 @@ fn keyword_completions() -> Vec<Completion> {
         kw("SINCE", "Time range start"),
         kw("BETWEEN", "Time range"),
         kw("FACET", "Group by dimension"),
+        kw(
+            "TIMESERIES",
+            "Time-bucket aggregation (e.g. TIMESERIES 5 min)",
+        ),
+        kw("ENRICH WITH", "Cross-source data correlation"),
         kw("ORDER BY", "Sort results"),
         kw("LIMIT", "Limit result count"),
         kw("FORMAT", "Output format"),
@@ -275,7 +303,34 @@ mod tests {
         let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
         assert!(labels.contains(&"SELECT"));
         assert!(labels.contains(&"FROM"));
-        assert!(labels.contains(&"HEALTH()"));
+        assert!(labels.contains(&"SHOW TOPICS"));
+        assert!(labels.contains(&"SHOW NODES"));
+        assert!(labels.contains(&"SHOW NODE GRAPH"));
+    }
+
+    #[test]
+    fn completions_after_show() {
+        let completions = get_completions("SHOW ", 5);
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"TOPICS"));
+        assert!(labels.contains(&"NODES"));
+        assert!(labels.contains(&"NODE GRAPH"));
+    }
+
+    #[test]
+    fn completions_after_timeseries() {
+        let completions = get_completions("FROM traces TIMESERIES ", 23);
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"min"));
+        assert!(labels.contains(&"s"));
+    }
+
+    #[test]
+    fn completions_after_enrich_with() {
+        let completions = get_completions("FROM traces ENRICH WITH ", 24);
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"logs"));
+        assert!(labels.contains(&"traces"));
     }
 
     #[test]

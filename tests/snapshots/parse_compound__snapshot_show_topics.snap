@@ -1,29 +1,25 @@
 ---
-source: tests/parse_standard.rs
+source: tests/parse_compound.rs
 expression: ast
 ---
-Standard:
-  selections:
-    - Star
-  data_source: Logs
+Compound:
+  clause: ShowTopics
   scope:
     robot:
       Single: robot_42
     version: ~
     environment: ~
     session: ~
-  conditions: ~
-  facet: ~
   time_range:
     Since:
       Relative:
         amount: 1
         unit: hour
   time_basis: ~
+  conditions: ~
+  facet: ~
   order_by: ~
   limit: ~
   offset: ~
   output_format: ~
   baseline: ~
-  timeseries: ~
-  enrichments: []

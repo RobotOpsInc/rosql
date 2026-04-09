@@ -17,6 +17,23 @@ pub struct CompileResult {
     pub sql: String,
     /// Whether a default LIMIT was injected (no explicit LIMIT in the query).
     pub default_limit_applied: bool,
+    /// Enrichment plans to execute in phase 2 (empty for non-enriched queries).
+    pub enrichments: Vec<EnrichmentPlan>,
+}
+
+/// A compiled enrichment plan for two-phase execution (ENRICH WITH).
+#[derive(Debug, Clone)]
+pub struct EnrichmentPlan {
+    /// Human-readable data source name (e.g. "logs").
+    pub source_name: String,
+    /// The enrichment table name (dialect-quoted).
+    pub table: String,
+    /// The join column used to correlate enrichment rows with primary rows.
+    pub join_column: String,
+    /// Per-primary-row enrichment row limit.
+    pub limit: u64,
+    /// If true, skip auto-downsampling for high-frequency topic data.
+    pub sample_full: bool,
 }
 
 /// Compile a ROSQL AST to SQL, optionally injecting a default LIMIT.
@@ -41,16 +58,34 @@ pub fn compile(
     let (query_with_limit, default_limit_applied) = apply_default_limit(query, default_limit);
     let query_ref = query_with_limit.as_ref().unwrap_or(query);
 
-    let sql = match query_ref {
-        Query::Standard(sq) => ctx.compile_standard(sq),
-        Query::Pipeline(pq) => ctx.compile_pipeline(pq),
-        Query::Compound(cq) => ctx.compile_compound(cq),
+    let (sql, enrichments) = match query_ref {
+        Query::Standard(sq) => ctx.compile_standard_with_enrichments(sq),
+        Query::Pipeline(pq) => ctx.compile_pipeline_with_enrichments(pq),
+        Query::Compound(cq) => ctx.compile_compound(cq).map(|s| (s, vec![])),
     }?;
 
     Ok(CompileResult {
         sql,
         default_limit_applied,
+        enrichments,
     })
+}
+
+/// Return a human-readable name for a DataSource.
+fn data_source_name(ds: &DataSource) -> String {
+    match ds {
+        DataSource::Logs => "logs".into(),
+        DataSource::SystemLogs => "system_logs".into(),
+        DataSource::Traces => "traces".into(),
+        DataSource::Metrics => "metrics".into(),
+        DataSource::Diagnostics => "diagnostics".into(),
+        DataSource::Topics => "topics".into(),
+        DataSource::Tf => "tf".into(),
+        DataSource::Heartbeats => "heartbeats".into(),
+        DataSource::Recordings => "recordings".into(),
+        DataSource::Events => "events".into(),
+        DataSource::TopicAlias(alias) => alias.topic_name().trim_start_matches('/').into(),
+    }
 }
 
 /// Determine whether a query is exempt from the default LIMIT.
@@ -66,7 +101,7 @@ fn is_limit_exempt(query: &Query) -> bool {
                     }
                     _ => false,
                 });
-            all_agg || sq.facet.is_some()
+            all_agg || sq.facet.is_some() || sq.timeseries.is_some()
         }
         Query::Pipeline(pq) => {
             // Check normalized: if it has a FACET stage or only agg SELECT, exempt.
@@ -92,6 +127,9 @@ fn is_limit_exempt(query: &Query) -> bool {
                 | CompoundClause::MessageFlow { .. }
                 | CompoundClause::ShowDeployments
                 | CompoundClause::ShowSpanSummary
+                | CompoundClause::ShowTopics
+                | CompoundClause::ShowNodes
+                | CompoundClause::ShowNodeGraph
         ),
     }
 }
@@ -162,13 +200,96 @@ impl<'a> CompileCtx<'a> {
 
     // ── Standard query ──────────────────────────────────────────────
 
+    fn compile_standard_with_enrichments(
+        &self,
+        q: &ROSQLQuery,
+    ) -> Result<(String, Vec<EnrichmentPlan>), ROSQLError> {
+        let sql = self.compile_standard(q)?;
+        let enrichments = self.build_enrichment_plans(&q.data_source, &q.enrichments)?;
+        Ok((sql, enrichments))
+    }
+
+    fn compile_pipeline_with_enrichments(
+        &self,
+        pq: &PipelineQuery,
+    ) -> Result<(String, Vec<EnrichmentPlan>), ROSQLError> {
+        let sq = self.normalize_pipeline(pq)?;
+        self.compile_standard_with_enrichments(&sq)
+    }
+
+    /// Build enrichment plans from ENRICH WITH clauses.
+    fn build_enrichment_plans(
+        &self,
+        primary_source: &DataSource,
+        enrichments: &[EnrichmentClause],
+    ) -> Result<Vec<EnrichmentPlan>, ROSQLError> {
+        enrichments
+            .iter()
+            .map(|e| {
+                let table = self.resolve_table(&e.source)?;
+                let join_column = self.infer_join_key(primary_source, &e.source).to_string();
+                let source_name = data_source_name(&e.source);
+                Ok(EnrichmentPlan {
+                    source_name,
+                    table,
+                    join_column,
+                    limit: e.limit.unwrap_or(50),
+                    sample_full: e.sample_full,
+                })
+            })
+            .collect()
+    }
+
+    /// Infer the join key column for a primary→enrichment pair.
+    fn infer_join_key(&self, primary: &DataSource, enrichment: &DataSource) -> &'static str {
+        match (primary, enrichment) {
+            // traces → logs: prefer trace_id (OTel logs carry trace_id)
+            (DataSource::Traces, DataSource::Logs) => "trace_id",
+            // traces → topics/joint_states: trace_id when rmw_robotops is used
+            (DataSource::Traces, DataSource::Topics)
+            | (DataSource::Traces, DataSource::TopicAlias(_)) => "trace_id",
+            // All other combinations: fall back to trace_id as best-effort
+            _ => "trace_id",
+        }
+    }
+
     fn compile_standard(&self, q: &ROSQLQuery) -> Result<String, ROSQLError> {
         let table = self.resolve_table(&q.data_source)?;
         let mut parts = Vec::new();
 
-        // SELECT — when FACET is present and no explicit columns chosen, emit
+        // Resolve the timestamp column for TIMESERIES bucket expressions
+        let ts_col = self.col("timestamp");
+        let has_timeseries = q.timeseries.is_some();
+
+        // SELECT — when TIMESERIES is present, prepend the time_bucket column.
+        // When FACET is present and no explicit columns chosen, emit
         // "{facet_col}, COUNT(*) AS count" instead of the invalid "SELECT * … GROUP BY col"
-        let select_clause = if let Some(ref facet) = q.facet {
+        let select_clause = if has_timeseries {
+            let ts_expr = q
+                .timeseries
+                .as_ref()
+                .map(|ts| {
+                    // si_value is in seconds for time units (minutes → 60s, etc.)
+                    let seconds = ts.interval.si_value;
+                    self.dialect.time_bucket(seconds, &ts_col)
+                })
+                .unwrap();
+            let base = if let Some(ref facet) = q.facet {
+                let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
+                if is_star {
+                    let col = self.resolve_column(&facet.dimension, &table)?;
+                    format!("{col}, COUNT(*) AS count")
+                } else {
+                    self.compile_selections(&q.selections, &table)?
+                }
+            } else if matches!(q.selections.as_slice(), [crate::ast::Selection::Star]) {
+                // Default: COUNT(*) for timeseries without explicit aggregation
+                "COUNT(*) AS count".to_string()
+            } else {
+                self.compile_selections(&q.selections, &table)?
+            };
+            format!("{ts_expr} AS time_bucket, {base}")
+        } else if let Some(ref facet) = q.facet {
             let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
             if is_star {
                 let col = self.resolve_column(&facet.dimension, &table)?;
@@ -203,13 +324,20 @@ impl<'a> CompileCtx<'a> {
             parts.push(format!("WHERE {}", where_parts.join(" AND ")));
         }
 
-        // GROUP BY (from FACET)
+        // GROUP BY — TIMESERIES adds time_bucket; FACET adds its dimension; both can coexist.
+        let mut group_by_cols = Vec::new();
+        if has_timeseries {
+            group_by_cols.push("time_bucket".to_string());
+        }
         if let Some(ref facet) = q.facet {
             let col = self.resolve_column(&facet.dimension, &table)?;
-            parts.push(format!("GROUP BY {col}"));
+            group_by_cols.push(col);
+        }
+        if !group_by_cols.is_empty() {
+            parts.push(format!("GROUP BY {}", group_by_cols.join(", ")));
         }
 
-        // ORDER BY
+        // ORDER BY — default to time_bucket ASC for timeseries (unless explicit ORDER BY given)
         if let Some(ref ob) = q.order_by {
             let col = self.resolve_column(&ob.field, &table)?;
             let dir = match ob.direction {
@@ -217,6 +345,8 @@ impl<'a> CompileCtx<'a> {
                 SortDirection::Desc => "DESC",
             };
             parts.push(format!("ORDER BY {col} {dir}"));
+        } else if has_timeseries {
+            parts.push("ORDER BY time_bucket ASC".to_string());
         }
 
         // LIMIT / OFFSET
@@ -232,12 +362,6 @@ impl<'a> CompileCtx<'a> {
 
     // ── Pipeline query ──────────────────────────────────────────────
 
-    fn compile_pipeline(&self, pq: &PipelineQuery) -> Result<String, ROSQLError> {
-        // Normalize pipeline to a standard query, then compile.
-        let sq = self.normalize_pipeline(pq)?;
-        self.compile_standard(&sq)
-    }
-
     fn normalize_pipeline(&self, pq: &PipelineQuery) -> Result<ROSQLQuery, ROSQLError> {
         let mut sq = ROSQLQuery {
             selections: vec![Selection::Star],
@@ -252,6 +376,8 @@ impl<'a> CompileCtx<'a> {
             offset: None,
             output_format: None,
             baseline: None,
+            timeseries: None,
+            enrichments: Vec::new(),
         };
 
         for stage in &pq.stages {
@@ -292,6 +418,8 @@ impl<'a> CompileCtx<'a> {
                 PipelineStage::CompoundClause(_) => {
                     // Compound clauses in pipeline are handled separately
                 }
+                PipelineStage::Timeseries(ts) => sq.timeseries = Some(ts.clone()),
+                PipelineStage::EnrichWith(e) => sq.enrichments.push(e.clone()),
             }
         }
 
@@ -356,6 +484,9 @@ impl<'a> CompileCtx<'a> {
                 inner_conditions,
                 inner_time_range,
             } => self.compile_during(inner_source, inner_conditions, inner_time_range, cq),
+            CompoundClause::ShowTopics => self.compile_show_topics(cq),
+            CompoundClause::ShowNodes => self.compile_show_nodes(cq),
+            CompoundClause::ShowNodeGraph => self.compile_show_node_graph(cq),
         }
     }
 
@@ -598,6 +729,138 @@ impl<'a> CompileCtx<'a> {
              WHERE inner_t.{ts} >= outer_t.{ts} \
              AND inner_t.{ts} <= outer_t.{ts}{inner_where_clause}\
              )"
+        ))
+    }
+
+    /// `SHOW TOPICS` — topic activity summary from span attributes.
+    fn compile_show_topics(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let ts = self.col("timestamp");
+        let span_attrs = self
+            .registry
+            .resolve("topic")
+            .map(|f| f.column.as_str())
+            .unwrap_or("span_attributes");
+        // Use json_access for WHERE/GROUP BY and json_access_text for SELECT aliases
+        // to avoid DuckDB type cast errors when ordering/comparing extracted values.
+        let topic_col = self.dialect.json_access(span_attrs, "ros.topic");
+        let topic_col_text = self.dialect.json_access_text(span_attrs, "ros.topic");
+        let msg_type_col = self
+            .dialect
+            .json_access_text(span_attrs, "ros.message_type");
+        let pub_node_col = self
+            .dialect
+            .json_access_text(span_attrs, "ros.publisher_node");
+        let sub_node_col = self
+            .dialect
+            .json_access_text(span_attrs, "ros.subscriber_node");
+
+        // Dialect-aware timestamp difference for avg_rate_hz calculation
+        let diff_secs = self
+            .dialect
+            .timestamp_diff_seconds(&format!("MAX({ts})"), &format!("MIN({ts})"));
+        let age_ms = self
+            .dialect
+            .timestamp_diff_seconds(self.dialect.now_expr(), &format!("MAX({ts})"));
+
+        let mut where_parts = vec![format!("{topic_col_text} IS NOT NULL")];
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+        let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
+
+        Ok(format!(
+            "SELECT {topic_col_text} AS topic_name, \
+             MAX({msg_type_col}) AS message_type, \
+             COUNT(*) * 1.0 / NULLIF({diff_secs}, 0) AS avg_rate_hz, \
+             COUNT(DISTINCT {pub_node_col}) AS publishers, \
+             COUNT(DISTINCT {sub_node_col}) AS subscribers, \
+             ({age_ms}) * 1000 AS last_message_age_ms \
+             FROM {tbl}{where_clause} \
+             GROUP BY {topic_col} \
+             ORDER BY topic_name"
+        ))
+    }
+
+    /// `SHOW NODES` — node activity summary from span attributes.
+    fn compile_show_nodes(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let ts = self.col("timestamp");
+        let span_attrs = self
+            .registry
+            .resolve("topic")
+            .map(|f| f.column.as_str())
+            .unwrap_or("span_attributes");
+        let node_col = self.dialect.json_access(span_attrs, "ros.node");
+        let node_col_text = self.dialect.json_access_text(span_attrs, "ros.node");
+        let topic_col_text = self.dialect.json_access_text(span_attrs, "ros.topic");
+        let pub_node_col_text = self
+            .dialect
+            .json_access_text(span_attrs, "ros.publisher_node");
+        let sub_node_col_text = self
+            .dialect
+            .json_access_text(span_attrs, "ros.subscriber_node");
+        let status_col = self.col("status_code");
+
+        let mut where_parts = vec![format!("{node_col_text} IS NOT NULL")];
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+        let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
+
+        Ok(format!(
+            "SELECT {node_col_text} AS node_name, \
+             COUNT(DISTINCT CASE WHEN {pub_node_col_text} = {node_col_text} THEN {topic_col_text} END) AS topics_published, \
+             COUNT(DISTINCT CASE WHEN {sub_node_col_text} = {node_col_text} THEN {topic_col_text} END) AS topics_subscribed, \
+             COUNT(CASE WHEN {status_col} = 'ERROR' THEN 1 END) AS error_count, \
+             MAX({ts}) AS last_seen \
+             FROM {tbl}{where_clause} \
+             GROUP BY {node_col} \
+             ORDER BY last_seen DESC"
+        ))
+    }
+
+    /// `SHOW NODE GRAPH` — topic/node edges for graph visualisation.
+    fn compile_show_node_graph(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let span_attrs = self
+            .registry
+            .resolve("topic")
+            .map(|f| f.column.as_str())
+            .unwrap_or("span_attributes");
+        let pub_node_text = self
+            .dialect
+            .json_access_text(span_attrs, "ros.publisher_node");
+        let sub_node_text = self
+            .dialect
+            .json_access_text(span_attrs, "ros.subscriber_node");
+        let topic_text = self.dialect.json_access_text(span_attrs, "ros.topic");
+
+        let mut where_parts = vec![
+            format!("{pub_node_text} IS NOT NULL"),
+            format!("{sub_node_text} IS NOT NULL"),
+            format!("{topic_text} IS NOT NULL"),
+        ];
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+        let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
+
+        Ok(format!(
+            "SELECT DISTINCT {pub_node_text} AS source_node, \
+             {sub_node_text} AS target_node, \
+             {topic_text} AS topic \
+             FROM {tbl}{where_clause} \
+             ORDER BY source_node, topic"
         ))
     }
 

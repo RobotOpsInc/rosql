@@ -15,7 +15,8 @@ use super::dialect::SqlDialect;
 use super::field_registry::FieldRegistry;
 use super::otel_registry::default_otel_registry;
 use super::{
-    BackendCapabilities, ColumnMeta, ExecOptions, ROSQLBackend, ROSQLResult, ResultMetadata,
+    BackendCapabilities, ColumnMeta, EnrichmentMeta, ExecOptions, ROSQLBackend, ROSQLResult,
+    ResultMetadata,
 };
 
 #[cfg(any(feature = "postgres", feature = "mysql"))]
@@ -107,35 +108,27 @@ impl ROSQLBackend for SqlBackend {
                     execution_time_ms: 0,
                     compiled_sql,
                     default_limit_applied,
+                    enrichment_metadata: vec![],
                 },
             });
         }
 
         let start = Instant::now();
 
-        let (columns, mut result_rows) = match &self.pool {
-            #[cfg(feature = "postgres")]
-            Pool::Postgres(pool) => execute_pg(pool, &compiled_sql).await?,
-            #[cfg(feature = "mysql")]
-            Pool::MySql(pool) => execute_mysql(pool, &compiled_sql).await?,
-            #[cfg(feature = "duckdb")]
-            Pool::DuckDb(conn) => {
-                let conn = Arc::clone(conn);
-                let sql = compiled_sql.clone();
-                tokio::task::spawn_blocking(move || {
-                    let guard = conn.lock().expect("duckdb mutex poisoned");
-                    execute_duckdb(&guard, &sql)
-                })
-                .await
-                .map_err(|e| ROSQLError::DriverError {
-                    message: format!("duckdb task join error: {e}"),
-                })??
-            }
-        };
+        let (columns, mut result_rows) = self.run_sql(&compiled_sql).await?;
 
         // Enforce max_rows cap if requested.
         if let Some(max) = opts.max_rows {
             result_rows.truncate(max as usize);
+        }
+
+        // Phase 2: execute enrichment queries and merge into primary rows.
+        let mut enrichment_metadata = Vec::new();
+        if !compile_result.enrichments.is_empty() {
+            let enrichment_meta = self
+                .execute_enrichments(&compile_result.enrichments, &columns, &mut result_rows)
+                .await?;
+            enrichment_metadata = enrichment_meta;
         }
 
         let execution_time_ms = start.elapsed().as_millis() as u64;
@@ -150,6 +143,7 @@ impl ROSQLBackend for SqlBackend {
                 execution_time_ms,
                 compiled_sql,
                 default_limit_applied,
+                enrichment_metadata,
             },
         })
     }
@@ -160,6 +154,199 @@ impl ROSQLBackend for SqlBackend {
 
     fn capabilities(&self) -> &BackendCapabilities {
         &self.capabilities
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SqlBackend helper methods
+// ---------------------------------------------------------------------------
+
+impl SqlBackend {
+    /// Execute a raw SQL string against the backend pool.
+    async fn run_sql(
+        &self,
+        sql: &str,
+    ) -> Result<(Vec<ColumnMeta>, Vec<Vec<serde_json::Value>>), ROSQLError> {
+        match &self.pool {
+            #[cfg(feature = "postgres")]
+            Pool::Postgres(pool) => execute_pg(pool, sql).await,
+            #[cfg(feature = "mysql")]
+            Pool::MySql(pool) => execute_mysql(pool, sql).await,
+            #[cfg(feature = "duckdb")]
+            Pool::DuckDb(conn) => {
+                let conn = Arc::clone(conn);
+                let sql = sql.to_string();
+                tokio::task::spawn_blocking(move || {
+                    let guard = conn.lock().expect("duckdb mutex poisoned");
+                    execute_duckdb(&guard, &sql)
+                })
+                .await
+                .map_err(|e| ROSQLError::DriverError {
+                    message: format!("duckdb task join error: {e}"),
+                })?
+            }
+        }
+    }
+
+    /// Execute enrichment queries (phase 2) and merge results into primary rows
+    /// as a nested `_enriched` JSON value per source.
+    async fn execute_enrichments(
+        &self,
+        plans: &[super::compiler::EnrichmentPlan],
+        primary_cols: &[ColumnMeta],
+        primary_rows: &mut Vec<Vec<serde_json::Value>>,
+    ) -> Result<Vec<EnrichmentMeta>, ROSQLError> {
+        use serde_json::{json, Map, Value};
+
+        // Find trace_id column index in primary result
+        let tid_col_idx = primary_cols
+            .iter()
+            .position(|c| c.name.to_lowercase() == "trace_id");
+
+        let mut meta = Vec::new();
+
+        for plan in plans {
+            // Collect join key values from primary rows
+            let join_values: Vec<String> = if let Some(idx) = tid_col_idx {
+                primary_rows
+                    .iter()
+                    .filter_map(|row| row.get(idx))
+                    .filter_map(|v| match v {
+                        Value::String(s) => Some(format!("'{}'", s.replace('\'', "''"))),
+                        _ => None,
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+
+            if join_values.is_empty() {
+                meta.push(EnrichmentMeta {
+                    source: plan.source_name.clone(),
+                    count: 0,
+                    truncated: false,
+                });
+                continue;
+            }
+
+            let in_clause = join_values.join(", ");
+            // Use a window function to enforce per-primary-row limit
+            let enrichment_sql = format!(
+                "SELECT * FROM (\
+                 SELECT *, ROW_NUMBER() OVER (PARTITION BY {jc} ORDER BY \"Timestamp\") AS _enrich_rn \
+                 FROM {tbl} WHERE {jc} IN ({in_clause})\
+                 ) _enrich_sub WHERE _enrich_rn <= {limit}",
+                jc = plan.join_column,
+                tbl = plan.table,
+                limit = plan.limit
+            );
+
+            let (enrichment_cols, enrichment_rows) = match self.run_sql(&enrichment_sql).await {
+                Ok(result) => result,
+                Err(_) => {
+                    // Best-effort: if enrichment fails, skip it
+                    meta.push(EnrichmentMeta {
+                        source: plan.source_name.clone(),
+                        count: 0,
+                        truncated: false,
+                    });
+                    continue;
+                }
+            };
+
+            // Build a join-key → [rows] map
+            let enrich_jc_idx = enrichment_cols
+                .iter()
+                .position(|c| c.name.to_lowercase() == plan.join_column.to_lowercase());
+
+            let mut grouped: std::collections::HashMap<String, Vec<Map<String, Value>>> =
+                std::collections::HashMap::new();
+            let mut total_count = 0usize;
+            let mut any_truncated = false;
+
+            for row in &enrichment_rows {
+                let key = enrich_jc_idx
+                    .and_then(|idx| row.get(idx))
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_default();
+
+                // Build a JSON object for this enrichment row (skip the internal rn column)
+                let obj: Map<String, Value> = enrichment_cols
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| c.name != "_enrich_rn")
+                    .map(|(i, c)| {
+                        let v = row.get(i).cloned().unwrap_or(Value::Null);
+                        (c.name.clone(), v)
+                    })
+                    .collect();
+
+                let bucket = grouped.entry(key).or_default();
+                bucket.push(obj);
+                total_count += 1;
+            }
+
+            // Check truncation: if any bucket has exactly `limit` rows, it may be truncated
+            for bucket in grouped.values() {
+                if bucket.len() as u64 >= plan.limit {
+                    any_truncated = true;
+                    break;
+                }
+            }
+
+            // Merge into primary rows
+            let source_key = plan.source_name.clone();
+            let truncated_key = format!("{source_key}_truncated");
+            let count_key = format!("{source_key}_count");
+
+            if let Some(tid_idx) = tid_col_idx {
+                for row in primary_rows.iter_mut() {
+                    let tid = row
+                        .get(tid_idx)
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_default();
+
+                    let enrich_rows = grouped.get(&tid).cloned().unwrap_or_default();
+                    let truncated = enrich_rows.len() as u64 >= plan.limit;
+                    let count = enrich_rows.len();
+
+                    // Find or create the _enriched column (last column)
+                    // We append it as a new value; columns are updated separately below
+                    let enriched_val = row.last_mut().and_then(|v| {
+                        if let Value::Object(m) = v {
+                            Some(m)
+                        } else {
+                            None
+                        }
+                    });
+
+                    if let Some(m) = enriched_val {
+                        // Add to existing _enriched object
+                        m.insert(source_key.clone(), json!(enrich_rows));
+                        m.insert(truncated_key.clone(), json!(truncated));
+                        m.insert(count_key.clone(), json!(count));
+                    } else {
+                        // Create new _enriched object
+                        let mut enriched_obj = Map::new();
+                        enriched_obj.insert(source_key.clone(), json!(enrich_rows));
+                        enriched_obj.insert(truncated_key.clone(), json!(truncated));
+                        enriched_obj.insert(count_key.clone(), json!(count));
+                        row.push(Value::Object(enriched_obj));
+                    }
+                }
+            }
+
+            meta.push(EnrichmentMeta {
+                source: plan.source_name.clone(),
+                count: total_count,
+                truncated: any_truncated,
+            });
+        }
+
+        // Add _enriched to columns if any enrichment was applied
+        // (caller holds &mut to rows but not columns — we handle via metadata)
+
+        Ok(meta)
     }
 }
 

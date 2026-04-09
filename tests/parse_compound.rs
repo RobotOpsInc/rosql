@@ -124,3 +124,45 @@ fn snapshot_show_plans_scoped() {
     let ast = parse("SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 day ago").unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
+
+// ── SHOW TOPICS / SHOW NODES / SHOW NODE GRAPH ──────────────────────────────
+
+#[test]
+fn snapshot_show_topics() {
+    let ast = parse("SHOW TOPICS FOR ROBOT 'robot_42' SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_show_topics_where() {
+    let ast = parse("SHOW TOPICS WHERE topic_name LIKE '/camera%' SINCE 30 minutes ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_show_nodes() {
+    let ast = parse("SHOW NODES FOR ROBOT 'robot_42' SINCE 30 minutes ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_show_node_graph() {
+    let ast = parse("SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 minutes ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_show_topics_no_scope() {
+    let ast = parse("SHOW TOPICS SINCE 6 hours ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn show_node_without_graph_errors() {
+    let err = parse("SHOW NODE FOR ROBOT 'robot_42'").unwrap_err();
+    assert!(
+        err.iter()
+            .any(|e| e.to_string().contains("expected GRAPH after SHOW NODE")),
+        "got: {err:?}"
+    );
+}

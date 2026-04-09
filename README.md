@@ -220,20 +220,63 @@ DURING(
 )
 SINCE yesterday
 
--- Message causality graph
-MESSAGE JOURNEY FOR TRACE 'abc123def456'
+-- Time-bucketed error rate dashboard (TIMESERIES)
+SELECT COUNT(*) AS errors FROM traces WHERE status = 'ERROR'
+TIMESERIES 5 min
+SINCE 1 hour ago
+FACET robot_id
 
--- Robot health assessment
-HEALTH() FOR ROBOT 'robot_42' SINCE 30 minutes ago
+-- Enrich failed navigation traces with log context (ENRICH WITH)
+SELECT * FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+SINCE 1 hour ago
+ENRICH WITH logs LIMIT 20
+
+-- System topology: active topics and nodes
+SHOW TOPICS FOR ROBOT 'robot_42' SINCE 30 minutes ago
+SHOW NODES FOR ROBOT 'robot_42' SINCE 30 minutes ago
+SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 minutes ago
+
+-- Trace span tree walk
+TRACE 'abc123def456'
 
 -- Pipeline syntax
 FROM traces
 | WHERE duration > 500 ms
+| TIMESERIES 1 min
 | FACET robot_id
-| COMPARE TO last week
 ```
 
 See [`examples/`](examples/) for a full walkthrough with Docker Compose, PostgreSQL fixture data, and runnable queries.
+
+### Cookbook: Investigating a failed navigation with enriched logs
+
+When a navigation action fails, the recommended workflow is:
+
+```sql
+-- 1. Find the failing trace
+SELECT trace_id, span_name, duration
+FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+SINCE 30 min ago
+ORDER BY duration DESC
+LIMIT 5
+
+-- 2. Walk the full causality chain for the worst offender
+TRACE 'your-trace-id-here'
+
+-- 3. Correlate with log output for that same window
+SELECT * FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+SINCE 30 min ago
+ENRICH WITH logs LIMIT 50
+
+-- 4. Check which topics were active during the failure
+SHOW TOPICS FOR ROBOT 'robot_42' SINCE 30 min ago
+
+-- 5. See the node graph to spot missing pub/sub edges
+SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 min ago
+```
 
 ## WASM API
 
