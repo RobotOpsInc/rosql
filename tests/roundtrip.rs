@@ -37,8 +37,43 @@ fn roundtrip_compound_health() {
 }
 
 #[test]
-fn roundtrip_compound_message_journey() {
-    roundtrip("MESSAGE JOURNEY FOR TRACE 'abc123'");
+fn roundtrip_trace() {
+    roundtrip("TRACE 'abc123'");
+}
+
+#[test]
+fn roundtrip_message_flow() {
+    roundtrip("MESSAGE FLOW FROM TOPIC '/cmd_vel' SINCE 1 hour ago");
+}
+
+#[test]
+fn roundtrip_message_flow_to_node() {
+    roundtrip("MESSAGE FLOW FROM TOPIC '/scan' TO NODE '/local_costmap_node'");
+}
+
+#[test]
+fn roundtrip_show_deployments() {
+    roundtrip("SHOW DEPLOYMENTS FOR ROBOT 'r1' SINCE 30 days ago");
+}
+
+#[test]
+fn roundtrip_show_plans() {
+    roundtrip("SHOW PLANS FOR TRACE 'abc123'");
+}
+
+#[test]
+fn roundtrip_compare_to_version() {
+    roundtrip("FROM traces COMPARE TO VERSION 'v1.2.3'");
+}
+
+#[test]
+fn roundtrip_compare_version_pair() {
+    roundtrip("FROM traces COMPARE VERSION 'v1.0' TO VERSION 'v2.0'");
+}
+
+#[test]
+fn roundtrip_scoped_multi() {
+    roundtrip("SELECT * FROM logs FOR ROBOT 'r1' FOR VERSION 'v1.0' FOR ENVIRONMENT 'prod'");
 }
 
 #[test]

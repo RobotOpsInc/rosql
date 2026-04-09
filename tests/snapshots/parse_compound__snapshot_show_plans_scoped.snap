@@ -4,8 +4,8 @@ expression: ast
 ---
 Compound:
   clause:
-    PathDeviation:
-      show: ~
+    ShowPlans:
+      trace_id: ~
   scope:
     robot:
       Single: robot_42
@@ -16,7 +16,7 @@ Compound:
     Since:
       Relative:
         amount: 1
-        unit: days
+        unit: day
   time_basis: ~
   conditions: ~
   facet: ~

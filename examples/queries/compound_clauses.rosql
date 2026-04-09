@@ -7,16 +7,21 @@
 FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 
 -- ============================================================================
--- MESSAGE JOURNEY — trace the full causality chain for the failed action
--- Follow ParentSpanId links to see how the message propagated through nodes.
+-- TRACE — recursive span tree walk for the full causality chain
+-- Follows ParentSpanId links to show how a message propagated through nodes.
 -- ============================================================================
-MESSAGE JOURNEY FOR TRACE 'trace-002'
+TRACE 'trace-002'
 
 -- ============================================================================
--- MESSAGE PATHS — find all message paths for /cmd_vel
+-- MESSAGE FLOW — find all message paths for /cmd_vel
 -- Shows which nodes published and subscribed to velocity commands.
 -- ============================================================================
-MESSAGE PATHS FOR TOPIC '/cmd_vel'
+MESSAGE FLOW FROM TOPIC '/cmd_vel'
+
+-- ============================================================================
+-- MESSAGE FLOW TO NODE — trace messages from a topic to a specific node
+-- ============================================================================
+MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/controller_server'
 
 -- ============================================================================
 -- HEALTH() — derived robot health assessment
@@ -42,6 +47,16 @@ SHOW RECORDING
 ANOMALY(duration)
 
 -- ============================================================================
--- TRACE — show all spans for a specific trace
+-- SHOW DEPLOYMENTS — deployment history (version × environment)
 -- ============================================================================
-TRACE 'trace-002'
+SHOW DEPLOYMENTS FOR ROBOT 'robot_sim_001' SINCE 30 days ago
+
+-- ============================================================================
+-- SHOW SPAN SUMMARY — top spans by average duration
+-- ============================================================================
+SHOW SPAN SUMMARY FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+
+-- ============================================================================
+-- SHOW PLANS — navigation/behaviour plan spans for a trace
+-- ============================================================================
+SHOW PLANS FOR TRACE 'trace-002'

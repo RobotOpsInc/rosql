@@ -46,6 +46,30 @@ FROM traces WHERE node = '/bt_navigator'
 FOR ROBOT 'robot_sim_001' FROM logs WHERE severity = 'ERROR'
 ```
 
+### Scope by version
+
+```sql
+FOR VERSION 'v1.2.3' FROM traces WHERE status = 'ERROR'
+```
+
+### Scope by environment
+
+```sql
+FOR ENVIRONMENT 'production' FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+```
+
+### Scope by session
+
+```sql
+FOR SESSION 'sess_abc123' FROM logs WHERE severity = 'ERROR'
+```
+
+### Compose multiple FOR clauses
+
+```sql
+FOR ROBOT 'robot_42' FOR VERSION 'v1.0.0' FOR ENVIRONMENT 'prod' FROM traces WHERE status = 'ERROR'
+```
+
 ### Read topic messages
 
 ```sql
@@ -94,18 +118,38 @@ SINCE yesterday
 ### Trace full message causality chain
 
 ```sql
-MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
+TRACE 'a3f1c9d2e8b04f7a'
 ```
 
-Returns all spans in the causal chain by walking `parent_span_id → span_id` recursively.
+Returns all spans in the causal chain by walking `parent_span_id → span_id` recursively via a CTE.
 
-### Find message paths for a topic
+:::note Removed in v0.4.1
+`MESSAGE JOURNEY FOR TRACE 'id'` has been removed. Use `TRACE 'id'` instead.
+:::
+
+### Find all message paths for a topic
 
 ```sql
-MESSAGE PATHS FOR TOPIC '/cmd_vel'
+MESSAGE FLOW FROM TOPIC '/cmd_vel'
 ```
 
 Shows which nodes published and subscribed to `/cmd_vel`.
+
+### Filter message flow to a specific destination node
+
+```sql
+MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/motor_driver'
+```
+
+### Filter message flow to a specific destination topic
+
+```sql
+MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
+```
+
+:::note Removed in v0.4.1
+`MESSAGE PATHS FOR TOPIC '/topic'` and `MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst'` have been removed. Use `MESSAGE FLOW FROM TOPIC ...` instead.
+:::
 
 ### All spans for a specific trace
 
@@ -228,6 +272,36 @@ FROM traces
 | WHERE status = 'ERROR'
 | FACET robot_id
 | COMPARE TO last week
+```
+
+### Compare error rate to a previous version
+
+```sql
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago | COMPARE TO VERSION 'v1.0.0'
+```
+
+### Compare two versions head-to-head
+
+```sql
+FROM traces WHERE action_name = '/navigate_to_pose' COMPARE VERSION 'v1.0' TO VERSION 'v2.0'
+```
+
+### Deployment history for a robot
+
+```sql
+SHOW DEPLOYMENTS FOR ROBOT 'robot_42' SINCE 7 days ago
+```
+
+### Top spans by average duration
+
+```sql
+SHOW SPAN SUMMARY FOR ROBOT 'robot_42' SINCE 1 hour ago
+```
+
+### Plan spans for a specific trace
+
+```sql
+SHOW PLANS FOR TRACE 'a3f1c9d2e8b04f7a'
 ```
 
 ### Log analysis with ordering

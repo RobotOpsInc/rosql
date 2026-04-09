@@ -314,9 +314,9 @@ fn default_limit_not_applied_for_trace_clause() {
 }
 
 #[test]
-fn default_limit_not_applied_for_message_journey() {
-    let (_, applied) = compile_with_default_limit("MESSAGE JOURNEY FOR TRACE 'abc'", 100);
-    assert!(!applied, "MESSAGE JOURNEY should be exempt");
+fn default_limit_not_applied_for_trace() {
+    let (sql, applied) = compile_with_default_limit("TRACE 'abc'", 100);
+    assert!(!applied, "TRACE should be exempt, got: {sql}");
 }
 
 // ── OFFSET ────────────────────────────────────────────────────────────────────
@@ -363,4 +363,150 @@ fn define_reserved_keyword_message() {
             "got: {message}"
         );
     }
+}
+
+// ── P0: Scope compilation ────────────────────────────────────────────────────
+
+#[test]
+fn for_robot_compiles_to_where_clause() {
+    let sql = compile_sql("SELECT * FROM logs FOR ROBOT 'r1'", SqlDialect::PostgreSQL);
+    assert!(sql.contains("robot.id"), "got: {sql}");
+    assert!(sql.contains("r1"), "got: {sql}");
+}
+
+#[test]
+fn for_version_compiles_to_where_clause() {
+    let sql = compile_sql(
+        "SELECT * FROM logs FOR VERSION 'v1.2.3'",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("service.version"), "got: {sql}");
+    assert!(sql.contains("v1.2.3"), "got: {sql}");
+}
+
+#[test]
+fn for_environment_compiles_to_where_clause() {
+    let sql = compile_sql(
+        "SELECT * FROM logs FOR ENVIRONMENT 'production'",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("deployment.environment"), "got: {sql}");
+    assert!(sql.contains("production"), "got: {sql}");
+}
+
+#[test]
+fn for_session_compiles_to_where_clause() {
+    let sql = compile_sql(
+        "SELECT * FROM logs FOR SESSION 'sess_abc'",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("ros.session.id"), "got: {sql}");
+    assert!(sql.contains("sess_abc"), "got: {sql}");
+}
+
+#[test]
+fn composable_scope_emits_all_filters() {
+    let sql = compile_sql(
+        "SELECT * FROM logs FOR ROBOT 'r1' FOR VERSION 'v1.0' FOR ENVIRONMENT 'prod'",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("robot.id"), "got: {sql}");
+    assert!(sql.contains("service.version"), "got: {sql}");
+    assert!(sql.contains("deployment.environment"), "got: {sql}");
+}
+
+#[test]
+fn trace_with_scope_compiles_to_cte_with_filter() {
+    let sql = compile_sql("TRACE 'abc123' FOR ROBOT 'r1'", SqlDialect::PostgreSQL);
+    assert!(sql.contains("WITH RECURSIVE trace_tree"), "got: {sql}");
+    assert!(sql.contains("robot.id"), "got: {sql}");
+}
+
+// ── SHOW commands ─────────────────────────────────────────────────────────────
+
+#[test]
+fn show_deployments_compiles() {
+    let sql = compile_sql("SHOW DEPLOYMENTS SINCE 30 days ago", SqlDialect::PostgreSQL);
+    assert!(sql.contains("service.version"), "got: {sql}");
+    assert!(sql.contains("deployment.environment"), "got: {sql}");
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+}
+
+#[test]
+fn show_span_summary_compiles() {
+    let sql = compile_sql("SHOW SPAN SUMMARY SINCE 1 hour ago", SqlDialect::PostgreSQL);
+    assert!(sql.contains("span_name"), "got: {sql}");
+    assert!(sql.contains("AVG"), "got: {sql}");
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+}
+
+#[test]
+fn show_plans_compiles() {
+    let sql = compile_sql("SHOW PLANS FOR TRACE 'abc123'", SqlDialect::PostgreSQL);
+    assert!(sql.contains("ros.plan.id"), "got: {sql}");
+    assert!(sql.contains("abc123"), "got: {sql}");
+}
+
+// ── COMPARE TO VERSION ────────────────────────────────────────────────────────
+
+#[test]
+fn compare_to_version_parses() {
+    let ast = rosql::parse("FROM traces COMPARE TO VERSION 'v1.2.3'").unwrap();
+    match ast {
+        rosql::Query::Standard(sq) => {
+            assert!(
+                matches!(&sq.baseline, Some(rosql::ast::Baseline::Version(v)) if v == "v1.2.3"),
+                "got: {:?}",
+                sq.baseline
+            );
+        }
+        _ => panic!("expected Standard"),
+    }
+}
+
+#[test]
+fn compare_version_pair_parses() {
+    let ast = rosql::parse("FROM traces COMPARE VERSION 'v1.0' TO VERSION 'v2.0'").unwrap();
+    match ast {
+        rosql::Query::Standard(sq) => {
+            assert!(
+                matches!(&sq.baseline, Some(rosql::ast::Baseline::VersionPair(v1, v2)) if v1 == "v1.0" && v2 == "v2.0"),
+                "got: {:?}",
+                sq.baseline
+            );
+        }
+        _ => panic!("expected Standard"),
+    }
+}
+
+// ── Removed syntax deprecation errors ────────────────────────────────────────
+
+#[test]
+fn message_journey_deprecation_error() {
+    let errs = rosql::parse("MESSAGE JOURNEY FOR TRACE 'abc'").unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.to_string().contains("MESSAGE JOURNEY is removed")),
+        "got: {errs:?}"
+    );
+}
+
+#[test]
+fn message_paths_deprecation_error() {
+    let errs = rosql::parse("MESSAGE PATHS FOR TOPIC '/cmd_vel'").unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.to_string().contains("MESSAGE PATHS is removed")),
+        "got: {errs:?}"
+    );
+}
+
+#[test]
+fn message_path_deprecation_error() {
+    let errs = rosql::parse("MESSAGE PATH FROM TOPIC '/a' TO NODE '/b'").unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.to_string().contains("MESSAGE PATH is removed")),
+        "got: {errs:?}"
+    );
 }

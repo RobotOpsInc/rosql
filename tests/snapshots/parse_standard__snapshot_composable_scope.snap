@@ -6,19 +6,19 @@ Standard:
   selections:
     - Star
   data_source: Logs
-  scope: ~
-  conditions:
-    Comparison:
-      left:
-        FieldAccess:
-          base: fields
-          key: my_value
-      op: Gt
-      right:
-        Literal:
-          Integer: 42
+  scope:
+    robot:
+      Single: robot_sim_001
+    version: v2.3.1
+    environment: production
+    session: ~
+  conditions: ~
   facet: ~
-  time_range: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
   time_basis: ~
   order_by: ~
   limit: ~

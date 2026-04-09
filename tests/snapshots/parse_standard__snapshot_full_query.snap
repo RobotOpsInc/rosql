@@ -13,7 +13,7 @@ Standard:
               - Field: duration
         alias: avg_dur
   data_source: Logs
-  robot_scope: ~
+  scope: ~
   conditions:
     And:
       - Comparison:

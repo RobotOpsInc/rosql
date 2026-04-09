@@ -6,8 +6,12 @@ Standard:
   selections:
     - Star
   data_source: Logs
-  robot_scope:
-    Single: robot_42
+  scope:
+    robot:
+      Single: robot_42
+    version: ~
+    environment: ~
+    session: ~
   conditions: ~
   facet: ~
   time_range:

@@ -26,7 +26,7 @@ fn standard_query_to_proto(sq: &ast::ROSQLQuery) -> pb::StandardQuery {
     pb::StandardQuery {
         selections: sq.selections.iter().map(selection_to_proto).collect(),
         data_source: Some(data_source_to_proto(&sq.data_source)),
-        robot_scope: sq.robot_scope.as_ref().map(robot_scope_to_proto),
+        scope: sq.scope.as_ref().map(query_scope_to_proto),
         conditions: sq.conditions.as_ref().map(condition_to_proto),
         facet: sq.facet.as_ref().map(facet_to_proto),
         time_range: sq.time_range.as_ref().map(time_range_to_proto),
@@ -76,8 +76,8 @@ fn pipeline_stage_to_proto(stage: &ast::PipelineStage) -> pb::PipelineStage {
         ast::PipelineStage::CompareTo(b) => {
             pb::pipeline_stage::Stage::CompareTo(baseline_to_proto(b))
         }
-        ast::PipelineStage::ForRobot(r) => {
-            pb::pipeline_stage::Stage::ForRobot(robot_scope_to_proto(r))
+        ast::PipelineStage::ForScope(s) => {
+            pb::pipeline_stage::Stage::ForScope(query_scope_to_proto(s))
         }
         ast::PipelineStage::CompoundClause(cc) => {
             pb::pipeline_stage::Stage::CompoundClause(compound_clause_to_proto(cc))
@@ -91,7 +91,7 @@ fn pipeline_stage_to_proto(stage: &ast::PipelineStage) -> pb::PipelineStage {
 fn compound_query_to_proto(cq: &ast::CompoundQuery) -> pb::CompoundQuery {
     pb::CompoundQuery {
         clause: Some(compound_clause_to_proto(&cq.clause)),
-        robot_scope: cq.robot_scope.as_ref().map(robot_scope_to_proto),
+        scope: cq.scope.as_ref().map(query_scope_to_proto),
         time_range: cq.time_range.as_ref().map(time_range_to_proto),
         time_basis: cq
             .time_basis
@@ -350,6 +350,15 @@ fn robot_scope_to_proto(scope: &ast::RobotScope) -> pb::RobotScope {
     }
 }
 
+fn query_scope_to_proto(scope: &ast::QueryScope) -> pb::QueryScope {
+    pb::QueryScope {
+        robot: scope.robot.as_ref().map(robot_scope_to_proto),
+        version: scope.version.clone().unwrap_or_default(),
+        environment: scope.environment.clone().unwrap_or_default(),
+        session: scope.session.clone().unwrap_or_default(),
+    }
+}
+
 fn facet_to_proto(f: &ast::FacetClause) -> pb::FacetClause {
     pb::FacetClause {
         dimension: f.dimension.clone(),
@@ -392,6 +401,13 @@ fn baseline_to_proto(b: &ast::Baseline) -> pb::Baseline {
         ast::Baseline::Robot(id) => pb::baseline::Baseline::RobotId(id.clone()),
         ast::Baseline::LastDeployment => pb::baseline::Baseline::LastDeployment(true),
         ast::Baseline::CompareRobots => pb::baseline::Baseline::CompareRobots(true),
+        ast::Baseline::Version(v) => pb::baseline::Baseline::Version(v.clone()),
+        ast::Baseline::VersionPair(v1, v2) => {
+            pb::baseline::Baseline::VersionPair(pb::VersionPairBaseline {
+                from_version: v1.clone(),
+                to_version: v2.clone(),
+            })
+        }
     };
     pb::Baseline {
         baseline: Some(baseline),
@@ -409,28 +425,36 @@ fn compound_clause_to_proto(cc: &ast::CompoundClause) -> pb::CompoundClause {
             inner_conditions: inner_conditions.as_ref().map(condition_to_proto),
             inner_time_range: inner_time_range.as_ref().map(time_range_to_proto),
         }),
-        ast::CompoundClause::MessageJourney { trace_id } => {
-            pb::compound_clause::Clause::MessageJourney(pb::MessageJourneyClause {
-                trace_id: trace_id.clone(),
-            })
-        }
-        ast::CompoundClause::MessagePaths { topic } => {
-            pb::compound_clause::Clause::MessagePaths(pb::MessagePathsClause {
-                topic: topic.clone(),
-            })
-        }
-        ast::CompoundClause::MessagePath {
-            from_topic,
-            to_node,
-            show,
-        } => pb::compound_clause::Clause::MessagePath(pb::MessagePathClause {
-            from_topic: from_topic.clone(),
-            to_node: to_node.clone(),
-            show: show.clone().unwrap_or_default(),
-        }),
         ast::CompoundClause::Trace { trace_id } => {
             pb::compound_clause::Clause::Trace(pb::TraceClause {
                 trace_id: trace_id.clone(),
+            })
+        }
+        ast::CompoundClause::MessageFlow {
+            from_topic,
+            to_target,
+            show,
+        } => {
+            let to_target_proto = to_target.as_ref().map(|t| {
+                let target = match t {
+                    ast::FlowTarget::Node(n) => pb::flow_target::Target::Node(n.clone()),
+                    ast::FlowTarget::Topic(t) => pb::flow_target::Target::Topic(t.clone()),
+                };
+                pb::FlowTarget {
+                    target: Some(target),
+                }
+            });
+            pb::compound_clause::Clause::MessageFlow(pb::MessageFlowClause {
+                from_topic: from_topic.clone(),
+                to_target: to_target_proto,
+                show: show.clone().unwrap_or_default(),
+            })
+        }
+        ast::CompoundClause::ShowDeployments => pb::compound_clause::Clause::ShowDeployments(true),
+        ast::CompoundClause::ShowSpanSummary => pb::compound_clause::Clause::ShowSpanSummary(true),
+        ast::CompoundClause::ShowPlans { trace_id } => {
+            pb::compound_clause::Clause::ShowPlans(pb::ShowPlansClause {
+                trace_id: trace_id.clone().unwrap_or_default(),
             })
         }
         ast::CompoundClause::ShowTraceBreakdown => {
@@ -533,7 +557,7 @@ mod tests {
         match proto.query.unwrap() {
             pb::rosql_query::Query::Compound(cq) => {
                 assert!(cq.clause.is_some());
-                assert!(cq.robot_scope.is_some());
+                assert!(cq.scope.is_some());
                 assert!(cq.time_range.is_some());
             }
             _ => panic!("expected Compound"),
@@ -585,17 +609,17 @@ mod tests {
     }
 
     #[test]
-    fn convert_message_journey() {
-        let ast = parse("MESSAGE JOURNEY FOR TRACE 'abc123'").unwrap();
+    fn convert_trace() {
+        let ast = parse("TRACE 'abc123'").unwrap();
         let proto = query_to_proto(&ast);
         match proto.query.unwrap() {
             pb::rosql_query::Query::Compound(cq) => {
                 let clause = cq.clause.unwrap().clause.unwrap();
                 match clause {
-                    pb::compound_clause::Clause::MessageJourney(mj) => {
-                        assert_eq!(mj.trace_id, "abc123");
+                    pb::compound_clause::Clause::Trace(t) => {
+                        assert_eq!(t.trace_id, "abc123");
                     }
-                    _ => panic!("expected MessageJourney"),
+                    _ => panic!("expected Trace"),
                 }
             }
             _ => panic!("expected Compound"),

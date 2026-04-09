@@ -7,7 +7,7 @@ Standard:
     - Field: span_name
     - Field: duration
   data_source: Logs
-  robot_scope: ~
+  scope: ~
   conditions: ~
   facet: ~
   time_range: ~

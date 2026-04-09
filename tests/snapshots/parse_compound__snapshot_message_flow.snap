@@ -4,19 +4,16 @@ expression: ast
 ---
 Compound:
   clause:
-    PathDeviation:
+    MessageFlow:
+      from_topic: /cmd_vel
+      to_target: ~
       show: ~
-  scope:
-    robot:
-      Single: robot_42
-    version: ~
-    environment: ~
-    session: ~
+  scope: ~
   time_range:
     Since:
       Relative:
         amount: 1
-        unit: days
+        unit: hour
   time_basis: ~
   conditions: ~
   facet: ~
