@@ -38,8 +38,7 @@ pub fn compile(
     };
 
     // Apply default LIMIT when none is present and the query type is not exempt.
-    let (query_with_limit, default_limit_applied) =
-        apply_default_limit(query, default_limit);
+    let (query_with_limit, default_limit_applied) = apply_default_limit(query, default_limit);
     let query_ref = query_with_limit.as_ref().unwrap_or(query);
 
     let sql = match query_ref {
@@ -71,11 +70,16 @@ fn is_limit_exempt(query: &Query) -> bool {
         }
         Query::Pipeline(pq) => {
             // Check normalized: if it has a FACET stage or only agg SELECT, exempt.
-            let has_facet = pq.stages.iter().any(|s| matches!(s, PipelineStage::Facet(_)));
+            let has_facet = pq
+                .stages
+                .iter()
+                .any(|s| matches!(s, PipelineStage::Facet(_)));
             let all_agg = pq.stages.iter().any(|s| {
                 if let PipelineStage::Select(sels) = s {
                     !sels.is_empty()
-                        && sels.iter().all(|sel| matches!(sel, Selection::Aggregation(_)))
+                        && sels
+                            .iter()
+                            .all(|sel| matches!(sel, Selection::Aggregation(_)))
                 } else {
                     false
                 }
@@ -112,7 +116,11 @@ fn apply_default_limit(query: &Query, default_limit: Option<u64>) -> (Option<Que
         }
         Query::Pipeline(pq) => {
             // Inject if no Limit stage present
-            if pq.stages.iter().any(|s| matches!(s, PipelineStage::Limit(_))) {
+            if pq
+                .stages
+                .iter()
+                .any(|s| matches!(s, PipelineStage::Limit(_)))
+            {
                 (None, false)
             } else {
                 let mut pq2 = pq.clone();
@@ -695,12 +703,19 @@ impl<'a> CompileCtx<'a> {
         }
     }
 
-    fn compile_agg_args(&self, agg: &AggregationCall, table: &str) -> Result<Vec<String>, ROSQLError> {
+    fn compile_agg_args(
+        &self,
+        agg: &AggregationCall,
+        table: &str,
+    ) -> Result<Vec<String>, ROSQLError> {
         // Special case: COUNT(*) with no args
         if agg.args.is_empty() {
             return Ok(vec!["*".into()]);
         }
-        agg.args.iter().map(|a| self.compile_expr(a, table)).collect()
+        agg.args
+            .iter()
+            .map(|a| self.compile_expr(a, table))
+            .collect()
     }
 
     fn compile_from(&self, _source: &DataSource, table: &str) -> Result<String, ROSQLError> {
@@ -1145,25 +1160,37 @@ mod tests {
     #[test]
     fn health_query_gated() {
         let err = compile_pg_err("HEALTH() SINCE 30 minutes ago");
-        assert!(matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "HEALTH()"), "got: {err:?}");
+        assert!(
+            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "HEALTH()"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
     fn anomaly_query_gated() {
         let err = compile_pg_err("ANOMALY(duration) SINCE 24 hours ago");
-        assert!(matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "ANOMALY()"), "got: {err:?}");
+        assert!(
+            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "ANOMALY()"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
     fn show_recording_gated() {
         let err = compile_pg_err("SHOW RECORDING SINCE yesterday");
-        assert!(matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "SHOW RECORDING"), "got: {err:?}");
+        assert!(
+            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "SHOW RECORDING"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
     fn path_deviation_gated() {
         let err = compile_pg_err("PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday");
-        assert!(matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "PATH DEVIATION"), "got: {err:?}");
+        assert!(
+            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "PATH DEVIATION"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -1176,7 +1203,10 @@ mod tests {
     #[test]
     fn correlate_query_gated() {
         let err = compile_pg_err("CORRELATE WITH metrics SINCE 7 days ago");
-        assert!(matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "CORRELATE WITH"), "got: {err:?}");
+        assert!(
+            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "CORRELATE WITH"),
+            "got: {err:?}"
+        );
     }
 
     #[test]

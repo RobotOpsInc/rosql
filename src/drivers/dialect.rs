@@ -148,9 +148,7 @@ impl SqlDialect {
         match self {
             SqlDialect::DuckDB => format!("approx_quantile({col}, {fraction})"),
             // PostgreSQL and MySQL use exact PERCENTILE_CONT
-            SqlDialect::PostgreSQL | SqlDialect::MySQL => {
-                self.percentile_cont(fraction, col)
-            }
+            SqlDialect::PostgreSQL | SqlDialect::MySQL => self.percentile_cont(fraction, col),
         }
     }
 

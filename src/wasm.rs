@@ -103,9 +103,7 @@ pub fn validate(query: &str) -> JsValue {
                         "suggestion": suggestion,
                     }),
                     crate::error::ROSQLError::ReservedSyntax {
-                        message,
-                        location,
-                        ..
+                        message, location, ..
                     } => serde_json::json!({
                         "message": message,
                         "line": location.line,

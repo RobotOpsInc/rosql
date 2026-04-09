@@ -39,14 +39,8 @@ fn compile_err(query: &str, dialect: SqlDialect) -> ROSQLError {
 fn compile_with_default_limit(query: &str, default: u64) -> (String, bool) {
     let ast = rosql::parse(query).unwrap_or_else(|e| panic!("parse failed: {e:?}"));
     let registry = default_otel_registry();
-    let cr = compile(
-        &ast,
-        &registry,
-        &SqlDialect::DuckDB,
-        &caps(),
-        Some(default),
-    )
-    .unwrap_or_else(|e| panic!("compile failed: {e}"));
+    let cr = compile(&ast, &registry, &SqlDialect::DuckDB, &caps(), Some(default))
+        .unwrap_or_else(|e| panic!("compile failed: {e}"));
     (cr.sql, cr.default_limit_applied)
 }
 
@@ -54,10 +48,7 @@ fn compile_with_default_limit(query: &str, default: u64) -> (String, bool) {
 
 #[test]
 fn topic_rate_compiles_to_subquery() {
-    let sql = compile_sql(
-        "SELECT TOPIC_RATE() FROM metrics",
-        SqlDialect::PostgreSQL,
-    );
+    let sql = compile_sql("SELECT TOPIC_RATE() FROM metrics", SqlDialect::PostgreSQL);
     assert!(sql.contains("otel_metrics"), "got: {sql}");
     assert!(sql.contains("ros2.topic.message_rate"), "got: {sql}");
     assert!(sql.contains("AVG"), "got: {sql}");
@@ -203,7 +194,10 @@ fn rate_gated() {
 
 #[test]
 fn delta_gated() {
-    let err = compile_err("SELECT DELTA(metric_value) FROM metrics", SqlDialect::PostgreSQL);
+    let err = compile_err(
+        "SELECT DELTA(metric_value) FROM metrics",
+        SqlDialect::PostgreSQL,
+    );
     assert!(
         matches!(&err, ROSQLError::NotImplemented { feature, .. } if feature == "DELTA()"),
         "got: {err:?}"
@@ -286,22 +280,37 @@ fn default_limit_not_applied_when_explicit_limit() {
 #[test]
 fn default_limit_not_applied_for_scalar_aggregation() {
     let (sql, applied) = compile_with_default_limit("SELECT COUNT(*) FROM logs", 100);
-    assert!(!applied, "scalar agg should be exempt, got applied={applied}");
-    assert!(!sql.contains("LIMIT"), "scalar agg should have no LIMIT, got: {sql}");
+    assert!(
+        !applied,
+        "scalar agg should be exempt, got applied={applied}"
+    );
+    assert!(
+        !sql.contains("LIMIT"),
+        "scalar agg should have no LIMIT, got: {sql}"
+    );
 }
 
 #[test]
 fn default_limit_not_applied_for_facet_query() {
     let (sql, applied) = compile_with_default_limit("FROM logs FACET severity", 100);
-    assert!(!applied, "FACET query should be exempt, got applied={applied}");
-    assert!(!sql.contains("LIMIT"), "FACET query should have no LIMIT, got: {sql}");
+    assert!(
+        !applied,
+        "FACET query should be exempt, got applied={applied}"
+    );
+    assert!(
+        !sql.contains("LIMIT"),
+        "FACET query should have no LIMIT, got: {sql}"
+    );
 }
 
 #[test]
 fn default_limit_not_applied_for_trace_clause() {
     let (sql, applied) = compile_with_default_limit("TRACE 'abc123'", 100);
     assert!(!applied, "TRACE clause should be exempt");
-    assert!(!sql.contains("LIMIT"), "TRACE should have no LIMIT, got: {sql}");
+    assert!(
+        !sql.contains("LIMIT"),
+        "TRACE should have no LIMIT, got: {sql}"
+    );
 }
 
 #[test]
@@ -349,6 +358,9 @@ fn define_reserved_keyword_message() {
     let errs = rosql::parse("DEFINE SLO availability 99.9").unwrap_err();
     assert!(matches!(&errs[0], ROSQLError::ReservedSyntax { keyword, .. } if keyword == "DEFINE"));
     if let ROSQLError::ReservedSyntax { message, .. } = &errs[0] {
-        assert!(message.contains("Robot Ops platform dashboard"), "got: {message}");
+        assert!(
+            message.contains("Robot Ops platform dashboard"),
+            "got: {message}"
+        );
     }
 }

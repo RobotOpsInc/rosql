@@ -47,10 +47,7 @@ pub enum ROSQLError {
 
     /// A feature that parses correctly but is not yet implemented in the compiler.
     #[error("Not implemented: {feature}. {message}")]
-    NotImplemented {
-        feature: String,
-        message: String,
-    },
+    NotImplemented { feature: String, message: String },
 
     /// A driver or connection error.
     #[error("Driver error: {message}")]
