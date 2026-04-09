@@ -369,10 +369,7 @@ fn define_reserved_keyword_message() {
 
 #[test]
 fn for_robot_compiles_to_where_clause() {
-    let sql = compile_sql(
-        "SELECT * FROM logs FOR ROBOT 'r1'",
-        SqlDialect::PostgreSQL,
-    );
+    let sql = compile_sql("SELECT * FROM logs FOR ROBOT 'r1'", SqlDialect::PostgreSQL);
     assert!(sql.contains("robot.id"), "got: {sql}");
     assert!(sql.contains("r1"), "got: {sql}");
 }

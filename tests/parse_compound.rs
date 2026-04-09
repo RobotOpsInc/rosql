@@ -8,7 +8,8 @@ use rosql::parse;
 fn message_journey_removed() {
     let errs = parse("MESSAGE JOURNEY FOR TRACE 'abc123def456'").unwrap_err();
     assert!(
-        errs.iter().any(|e| e.to_string().contains("MESSAGE JOURNEY is removed")),
+        errs.iter()
+            .any(|e| e.to_string().contains("MESSAGE JOURNEY is removed")),
         "got: {errs:?}"
     );
 }
@@ -17,7 +18,8 @@ fn message_journey_removed() {
 fn message_paths_removed() {
     let errs = parse("MESSAGE PATHS FOR TOPIC '/cmd_vel' SINCE 1 hour ago").unwrap_err();
     assert!(
-        errs.iter().any(|e| e.to_string().contains("MESSAGE PATHS is removed")),
+        errs.iter()
+            .any(|e| e.to_string().contains("MESSAGE PATHS is removed")),
         "got: {errs:?}"
     );
 }
@@ -28,7 +30,8 @@ fn message_path_removed() {
         parse("MESSAGE PATH FROM TOPIC '/scan' TO NODE '/local_costmap_node' SINCE 1 day ago")
             .unwrap_err();
     assert!(
-        errs.iter().any(|e| e.to_string().contains("MESSAGE PATH is removed")),
+        errs.iter()
+            .any(|e| e.to_string().contains("MESSAGE PATH is removed")),
         "got: {errs:?}"
     );
 }
@@ -57,8 +60,7 @@ fn snapshot_message_flow_to_node() {
 
 #[test]
 fn snapshot_message_flow_to_topic() {
-    let ast =
-        parse("MESSAGE FLOW FROM TOPIC '/scan' TO TOPIC '/costmap' SINCE 1 day ago").unwrap();
+    let ast = parse("MESSAGE FLOW FROM TOPIC '/scan' TO TOPIC '/costmap' SINCE 1 day ago").unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
 

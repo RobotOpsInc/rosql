@@ -450,12 +450,8 @@ fn compound_clause_to_proto(cc: &ast::CompoundClause) -> pb::CompoundClause {
                 show: show.clone().unwrap_or_default(),
             })
         }
-        ast::CompoundClause::ShowDeployments => {
-            pb::compound_clause::Clause::ShowDeployments(true)
-        }
-        ast::CompoundClause::ShowSpanSummary => {
-            pb::compound_clause::Clause::ShowSpanSummary(true)
-        }
+        ast::CompoundClause::ShowDeployments => pb::compound_clause::Clause::ShowDeployments(true),
+        ast::CompoundClause::ShowSpanSummary => pb::compound_clause::Clause::ShowSpanSummary(true),
         ast::CompoundClause::ShowPlans { trace_id } => {
             pb::compound_clause::Clause::ShowPlans(pb::ShowPlansClause {
                 trace_id: trace_id.clone().unwrap_or_default(),

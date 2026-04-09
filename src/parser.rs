@@ -545,9 +545,8 @@ impl<'src> Parser<'src> {
                             Some(FlowTarget::Topic(self.parse_string_literal()?))
                         }
                         _ => {
-                            return Err(self.error(
-                                "expected NODE or TOPIC after TO in MESSAGE FLOW".into(),
-                            ))
+                            return Err(self
+                                .error("expected NODE or TOPIC after TO in MESSAGE FLOW".into()))
                         }
                     }
                 } else {
@@ -2275,7 +2274,10 @@ mod tests {
                     ..
                 } => {
                     assert_eq!(from_topic, "/scan");
-                    assert_eq!(*to_target, Some(FlowTarget::Node("/local_costmap_node".into())));
+                    assert_eq!(
+                        *to_target,
+                        Some(FlowTarget::Node("/local_costmap_node".into()))
+                    );
                 }
                 _ => panic!("expected MessageFlow"),
             },
@@ -2433,7 +2435,10 @@ mod tests {
         let q = parse_ok("SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 hour ago");
         match q {
             Query::Compound(cq) => {
-                assert!(matches!(cq.clause, CompoundClause::ShowPlans { trace_id: None }));
+                assert!(matches!(
+                    cq.clause,
+                    CompoundClause::ShowPlans { trace_id: None }
+                ));
                 assert!(cq.scope.unwrap().robot.is_some());
                 assert!(cq.time_range.is_some());
             }
