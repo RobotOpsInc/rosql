@@ -75,17 +75,17 @@ async fn query_error_traces() {
 }
 
 #[tokio::test]
-async fn query_message_journey() {
+async fn query_trace_recursive_cte() {
     let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "MESSAGE JOURNEY FOR TRACE 'trace-002'").await;
+    let result = execute_query(&url, "TRACE 'trace-002'").await;
     assert!(
         result.metadata.row_count > 0,
-        "expected spans in message journey"
+        "expected spans in trace tree"
     );
     // trace-002 has root → bt_navigator → controller → costmap = 4 spans
     assert_eq!(
         result.metadata.row_count, 4,
-        "expected 4 spans in journey chain"
+        "expected 4 spans in trace tree"
     );
 }
 

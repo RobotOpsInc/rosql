@@ -4,7 +4,7 @@ expression: ast
 ---
 Compound:
   clause: ShowRecording
-  robot_scope: ~
+  scope: ~
   time_range:
     Since:
       Relative:

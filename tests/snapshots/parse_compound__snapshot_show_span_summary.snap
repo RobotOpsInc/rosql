@@ -3,20 +3,13 @@ source: tests/parse_compound.rs
 expression: ast
 ---
 Compound:
-  clause:
-    PathDeviation:
-      show: ~
-  scope:
-    robot:
-      Single: robot_42
-    version: ~
-    environment: ~
-    session: ~
+  clause: ShowSpanSummary
+  scope: ~
   time_range:
     Since:
       Relative:
         amount: 1
-        unit: days
+        unit: hour
   time_basis: ~
   conditions: ~
   facet: ~

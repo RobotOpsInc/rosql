@@ -4,19 +4,17 @@ expression: ast
 ---
 Compound:
   clause:
-    PathDeviation:
+    MessageFlow:
+      from_topic: /scan
+      to_target:
+        Topic: /costmap
       show: ~
-  scope:
-    robot:
-      Single: robot_42
-    version: ~
-    environment: ~
-    session: ~
+  scope: ~
   time_range:
     Since:
       Relative:
         amount: 1
-        unit: days
+        unit: day
   time_basis: ~
   conditions: ~
   facet: ~

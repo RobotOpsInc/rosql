@@ -2,29 +2,63 @@
 
 use rosql::parse;
 
+// ── Removed syntax — deprecation errors ─────────────────────────────────────
+
 #[test]
-fn snapshot_message_journey() {
-    let ast = parse("MESSAGE JOURNEY FOR TRACE 'abc123def456'").unwrap();
-    insta::assert_yaml_snapshot!(ast);
+fn message_journey_removed() {
+    let errs = parse("MESSAGE JOURNEY FOR TRACE 'abc123def456'").unwrap_err();
+    assert!(
+        errs.iter().any(|e| e.to_string().contains("MESSAGE JOURNEY is removed")),
+        "got: {errs:?}"
+    );
 }
 
 #[test]
-fn snapshot_message_paths() {
-    let ast = parse("MESSAGE PATHS FOR TOPIC '/cmd_vel' SINCE 1 hour ago").unwrap();
-    insta::assert_yaml_snapshot!(ast);
+fn message_paths_removed() {
+    let errs = parse("MESSAGE PATHS FOR TOPIC '/cmd_vel' SINCE 1 hour ago").unwrap_err();
+    assert!(
+        errs.iter().any(|e| e.to_string().contains("MESSAGE PATHS is removed")),
+        "got: {errs:?}"
+    );
 }
 
 #[test]
-fn snapshot_message_path_from_to() {
-    let ast =
+fn message_path_removed() {
+    let errs =
         parse("MESSAGE PATH FROM TOPIC '/scan' TO NODE '/local_costmap_node' SINCE 1 day ago")
+            .unwrap_err();
+    assert!(
+        errs.iter().any(|e| e.to_string().contains("MESSAGE PATH is removed")),
+        "got: {errs:?}"
+    );
+}
+
+// ── Active compound clauses ──────────────────────────────────────────────────
+
+#[test]
+fn snapshot_trace() {
+    let ast = parse("TRACE 'abc123def456'").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_message_flow() {
+    let ast = parse("MESSAGE FLOW FROM TOPIC '/cmd_vel' SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_message_flow_to_node() {
+    let ast =
+        parse("MESSAGE FLOW FROM TOPIC '/scan' TO NODE '/local_costmap_node' SINCE 1 day ago")
             .unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
 
 #[test]
-fn snapshot_trace() {
-    let ast = parse("TRACE 'abc123def456'").unwrap();
+fn snapshot_message_flow_to_topic() {
+    let ast =
+        parse("MESSAGE FLOW FROM TOPIC '/scan' TO TOPIC '/costmap' SINCE 1 day ago").unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
 
@@ -62,5 +96,29 @@ fn snapshot_correlate() {
 #[test]
 fn snapshot_show_recording() {
     let ast = parse("SHOW RECORDING SINCE yesterday").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_show_deployments() {
+    let ast = parse("SHOW DEPLOYMENTS FOR ROBOT 'robot_42' SINCE 30 days ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_show_span_summary() {
+    let ast = parse("SHOW SPAN SUMMARY SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_show_plans() {
+    let ast = parse("SHOW PLANS FOR TRACE 'abc123'").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_show_plans_scoped() {
+    let ast = parse("SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 day ago").unwrap();
     insta::assert_yaml_snapshot!(ast);
 }

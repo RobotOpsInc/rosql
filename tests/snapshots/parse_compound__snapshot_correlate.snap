@@ -6,7 +6,7 @@ Compound:
   clause:
     Correlate:
       with_source: Metrics
-  robot_scope: ~
+  scope: ~
   time_range:
     Since:
       Relative:

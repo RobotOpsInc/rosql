@@ -6,7 +6,7 @@ Compound:
   clause:
     Trace:
       trace_id: abc123def456
-  robot_scope: ~
+  scope: ~
   time_range: ~
   time_basis: ~
   conditions: ~

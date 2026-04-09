@@ -3,9 +3,7 @@ source: tests/parse_compound.rs
 expression: ast
 ---
 Compound:
-  clause:
-    PathDeviation:
-      show: ~
+  clause: ShowDeployments
   scope:
     robot:
       Single: robot_42
@@ -15,7 +13,7 @@ Compound:
   time_range:
     Since:
       Relative:
-        amount: 1
+        amount: 30
         unit: days
   time_basis: ~
   conditions: ~
