@@ -29,14 +29,26 @@ If you're building a ROS2-to-OTel bridge or setting up your own telemetry storag
 
 | Attribute | Type | Example | Used by ROSQL for |
 |-----------|------|---------|-------------------|
-| `ros.topic` | string | `/cmd_vel` | Topic filtering, `MESSAGE PATHS` |
+| `ros.topic` | string | `/cmd_vel` | Topic filtering, `MESSAGE FLOW` |
 | `ros.message_type` | string | `geometry_msgs/msg/Twist` | Message type filtering |
 | `ros.publisher_node` | string | `/controller_server` | Publisher attribution |
 | `ros.subscriber_node` | string | `/motor_driver` | Subscriber attribution |
+| `ros.session.id` | string | `sess_abc123` | `FOR SESSION` scoping |
 
-### ParentSpanId convention for MESSAGE JOURNEY
+### Universal scope resource attributes
 
-The publish span's `SpanId` must be set as the `ParentSpanId` of the corresponding subscribe span. This creates the causal chain that `MESSAGE JOURNEY` traverses.
+These resource attributes are set at the SDK/bridge level and enable `FOR` clause scoping across all query types.
+
+| Attribute | Type | Example | Used by ROSQL for |
+|-----------|------|---------|-------------------|
+| `robot_id` | string | `robot_42` | `FOR ROBOT` scoping |
+| `service.version` | string | `v1.2.3` | `FOR VERSION` scoping |
+| `deployment.environment` | string | `production` | `FOR ENVIRONMENT` scoping |
+| `ros.session.id` | string | `sess_abc123` | `FOR SESSION` scoping |
+
+### ParentSpanId convention for TRACE
+
+The publish span's `SpanId` must be set as the `ParentSpanId` of the corresponding subscribe span. This creates the causal chain that `TRACE` traverses recursively via a CTE.
 
 ```
 Publisher span (SpanId: "abc")
@@ -82,7 +94,7 @@ CREATE TABLE otel_traces (
 );
 ```
 
-Used by: `FROM traces`, `MESSAGE JOURNEY`, `MESSAGE PATHS`, `TRACE`, `DURING()`, `ACTION_SUCCESS_RATE`, `MOVING_AVG`, `DERIVATIVE`, `SINCE last action failure`
+Used by: `FROM traces`, `TRACE`, `MESSAGE FLOW`, `DURING()`, `ACTION_SUCCESS_RATE`, `MOVING_AVG`, `DERIVATIVE`, `SHOW DEPLOYMENTS`, `SHOW SPAN SUMMARY`, `SHOW PLANS`
 
 ### `otel_logs`
 
@@ -170,6 +182,10 @@ Used by: `FROM recordings`
 | `action_name` | `span_attributes->>'ros.action.name'` | — |
 | `action_status` | `span_attributes->>'ros.action.status'` | — |
 | `topic` | `span_attributes->>'ros.topic'` | — |
+| `robot_id` | `resource_attributes->>'robot_id'` | — |
+| `version` | `resource_attributes->>'service.version'` | — |
+| `environment` | `resource_attributes->>'deployment.environment'` | — |
+| `session_id` | `resource_attributes->>'ros.session.id'` | — |
 
 ### From `otel_metrics`
 
