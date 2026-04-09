@@ -5,19 +5,25 @@ expression: ast
 Standard:
   selections:
     - Star
-  data_source: Logs
+  data_source: Traces
   scope: ~
   conditions: ~
   facet: ~
   time_range:
     Since:
-      Epoch:
-        Seconds: 1742306400
+      Relative:
+        amount: 24
+        unit: hours
   time_basis: ~
   order_by: ~
   limit: ~
   offset: ~
   output_format: ~
   baseline: ~
-  timeseries: ~
+  timeseries:
+    interval:
+      raw_value: 1
+      unit: h
+      si_value: 3600
+      si_unit: s
   enrichments: []

@@ -104,4 +104,17 @@ pub struct ResultMetadata {
     pub compiled_sql: String,
     /// Whether a default LIMIT of 100 was automatically applied to this query.
     pub default_limit_applied: bool,
+    /// Per-enrichment metadata (populated when ENRICH WITH is used).
+    pub enrichment_metadata: Vec<EnrichmentMeta>,
+}
+
+/// Metadata for one ENRICH WITH source in a result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnrichmentMeta {
+    /// The enrichment data source name (e.g. "logs").
+    pub source: String,
+    /// Total enrichment rows returned across all primary rows.
+    pub count: usize,
+    /// True if any primary row hit the per-row enrichment limit.
+    pub truncated: bool,
 }

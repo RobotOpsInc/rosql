@@ -510,3 +510,189 @@ fn message_path_deprecation_error() {
         "got: {errs:?}"
     );
 }
+
+// ── SHOW TOPICS / SHOW NODES / SHOW NODE GRAPH ──────────────────────────────
+
+#[test]
+fn show_topics_compiles_postgres() {
+    let sql = compile_sql(
+        "SHOW TOPICS FOR ROBOT 'robot_42' SINCE 1 hour ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("ros.topic"), "got: {sql}");
+    assert!(sql.contains("topic_name"), "got: {sql}");
+    assert!(sql.contains("avg_rate_hz"), "got: {sql}");
+    assert!(sql.contains("publishers"), "got: {sql}");
+    assert!(sql.contains("subscribers"), "got: {sql}");
+    assert!(sql.contains("robot.id"), "got: {sql}");
+}
+
+#[test]
+fn show_topics_compiles_duckdb() {
+    let sql = compile_sql("SHOW TOPICS SINCE 6 hours ago", SqlDialect::DuckDB);
+    assert!(sql.contains("ros.topic"), "got: {sql}");
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+}
+
+#[test]
+fn show_nodes_compiles_postgres() {
+    let sql = compile_sql(
+        "SHOW NODES FOR ROBOT 'robot_42' SINCE 30 minutes ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("ros.node"), "got: {sql}");
+    assert!(sql.contains("node_name"), "got: {sql}");
+    assert!(sql.contains("topics_published"), "got: {sql}");
+    assert!(sql.contains("error_count"), "got: {sql}");
+    assert!(sql.contains("last_seen"), "got: {sql}");
+}
+
+#[test]
+fn show_node_graph_compiles_postgres() {
+    let sql = compile_sql(
+        "SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 minutes ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("source_node"), "got: {sql}");
+    assert!(sql.contains("target_node"), "got: {sql}");
+    assert!(sql.contains("DISTINCT"), "got: {sql}");
+}
+
+#[test]
+fn show_topics_not_limit_exempt() {
+    // SHOW TOPICS is aggregate — should be exempt from default limit
+    let (_, applied) = compile_with_default_limit("SHOW TOPICS SINCE 1 hour ago", 100);
+    assert!(!applied, "SHOW TOPICS should be limit-exempt");
+}
+
+// ── TIMESERIES ───────────────────────────────────────────────────────────────
+
+#[test]
+fn timeseries_compiles_duckdb() {
+    let sql = compile_sql(
+        "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 6 hours ago",
+        SqlDialect::DuckDB,
+    );
+    assert!(sql.contains("time_bucket"), "got: {sql}");
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+    assert!(sql.contains("ORDER BY time_bucket ASC"), "got: {sql}");
+    assert!(sql.contains("INTERVAL '5 minutes'"), "got: {sql}");
+}
+
+#[test]
+fn timeseries_compiles_postgres() {
+    let sql = compile_sql(
+        "SELECT COUNT(*) FROM traces TIMESERIES 1 hour SINCE 24 hours ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("time_bucket"), "got: {sql}");
+    assert!(sql.contains("date_bin"), "got: {sql}");
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+}
+
+#[test]
+fn timeseries_composes_with_facet_duckdb() {
+    let sql = compile_sql(
+        "SELECT AVG(duration) FROM traces TIMESERIES 1 min FACET action_name SINCE 1 hour ago",
+        SqlDialect::DuckDB,
+    );
+    assert!(sql.contains("time_bucket"), "got: {sql}");
+    // action_name is resolved to span_attributes json access in OTel registry
+    assert!(
+        sql.contains("action_name") || sql.contains("action.name"),
+        "got: {sql}"
+    );
+    // Both time_bucket and facet dimension should appear in GROUP BY
+    let gb_pos = sql.find("GROUP BY").expect("missing GROUP BY");
+    let gb_clause = &sql[gb_pos..];
+    assert!(
+        gb_clause.contains("time_bucket"),
+        "time_bucket not in GROUP BY: {sql}"
+    );
+    assert!(
+        gb_clause.contains("action_name") || gb_clause.contains("action.name"),
+        "facet not in GROUP BY: {sql}"
+    );
+}
+
+#[test]
+fn timeseries_is_limit_exempt() {
+    let (_, applied) = compile_with_default_limit(
+        "SELECT COUNT(*) FROM traces TIMESERIES 5 min SINCE 6 hours ago",
+        100,
+    );
+    assert!(!applied, "TIMESERIES queries should be limit-exempt");
+}
+
+// ── ENRICH WITH — primary SQL unaffected ────────────────────────────────────
+
+#[test]
+fn enrich_with_primary_sql_unchanged() {
+    // Primary SQL should be the same as without enrichment
+    let enriched = compile_sql(
+        "FROM traces WHERE status = 'ERROR' ENRICH WITH logs SINCE 1 hour ago",
+        SqlDialect::PostgreSQL,
+    );
+    let plain = compile_sql(
+        "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert_eq!(enriched, plain, "ENRICH WITH should not modify primary SQL");
+}
+
+#[test]
+fn enrich_with_pipeline_primary_sql_unchanged() {
+    let enriched = compile_sql(
+        "FROM traces | WHERE status = 'ERROR' | ENRICH WITH logs | SINCE 1 hour ago",
+        SqlDialect::PostgreSQL,
+    );
+    let plain = compile_sql(
+        "FROM traces | WHERE status = 'ERROR' | SINCE 1 hour ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert_eq!(
+        enriched, plain,
+        "Pipeline ENRICH WITH should not modify primary SQL"
+    );
+}
+
+#[test]
+fn enrich_with_produces_enrichment_plans() {
+    let ast = rosql::parse("FROM traces ENRICH WITH logs SINCE 1 hour ago")
+        .unwrap_or_else(|e| panic!("parse failed: {e:?}"));
+    let registry = default_otel_registry();
+    let cr = compile(&ast, &registry, &SqlDialect::PostgreSQL, &caps(), None).unwrap();
+    assert_eq!(cr.enrichments.len(), 1);
+    assert_eq!(cr.enrichments[0].source_name, "logs");
+    assert_eq!(cr.enrichments[0].join_column, "trace_id");
+    assert_eq!(cr.enrichments[0].limit, 50); // default
+}
+
+#[test]
+fn enrich_with_limit_override() {
+    let ast = rosql::parse("FROM traces ENRICH WITH logs LIMIT 200 SINCE 1 hour ago")
+        .unwrap_or_else(|e| panic!("parse failed: {e:?}"));
+    let registry = default_otel_registry();
+    let cr = compile(&ast, &registry, &SqlDialect::PostgreSQL, &caps(), None).unwrap();
+    assert_eq!(cr.enrichments[0].limit, 200);
+}
+
+#[test]
+fn enrich_with_sample_full() {
+    let ast = rosql::parse("FROM traces ENRICH WITH joint_states SAMPLE FULL SINCE 1 hour ago")
+        .unwrap_or_else(|e| panic!("parse failed: {e:?}"));
+    let registry = default_otel_registry();
+    let cr = compile(&ast, &registry, &SqlDialect::PostgreSQL, &caps(), None).unwrap();
+    assert!(cr.enrichments[0].sample_full);
+}
+
+#[test]
+fn enrich_with_multiple_plans() {
+    let ast = rosql::parse("FROM traces ENRICH WITH logs ENRICH WITH recordings SINCE 1 hour ago")
+        .unwrap_or_else(|e| panic!("parse failed: {e:?}"));
+    let registry = default_otel_registry();
+    let cr = compile(&ast, &registry, &SqlDialect::PostgreSQL, &caps(), None).unwrap();
+    assert_eq!(cr.enrichments.len(), 2);
+    assert_eq!(cr.enrichments[0].source_name, "logs");
+    assert_eq!(cr.enrichments[1].source_name, "recordings");
+}

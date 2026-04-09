@@ -4,16 +4,15 @@ expression: ast
 ---
 Standard:
   selections:
-    - Star
-  data_source: Logs
-  scope:
-    robot:
-      Single: robot_42
-    version: ~
-    environment: ~
-    session: ~
+    - Aggregation:
+        function: Avg
+        args:
+          - Field: duration
+  data_source: Traces
+  scope: ~
   conditions: ~
-  facet: ~
+  facet:
+    dimension: action_name
   time_range:
     Since:
       Relative:
@@ -25,5 +24,10 @@ Standard:
   offset: ~
   output_format: ~
   baseline: ~
-  timeseries: ~
+  timeseries:
+    interval:
+      raw_value: 1
+      unit: min
+      si_value: 60
+      si_unit: s
   enrichments: []

@@ -199,3 +199,64 @@ async fn capability_error_no_recordings() {
         "expected DataSourceUnavailable, got: {err}"
     );
 }
+
+// ── SHOW TOPICS / SHOW NODES / SHOW NODE GRAPH integration tests ─────────────
+
+#[tokio::test]
+async fn query_show_topics() {
+    let (_tmp, url) = setup_fixture_db();
+    let result = execute_query(&url, "SHOW TOPICS SINCE 30 days ago").await;
+    // Should return columns topic_name, message_type, avg_rate_hz, publishers, subscribers
+    let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+    assert!(col_names.contains(&"topic_name"), "got: {col_names:?}");
+    assert!(col_names.contains(&"publishers"), "got: {col_names:?}");
+}
+
+#[tokio::test]
+async fn query_show_nodes() {
+    let (_tmp, url) = setup_fixture_db();
+    let result = execute_query(&url, "SHOW NODES SINCE 30 days ago").await;
+    let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+    assert!(col_names.contains(&"node_name"), "got: {col_names:?}");
+    assert!(col_names.contains(&"error_count"), "got: {col_names:?}");
+}
+
+#[tokio::test]
+async fn query_show_node_graph() {
+    let (_tmp, url) = setup_fixture_db();
+    let result = execute_query(&url, "SHOW NODE GRAPH SINCE 30 days ago").await;
+    let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+    assert!(col_names.contains(&"source_node"), "got: {col_names:?}");
+    assert!(col_names.contains(&"target_node"), "got: {col_names:?}");
+    assert!(col_names.contains(&"topic"), "got: {col_names:?}");
+}
+
+// ── TIMESERIES integration tests ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn query_timeseries_basic() {
+    let (_tmp, url) = setup_fixture_db();
+    let result = execute_query(
+        &url,
+        "SELECT COUNT(*) FROM traces TIMESERIES 1 hour SINCE 30 days ago",
+    )
+    .await;
+    let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+    assert!(col_names.contains(&"time_bucket"), "got: {col_names:?}");
+    assert!(
+        !result.rows.is_empty(),
+        "TIMESERIES should return at least one row"
+    );
+}
+
+#[tokio::test]
+async fn query_timeseries_with_facet() {
+    let (_tmp, url) = setup_fixture_db();
+    let result = execute_query(
+        &url,
+        "SELECT COUNT(*) FROM traces TIMESERIES 1 hour FACET action_name SINCE 30 days ago",
+    )
+    .await;
+    let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+    assert!(col_names.contains(&"time_bucket"), "got: {col_names:?}");
+}

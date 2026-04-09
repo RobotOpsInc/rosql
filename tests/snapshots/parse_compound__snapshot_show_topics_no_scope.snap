@@ -1,0 +1,20 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause: ShowTopics
+  scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 6
+        unit: hours
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

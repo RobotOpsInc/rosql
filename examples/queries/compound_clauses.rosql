@@ -60,3 +60,22 @@ SHOW SPAN SUMMARY FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
 -- SHOW PLANS — navigation/behaviour plan spans for a trace
 -- ============================================================================
 SHOW PLANS FOR TRACE 'trace-002'
+
+-- ============================================================================
+-- SHOW TOPICS — list active ROS2 topics with publish rates (v0.4.2+)
+-- Aggregates span_attributes to show topic_name, message_type, avg_rate_hz,
+-- publisher/subscriber counts, and last_message_age_ms.
+-- ============================================================================
+SHOW TOPICS FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+SHOW TOPICS WHERE topic_name LIKE '/camera%' SINCE 30 minutes ago
+
+-- ============================================================================
+-- SHOW NODES — list active ROS2 nodes with pub/sub counts (v0.4.2+)
+-- ============================================================================
+SHOW NODES FOR ROBOT 'robot_sim_001' SINCE 30 minutes ago
+
+-- ============================================================================
+-- SHOW NODE GRAPH — topic/node edges for graph visualisation (v0.4.2+)
+-- Returns (source_node, topic, target_node) rows for building a network graph.
+-- ============================================================================
+SHOW NODE GRAPH FOR ROBOT 'robot_sim_001' SINCE 30 minutes ago

@@ -1,25 +1,24 @@
 ---
-source: tests/parse_standard.rs
+source: tests/parse_compound.rs
 expression: ast
 ---
-Standard:
-  selections:
-    - Star
-  data_source:
-    TopicAlias: Odom
+Compound:
+  clause: ShowTopics
   scope: ~
-  conditions: ~
-  facet: ~
   time_range:
     Since:
       Relative:
-        amount: 10
+        amount: 30
         unit: minutes
   time_basis: ~
+  conditions:
+    Like:
+      expr:
+        Field: topic_name
+      pattern: /camera%
+  facet: ~
   order_by: ~
   limit: ~
   offset: ~
   output_format: ~
   baseline: ~
-  timeseries: ~
-  enrichments: []

@@ -32,6 +32,8 @@ pub struct ROSQLQuery {
     pub offset: Option<u64>,
     pub output_format: Option<OutputFormat>,
     pub baseline: Option<Baseline>,
+    pub timeseries: Option<TimeseriesClause>,
+    pub enrichments: Vec<EnrichmentClause>,
 }
 
 /// Pipeline query: `FROM source | WHERE ... | FACET ...`
@@ -56,6 +58,8 @@ pub enum PipelineStage {
     CompareTo(Baseline),
     ForScope(QueryScope),
     CompoundClause(CompoundClause),
+    Timeseries(TimeseriesClause),
+    EnrichWith(EnrichmentClause),
 }
 
 /// A top-level compound query (MESSAGE FLOW, HEALTH(), TRACE, etc.).
@@ -417,6 +421,34 @@ pub enum OutputFormat {
 }
 
 // ===========================================================================
+// Timeseries
+// ===========================================================================
+
+/// TIMESERIES interval — time-bucketed aggregation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TimeseriesClause {
+    /// The bucket width (e.g. `5 min`, `1 hour`).
+    pub interval: UnitValue,
+}
+
+// ===========================================================================
+// Enrichment
+// ===========================================================================
+
+/// ENRICH WITH clause — joins additional data into a primary query result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnrichmentClause {
+    /// The data source to enrich from.
+    pub source: DataSource,
+    /// Explicit join key override (None = infer from source pair).
+    pub join_key: Option<String>,
+    /// Per-primary-row row limit (default 50).
+    pub limit: Option<u64>,
+    /// Disable auto-downsampling for high-frequency topic data.
+    pub sample_full: bool,
+}
+
+// ===========================================================================
 // Baselines
 // ===========================================================================
 
@@ -496,4 +528,13 @@ pub enum CompoundClause {
 
     /// `SHOW PLANS [FOR TRACE 'trace_id'] [FOR ROBOT ...] [SINCE ...]`
     ShowPlans { trace_id: Option<String> },
+
+    /// `SHOW TOPICS [FOR ROBOT ...] [SINCE ...]`
+    ShowTopics,
+
+    /// `SHOW NODES [FOR ROBOT ...] [SINCE ...]`
+    ShowNodes,
+
+    /// `SHOW NODE GRAPH [FOR ROBOT ...] [SINCE ...]`
+    ShowNodeGraph,
 }

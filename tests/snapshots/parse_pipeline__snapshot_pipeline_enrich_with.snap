@@ -1,0 +1,25 @@
+---
+source: tests/parse_pipeline.rs
+expression: ast
+---
+Pipeline:
+  stages:
+    - From: Traces
+    - Where:
+        Comparison:
+          left:
+            Field: status
+          op: Eq
+          right:
+            Literal:
+              String: ERROR
+    - EnrichWith:
+        source: Logs
+        join_key: ~
+        limit: ~
+        sample_full: false
+    - Since:
+        Since:
+          Relative:
+            amount: 1
+            unit: hour

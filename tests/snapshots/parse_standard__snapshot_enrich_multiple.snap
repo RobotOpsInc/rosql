@@ -1,0 +1,39 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source: Traces
+  scope: ~
+  conditions:
+    Comparison:
+      left:
+        Field: status
+      op: Eq
+      right:
+        Literal:
+          String: ERROR
+  facet: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~
+  timeseries: ~
+  enrichments:
+    - source: Logs
+      join_key: ~
+      limit: ~
+      sample_full: false
+    - source: Recordings
+      join_key: ~
+      limit: ~
+      sample_full: false

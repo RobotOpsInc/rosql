@@ -11,3 +11,43 @@ SELECT AVG(duration) AS avg_dur, MAX(duration) AS max_dur, COUNT(*) AS total FRO
 
 -- Percentile analysis
 SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose'
+
+-- ============================================================================
+-- TIMESERIES — time-bucketed dashboard queries (v0.4.2+)
+-- Compiles to time_bucket/date_bin SQL with automatic GROUP BY + ORDER BY.
+-- ============================================================================
+
+-- Error rate bucketed by 5-minute windows
+SELECT COUNT(*) AS errors FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 1 hour ago
+
+-- Average duration per node, bucketed hourly
+SELECT AVG(duration) AS avg_ms FROM traces TIMESERIES 1 hour SINCE 24 hours ago FACET robot_id
+
+-- CPU usage bucketed by 30-second windows (pipeline syntax)
+FROM metrics WHERE metric_name = 'cpu_usage'
+  | TIMESERIES 30 s
+  | SINCE 30 min ago
+  | FACET robot_id
+
+-- ============================================================================
+-- ENRICH WITH — cross-source data correlation (v0.4.2+)
+-- Two-phase execution: primary query runs first, then enrichment rows are
+-- fetched and merged as _enriched[source] JSON in each primary row.
+-- ============================================================================
+
+-- Enrich failed traces with the most recent 50 log lines
+SELECT * FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+ENRICH WITH logs
+
+-- Enrich navigation spans with limited log context per trace
+SELECT * FROM traces WHERE action_name = '/navigate_to_pose' SINCE 30 min ago
+ENRICH WITH logs LIMIT 10
+
+-- Enrich with full (untruncated) log sample
+SELECT * FROM traces WHERE status = 'ERROR' SINCE 6 hours ago
+ENRICH WITH logs SAMPLE FULL
+
+-- Multiple enrichments: correlate traces with both logs and metrics
+SELECT * FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+ENRICH WITH logs LIMIT 20
+ENRICH WITH metrics LIMIT 5

@@ -24,3 +24,5 @@ Standard:
   offset: ~
   output_format: ~
   baseline: ~
+  timeseries: ~
+  enrichments: []

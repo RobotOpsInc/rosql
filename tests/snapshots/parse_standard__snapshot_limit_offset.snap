@@ -16,3 +16,5 @@ Standard:
   offset: 40
   output_format: ~
   baseline: ~
+  timeseries: ~
+  enrichments: []

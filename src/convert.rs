@@ -42,6 +42,32 @@ fn standard_query_to_proto(sq: &ast::ROSQLQuery) -> pb::StandardQuery {
             .map(|f| output_format_to_proto(f) as i32)
             .unwrap_or(0),
         baseline: sq.baseline.as_ref().map(baseline_to_proto),
+        timeseries: sq.timeseries.as_ref().map(timeseries_to_proto),
+        enrichments: sq.enrichments.iter().map(enrichment_to_proto).collect(),
+    }
+}
+
+fn unit_value_to_proto(uv: &ast::UnitValue) -> pb::UnitValue {
+    pb::UnitValue {
+        raw_value: uv.raw_value,
+        unit: uv.unit.clone(),
+        si_value: uv.si_value,
+        si_unit: uv.si_unit.clone(),
+    }
+}
+
+fn timeseries_to_proto(ts: &ast::TimeseriesClause) -> pb::TimeseriesClause {
+    pb::TimeseriesClause {
+        interval: Some(unit_value_to_proto(&ts.interval)),
+    }
+}
+
+fn enrichment_to_proto(e: &ast::EnrichmentClause) -> pb::EnrichmentClause {
+    pb::EnrichmentClause {
+        source: Some(data_source_to_proto(&e.source)),
+        join_key: e.join_key.clone().unwrap_or_default(),
+        limit: e.limit,
+        sample_full: e.sample_full,
     }
 }
 
@@ -81,6 +107,12 @@ fn pipeline_stage_to_proto(stage: &ast::PipelineStage) -> pb::PipelineStage {
         }
         ast::PipelineStage::CompoundClause(cc) => {
             pb::pipeline_stage::Stage::CompoundClause(compound_clause_to_proto(cc))
+        }
+        ast::PipelineStage::Timeseries(ts) => {
+            pb::pipeline_stage::Stage::Timeseries(timeseries_to_proto(ts))
+        }
+        ast::PipelineStage::EnrichWith(e) => {
+            pb::pipeline_stage::Stage::EnrichWith(enrichment_to_proto(e))
         }
     };
     pb::PipelineStage {
@@ -478,6 +510,9 @@ fn compound_clause_to_proto(cc: &ast::CompoundClause) -> pb::CompoundClause {
             })
         }
         ast::CompoundClause::ShowRecording => pb::compound_clause::Clause::ShowRecording(true),
+        ast::CompoundClause::ShowTopics => pb::compound_clause::Clause::ShowTopics(true),
+        ast::CompoundClause::ShowNodes => pb::compound_clause::Clause::ShowNodes(true),
+        ast::CompoundClause::ShowNodeGraph => pb::compound_clause::Clause::ShowNodeGraph(true),
     };
     pb::CompoundClause {
         clause: Some(clause),

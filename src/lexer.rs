@@ -142,6 +142,20 @@ pub enum Token<'src> {
     Span,
     #[token("SUMMARY", ignore(ascii_case))]
     Summary,
+    #[token("TOPICS", ignore(ascii_case))]
+    Topics,
+    #[token("NODES", ignore(ascii_case))]
+    Nodes,
+    #[token("GRAPH", ignore(ascii_case))]
+    Graph,
+    #[token("TIMESERIES", ignore(ascii_case))]
+    Timeseries,
+    #[token("ENRICH", ignore(ascii_case))]
+    Enrich,
+    #[token("SAMPLE", ignore(ascii_case))]
+    Sample,
+    #[token("FULL", ignore(ascii_case))]
+    Full,
 
     // ── Time basis ──────────────────────────────────────────────────
     #[token("ROS_TIME", ignore(ascii_case))]
