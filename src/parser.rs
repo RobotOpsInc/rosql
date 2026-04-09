@@ -1920,6 +1920,7 @@ impl<'src> Parser<'src> {
         Ok(result)
     }
 
+    #[allow(dead_code)]
     fn parse_identifier_list(&mut self) -> Result<Vec<String>, ROSQLError> {
         let mut ids = vec![self.parse_dotted_identifier()?];
         while matches!(self.peek(), Some(Token::Comma)) {

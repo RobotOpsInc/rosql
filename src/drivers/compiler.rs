@@ -898,10 +898,8 @@ impl<'a> CompileCtx<'a> {
 
         let mut where_parts = Vec::new();
         if let Some(ref scope) = cq.scope {
-            if let Some(ref robot) = scope.robot {
-                if let RobotScope::Single(id) = robot {
-                    where_parts.push(format!("robot_ids @> ARRAY['{id}']"));
-                }
+            if let Some(RobotScope::Single(id)) = scope.robot.as_ref() {
+                where_parts.push(format!("robot_ids @> ARRAY['{id}']"));
             }
             if let Some(ref ver) = scope.version {
                 where_parts.push(format!("version = '{ver}'"));
