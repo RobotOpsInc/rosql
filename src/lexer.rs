@@ -163,6 +163,10 @@ pub enum Token<'src> {
     #[token("AT", ignore(ascii_case))]
     At,
 
+    // ── OFFSET keyword ──────────────────────────────────────────────
+    #[token("OFFSET", ignore(ascii_case))]
+    Offset,
+
     // ── TRACE_BREAKDOWN ─────────────────────────────────────────────
     #[token("TRACE_BREAKDOWN", ignore(ascii_case))]
     TraceBreakdown,

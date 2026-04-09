@@ -108,7 +108,7 @@ enum Schema {
 }
 
 impl Schema {
-    fn to_profile(&self) -> rosql::drivers::otel_registry::SchemaProfile {
+    fn to_profile(self) -> rosql::drivers::otel_registry::SchemaProfile {
         match self {
             Schema::OtelPostgres => rosql::drivers::otel_registry::SchemaProfile::OtelPostgres,
             Schema::OtelClickhouse => rosql::drivers::otel_registry::SchemaProfile::OtelClickhouse,
@@ -132,7 +132,7 @@ enum Backend {
 }
 
 impl Backend {
-    fn to_dialect(&self) -> Result<rosql::drivers::dialect::SqlDialect, String> {
+    fn to_dialect(self) -> Result<rosql::drivers::dialect::SqlDialect, String> {
         match self {
             Backend::Postgres => Ok(rosql::drivers::dialect::SqlDialect::PostgreSQL),
             Backend::Mysql => Ok(rosql::drivers::dialect::SqlDialect::MySQL),
@@ -225,11 +225,11 @@ fn cmd_compile(query: &str, backend: Backend, schema: Schema) {
         recording_index: true,
     };
 
-    match rosql::drivers::compiler::compile(&ast, &registry, &dialect, &capabilities) {
-        Ok(sql) => {
+    match rosql::drivers::compiler::compile(&ast, &registry, &dialect, &capabilities, None) {
+        Ok(cr) => {
             let json = serde_json::json!({
                 "ok": true,
-                "sql": sql,
+                "sql": cr.sql,
                 "backend": format!("{backend:?}").to_lowercase(),
             });
             println!("{}", serde_json::to_string_pretty(&json).unwrap());

@@ -18,5 +18,6 @@ Compound:
     dimension: robot_id
   order_by: ~
   limit: ~
+  offset: ~
   output_format: ~
   baseline: ~

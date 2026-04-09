@@ -38,12 +38,19 @@ fn mutation_create() {
 fn reserved_alert() {
     let errs = parse("ALERT WHEN cpu > 90").unwrap_err();
     assert!(matches!(&errs[0], ROSQLError::ReservedSyntax { keyword, .. } if keyword == "ALERT"));
+    if let ROSQLError::ReservedSyntax { message, .. } = &errs[0] {
+        assert!(message.contains("Robot Ops platform"));
+        assert!(message.contains("read-only"));
+    }
 }
 
 #[test]
 fn reserved_define() {
     let errs = parse("DEFINE SLO availability 99.9").unwrap_err();
     assert!(matches!(&errs[0], ROSQLError::ReservedSyntax { keyword, .. } if keyword == "DEFINE"));
+    if let ROSQLError::ReservedSyntax { message, .. } = &errs[0] {
+        assert!(message.contains("Robot Ops platform dashboard"));
+    }
 }
 
 #[test]

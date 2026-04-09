@@ -20,6 +20,8 @@ message QueryResult {
   uint64 row_count = 5;
   // Whether the result was truncated (e.g. by LIMIT or max_rows).
   bool truncated = 6;
+  // Whether a default LIMIT of 100 was automatically applied.
+  bool default_limit_applied = 7;
 
   // Format-specific result data.
   oneof data {

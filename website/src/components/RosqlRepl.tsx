@@ -11,12 +11,12 @@ const EXAMPLE_QUERIES = [
     query: "MESSAGE JOURNEY FOR TRACE 'trace-002'",
   },
   {
-    label: 'Robot health assessment',
-    query: "HEALTH()\n-- FOR ROBOT 'robot_sim_001' SINCE 30 minutes ago",
+    label: 'Error rate by robot',
+    query: "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET robot_id\n-- SINCE 30 minutes ago",
   },
   {
-    label: 'Anomaly detection',
-    query: "ANOMALY(duration)\n-- SINCE 1 hour ago",
+    label: 'Action success rate',
+    query: "SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces\n-- SINCE 1 hour ago",
   },
   {
     label: 'Topic messages',

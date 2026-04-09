@@ -44,28 +44,28 @@ SINCE 6 hours ago`,
     query: "MESSAGE PATHS FOR TOPIC '/cmd_vel'",
   },
   {
-    title: 'Robot health assessment',
+    title: 'Error rate by robot (health dashboard)',
     description:
-      'HEALTH() fans out across traces, logs, and metrics to produce a composite health assessment for a robot. Combines error rates, log severity counts, and metric status into a single result.',
-    query: "HEALTH() FOR ROBOT 'robot_sim_001'",
+      'Get a real-time error rate breakdown per robot. One of five composable health queries that together replace the upcoming HEALTH() command.',
+    query: `SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET robot_id SINCE 30 minutes ago`,
   },
   {
-    title: 'Detect path deviation',
+    title: 'Action success rate',
     description:
-      'PATH DEVIATION queries /odom trajectory data to detect if a robot deviated from its planned path. Requires topic_messages table with /odom data.',
-    query: "PATH DEVIATION FOR ROBOT 'robot_sim_001'",
+      'ACTION_SUCCESS_RATE() computes the fraction of succeeded action spans to total spans. Returns a value between 0 and 1 — useful for SLO tracking and alerting.',
+    query: "SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces SINCE 1 hour ago",
   },
   {
-    title: 'Find the MCAP recording for a failure',
+    title: 'Topic publish rate',
     description:
-      'SHOW RECORDING returns the MCAP recording metadata (S3 key, time range, topics) that covers the most recent event window. Use this to quickly find recordings for replay.',
-    query: 'SHOW RECORDING',
+      'TOPIC_RATE() queries the otel_metrics table for ros2.topic.message_rate values. Pass a topic name to filter to a specific topic.',
+    query: "SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 minutes ago",
   },
   {
-    title: 'Statistical anomaly detection',
+    title: 'Rolling average latency (MOVING_AVG)',
     description:
-      'ANOMALY() uses z-score analysis (AVG/STDDEV) to find outlier spans — those whose duration deviates significantly from the mean. Surfaces latency spikes without needing a fixed threshold.',
-    query: 'ANOMALY(duration)',
+      'MOVING_AVG smooths out per-span latency spikes using a sliding window. Compiles to a SQL window function — no post-processing needed.',
+    query: 'SELECT MOVING_AVG(duration, 5) FROM traces WHERE action_name = \'/navigate_to_pose\'',
   },
   {
     title: 'Pipeline syntax: slow errors grouped by robot',

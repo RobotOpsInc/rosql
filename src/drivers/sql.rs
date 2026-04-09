@@ -82,7 +82,16 @@ impl SqlBackend {
 #[async_trait]
 impl ROSQLBackend for SqlBackend {
     async fn execute(&self, query: &Query, opts: &ExecOptions) -> Result<ROSQLResult, ROSQLError> {
-        let compiled_sql = compile(query, &self.schema, &self.dialect, &self.capabilities)?;
+        let effective_default_limit = opts.default_limit.or(Some(100));
+        let compile_result = compile(
+            query,
+            &self.schema,
+            &self.dialect,
+            &self.capabilities,
+            effective_default_limit,
+        )?;
+        let compiled_sql = compile_result.sql;
+        let default_limit_applied = compile_result.default_limit_applied;
 
         if opts.dry_run {
             return Ok(ROSQLResult {
@@ -97,13 +106,14 @@ impl ROSQLBackend for SqlBackend {
                     row_count: 1,
                     execution_time_ms: 0,
                     compiled_sql,
+                    default_limit_applied,
                 },
             });
         }
 
         let start = Instant::now();
 
-        let (columns, result_rows) = match &self.pool {
+        let (columns, mut result_rows) = match &self.pool {
             #[cfg(feature = "postgres")]
             Pool::Postgres(pool) => execute_pg(pool, &compiled_sql).await?,
             #[cfg(feature = "mysql")]
@@ -123,6 +133,11 @@ impl ROSQLBackend for SqlBackend {
             }
         };
 
+        // Enforce max_rows cap if requested.
+        if let Some(max) = opts.max_rows {
+            result_rows.truncate(max as usize);
+        }
+
         let execution_time_ms = start.elapsed().as_millis() as u64;
         let row_count = result_rows.len();
 
@@ -134,6 +149,7 @@ impl ROSQLBackend for SqlBackend {
                 row_count,
                 execution_time_ms,
                 compiled_sql,
+                default_limit_applied,
             },
         })
     }

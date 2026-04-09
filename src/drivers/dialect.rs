@@ -134,6 +134,39 @@ impl SqlDialect {
         }
     }
 
+    /// Generate an approximate COUNT(DISTINCT) expression.
+    pub fn approx_count_distinct(&self, col: &str) -> String {
+        match self {
+            SqlDialect::DuckDB => format!("approx_count_distinct({col})"),
+            // PostgreSQL and MySQL fall back to exact COUNT(DISTINCT ...)
+            SqlDialect::PostgreSQL | SqlDialect::MySQL => format!("COUNT(DISTINCT {col})"),
+        }
+    }
+
+    /// Generate an approximate percentile expression.
+    pub fn approx_percentile(&self, fraction: f64, col: &str) -> String {
+        match self {
+            SqlDialect::DuckDB => format!("approx_quantile({col}, {fraction})"),
+            // PostgreSQL and MySQL use exact PERCENTILE_CONT
+            SqlDialect::PostgreSQL | SqlDialect::MySQL => self.percentile_cont(fraction, col),
+        }
+    }
+
+    /// Generate an expression for the difference in seconds between two timestamp expressions.
+    pub fn timestamp_diff_seconds(&self, ts_a: &str, ts_b: &str) -> String {
+        match self {
+            SqlDialect::PostgreSQL => {
+                format!("EXTRACT(EPOCH FROM ({ts_a} - {ts_b}))")
+            }
+            SqlDialect::DuckDB => {
+                format!("EPOCH(({ts_a}::TIMESTAMP - {ts_b}::TIMESTAMP))")
+            }
+            SqlDialect::MySQL => {
+                format!("TIMESTAMPDIFF(SECOND, {ts_b}, {ts_a})")
+            }
+        }
+    }
+
     /// The timestamp column name used in the standard OTel schema.
     pub fn timestamp_column(&self) -> &'static str {
         "Timestamp"

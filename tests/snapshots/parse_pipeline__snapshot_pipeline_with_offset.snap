@@ -1,0 +1,17 @@
+---
+source: tests/parse_pipeline.rs
+expression: ast
+---
+Pipeline:
+  stages:
+    - From: Logs
+    - Where:
+        Comparison:
+          left:
+            Field: ros.node
+          op: Eq
+          right:
+            Literal:
+              String: /planner
+    - Limit: 10
+    - Offset: 20

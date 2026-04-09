@@ -13,5 +13,6 @@ Compound:
   facet: ~
   order_by: ~
   limit: ~
+  offset: ~
   output_format: ~
   baseline: ~
