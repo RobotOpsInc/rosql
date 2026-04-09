@@ -96,3 +96,20 @@ fn snapshot_offset_only() {
     let ast = parse("FROM logs OFFSET 10").unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
+
+#[test]
+fn snapshot_composable_scope() {
+    let ast = parse(
+        "SELECT * FROM logs \
+         FOR ROBOT 'robot_sim_001' FOR VERSION 'v2.3.1' FOR ENVIRONMENT 'production' \
+         SINCE 1 hour ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_for_session() {
+    let ast = parse("FROM traces FOR SESSION 'sess_abc123' SINCE 30 minutes ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
