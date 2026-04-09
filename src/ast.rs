@@ -22,7 +22,7 @@ pub enum Query {
 pub struct ROSQLQuery {
     pub selections: Vec<Selection>,
     pub data_source: DataSource,
-    pub robot_scope: Option<RobotScope>,
+    pub scope: Option<QueryScope>,
     pub conditions: Option<Condition>,
     pub facet: Option<FacetClause>,
     pub time_range: Option<TimeRange>,
@@ -54,15 +54,15 @@ pub enum PipelineStage {
     Offset(u64),
     Format(OutputFormat),
     CompareTo(Baseline),
-    ForRobot(RobotScope),
+    ForScope(QueryScope),
     CompoundClause(CompoundClause),
 }
 
-/// A top-level compound query (MESSAGE JOURNEY, HEALTH(), TRACE, etc.).
+/// A top-level compound query (MESSAGE FLOW, HEALTH(), TRACE, etc.).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompoundQuery {
     pub clause: CompoundClause,
-    pub robot_scope: Option<RobotScope>,
+    pub scope: Option<QueryScope>,
     pub time_range: Option<TimeRange>,
     pub time_basis: Option<TimeBasis>,
     pub conditions: Option<Condition>,
@@ -334,7 +334,7 @@ pub enum TimeBasis {
 }
 
 // ===========================================================================
-// Robot scoping
+// Robot / query scoping
 // ===========================================================================
 
 /// Robot scope (FOR ROBOT / FOR FLEET).
@@ -342,6 +342,43 @@ pub enum TimeBasis {
 pub enum RobotScope {
     Single(String),
     Fleet,
+}
+
+/// Composable query scope — all dimensions are optional and can be combined.
+///
+/// ```sql
+/// FOR ROBOT 'robot_42' FOR VERSION '2.3.1' FOR ENVIRONMENT 'production'
+/// ```
+///
+/// Compile targets:
+/// - `FOR ROBOT`       → `resource_attributes->>'robot.id'`
+/// - `FOR VERSION`     → `resource_attributes->>'service.version'`
+/// - `FOR ENVIRONMENT` → `resource_attributes->>'deployment.environment'`
+/// - `FOR SESSION`     → `resource_attributes->>'ros.session.id'`
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueryScope {
+    pub robot: Option<RobotScope>,
+    pub version: Option<String>,
+    pub environment: Option<String>,
+    pub session: Option<String>,
+}
+
+impl QueryScope {
+    pub fn empty() -> Self {
+        QueryScope {
+            robot: None,
+            version: None,
+            environment: None,
+            session: None,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.robot.is_none()
+            && self.version.is_none()
+            && self.environment.is_none()
+            && self.session.is_none()
+    }
 }
 
 // ===========================================================================
@@ -391,11 +428,24 @@ pub enum Baseline {
     Robot(String),
     LastDeployment,
     CompareRobots,
+    /// `COMPARE TO VERSION 'v1.2.3'`
+    Version(String),
+    /// `COMPARE VERSION 'v1.0' TO VERSION 'v2.0'`
+    VersionPair(String, String),
 }
 
 // ===========================================================================
 // Compound clauses
 // ===========================================================================
+
+/// Target qualifier for MESSAGE FLOW.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum FlowTarget {
+    /// `TO NODE '/node_name'`
+    Node(String),
+    /// `TO TOPIC '/topic_name'`
+    Topic(String),
+}
 
 /// Compound clause types — all are open source.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -407,21 +457,15 @@ pub enum CompoundClause {
         inner_time_range: Option<TimeRange>,
     },
 
-    /// `MESSAGE JOURNEY FOR TRACE 'trace_id'`
-    MessageJourney { trace_id: String },
+    /// `TRACE 'trace_id'` — recursive span tree walk.
+    Trace { trace_id: String },
 
-    /// `MESSAGE PATHS FOR TOPIC '/topic' SINCE ...`
-    MessagePaths { topic: String },
-
-    /// `MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst' [SHOW ...]`
-    MessagePath {
+    /// `MESSAGE FLOW FROM TOPIC '/topic' [TO NODE '/node' | TO TOPIC '/topic'] [SHOW ...]`
+    MessageFlow {
         from_topic: String,
-        to_node: String,
+        to_target: Option<FlowTarget>,
         show: Option<String>,
     },
-
-    /// `TRACE 'trace_id'`
-    Trace { trace_id: String },
 
     /// `SHOW TRACE_BREAKDOWN`
     ShowTraceBreakdown,
@@ -443,4 +487,13 @@ pub enum CompoundClause {
 
     /// `SHOW RECORDING`
     ShowRecording,
+
+    /// `SHOW DEPLOYMENTS [FOR ROBOT ...] [SINCE ...]`
+    ShowDeployments,
+
+    /// `SHOW SPAN SUMMARY [FOR ROBOT ...] [SINCE ...]`
+    ShowSpanSummary,
+
+    /// `SHOW PLANS [FOR TRACE 'trace_id'] [FOR ROBOT ...] [SINCE ...]`
+    ShowPlans { trace_id: Option<String> },
 }

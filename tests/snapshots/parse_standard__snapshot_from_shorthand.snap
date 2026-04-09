@@ -6,7 +6,7 @@ Standard:
   selections:
     - Star
   data_source: Metrics
-  robot_scope: ~
+  scope: ~
   conditions: ~
   facet: ~
   time_range: ~

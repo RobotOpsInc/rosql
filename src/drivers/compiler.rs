@@ -23,7 +23,7 @@ pub struct CompileResult {
 ///
 /// Pass `default_limit: Some(100)` to automatically cap result sets at 100 rows
 /// for queries that don't have an explicit LIMIT. Certain query shapes are exempt
-/// (scalar aggregations, FACET queries, TRACE, MESSAGE JOURNEY/PATHS/PATH).
+/// (scalar aggregations, FACET queries, TRACE, MESSAGE FLOW, SHOW DEPLOYMENTS, SHOW SPAN SUMMARY).
 pub fn compile(
     query: &Query,
     registry: &FieldRegistry,
@@ -89,9 +89,9 @@ fn is_limit_exempt(query: &Query) -> bool {
         Query::Compound(cq) => matches!(
             cq.clause,
             CompoundClause::Trace { .. }
-                | CompoundClause::MessageJourney { .. }
-                | CompoundClause::MessagePaths { .. }
-                | CompoundClause::MessagePath { .. }
+                | CompoundClause::MessageFlow { .. }
+                | CompoundClause::ShowDeployments
+                | CompoundClause::ShowSpanSummary
         ),
     }
 }
@@ -185,7 +185,7 @@ impl<'a> CompileCtx<'a> {
         let from_clause = self.compile_from(&q.data_source, &table)?;
         parts.push(from_clause);
 
-        // WHERE (conditions + time range + topic alias filter combined)
+        // WHERE (conditions + time range + topic alias filter + scope combined)
         let mut where_parts = Vec::new();
         if let Some(ref cond) = q.conditions {
             where_parts.push(self.compile_condition(cond, &table)?);
@@ -195,6 +195,9 @@ impl<'a> CompileCtx<'a> {
         }
         if let DataSource::TopicAlias(ref alias) = q.data_source {
             where_parts.push(format!("topic_name = '{}'", alias.topic_name()));
+        }
+        if let Some(ref scope) = q.scope {
+            where_parts.extend(self.compile_scope_filters(scope));
         }
         if !where_parts.is_empty() {
             parts.push(format!("WHERE {}", where_parts.join(" AND ")));
@@ -239,7 +242,7 @@ impl<'a> CompileCtx<'a> {
         let mut sq = ROSQLQuery {
             selections: vec![Selection::Star],
             data_source: DataSource::Logs, // placeholder
-            robot_scope: None,
+            scope: None,
             conditions: None,
             facet: None,
             time_range: None,
@@ -271,7 +274,21 @@ impl<'a> CompileCtx<'a> {
                 PipelineStage::Offset(n) => sq.offset = Some(*n),
                 PipelineStage::Format(f) => sq.output_format = Some(*f),
                 PipelineStage::CompareTo(b) => sq.baseline = Some(b.clone()),
-                PipelineStage::ForRobot(r) => sq.robot_scope = Some(r.clone()),
+                PipelineStage::ForScope(new_scope) => {
+                    let existing = sq.scope.get_or_insert_with(QueryScope::empty);
+                    if new_scope.robot.is_some() {
+                        existing.robot = new_scope.robot.clone();
+                    }
+                    if new_scope.version.is_some() {
+                        existing.version = new_scope.version.clone();
+                    }
+                    if new_scope.environment.is_some() {
+                        existing.environment = new_scope.environment.clone();
+                    }
+                    if new_scope.session.is_some() {
+                        existing.session = new_scope.session.clone();
+                    }
+                }
                 PipelineStage::CompoundClause(_) => {
                     // Compound clauses in pipeline are handled separately
                 }
@@ -285,28 +302,27 @@ impl<'a> CompileCtx<'a> {
 
     fn compile_compound(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
         match &cq.clause {
-            CompoundClause::MessageJourney { trace_id } => {
-                self.compile_message_journey(trace_id, cq)
-            }
-            CompoundClause::MessagePaths { topic } => self.compile_message_paths(topic, cq),
-            CompoundClause::MessagePath {
+            CompoundClause::Trace { trace_id } => self.compile_trace(trace_id, cq),
+            CompoundClause::MessageFlow {
                 from_topic,
-                to_node,
+                to_target,
                 ..
-            } => self.compile_message_path(from_topic, to_node, cq),
-            CompoundClause::Trace { trace_id } => self.compile_trace(trace_id),
+            } => self.compile_message_flow(from_topic, to_target, cq),
+            CompoundClause::ShowDeployments => self.compile_show_deployments(cq),
+            CompoundClause::ShowSpanSummary => self.compile_show_span_summary(cq),
+            CompoundClause::ShowPlans { trace_id } => self.compile_show_plans(trace_id, cq),
             CompoundClause::ShowTraceBreakdown => Err(ROSQLError::NotImplemented {
                 feature: "SHOW TRACE_BREAKDOWN".into(),
-                message: "SHOW TRACE_BREAKDOWN is being replaced by SHOW SPAN SUMMARY. \
-                           Use `SELECT span_name, COUNT(*) AS count, AVG(duration) AS avg_duration \
-                           FROM traces GROUP BY span_name` as a workaround."
+                message: "SHOW TRACE_BREAKDOWN is replaced by SHOW SPAN SUMMARY. \
+                           Use `SHOW SPAN SUMMARY` or `SELECT span_name, COUNT(*) AS count, \
+                           AVG(duration) AS avg_duration FROM traces FACET span_name` as a workaround."
                     .into(),
             }),
             CompoundClause::Health => Err(ROSQLError::NotImplemented {
                 feature: "HEALTH()".into(),
                 message: "HEALTH() is being redesigned. Run these queries separately: \
                            error rate (SELECT COUNT(*) FROM traces WHERE status_code='ERROR'), \
-                           log severity (SELECT severity, COUNT(*) FROM logs GROUP BY severity), \
+                           log severity (SELECT severity, COUNT(*) FROM logs FACET severity), \
                            and metric counts (SELECT COUNT(*) FROM metrics). \
                            See the ROSQL cookbook for a complete health dashboard recipe."
                     .into(),
@@ -343,54 +359,74 @@ impl<'a> CompileCtx<'a> {
         }
     }
 
-    fn compile_message_journey(
-        &self,
-        trace_id: &str,
-        cq: &CompoundQuery,
-    ) -> Result<String, ROSQLError> {
+    /// Compile scope filters to a list of WHERE predicates.
+    fn compile_scope_filters(&self, scope: &QueryScope) -> Vec<String> {
+        let mut parts = Vec::new();
+        let res = "resource_attributes";
+        if let Some(ref robot) = scope.robot {
+            match robot {
+                RobotScope::Single(id) => {
+                    parts.push(format!(
+                        "{} = '{id}'",
+                        self.dialect.json_access(res, "robot.id")
+                    ));
+                }
+                RobotScope::Fleet => {} // no filter — all robots
+            }
+        }
+        if let Some(ref ver) = scope.version {
+            parts.push(format!(
+                "{} = '{ver}'",
+                self.dialect.json_access(res, "service.version")
+            ));
+        }
+        if let Some(ref env) = scope.environment {
+            parts.push(format!(
+                "{} = '{env}'",
+                self.dialect.json_access(res, "deployment.environment")
+            ));
+        }
+        if let Some(ref sess) = scope.session {
+            parts.push(format!(
+                "{} = '{sess}'",
+                self.dialect.json_access(res, "ros.session.id")
+            ));
+        }
+        parts
+    }
+
+    /// `TRACE 'trace_id'` — recursive CTE span tree walk.
+    fn compile_trace(&self, trace_id: &str, cq: &CompoundQuery) -> Result<String, ROSQLError> {
         let tbl = self.qtable("otel_traces");
         let tid = self.col("trace_id");
         let psid = self.col("parent_span_id");
         let sid = self.col("span_id");
-        let mut sql = format!(
-            "WITH RECURSIVE journey AS (\
-             SELECT * FROM {tbl} WHERE {tid} = '{trace_id}' AND {psid} = '' \
+
+        // Seed: root spans for this trace (parent_span_id is empty string or NULL)
+        let mut seed_where = format!("{tid} = '{trace_id}' AND ({psid} = '' OR {psid} IS NULL)");
+        if let Some(ref scope) = cq.scope {
+            for f in self.compile_scope_filters(scope) {
+                seed_where.push_str(&format!(" AND {f}"));
+            }
+        }
+
+        let sql = format!(
+            "WITH RECURSIVE trace_tree AS (\
+             SELECT * FROM {tbl} WHERE {seed_where} \
              UNION ALL \
              SELECT t.* FROM {tbl} t \
-             JOIN journey j ON t.{psid} = j.{sid}\
-             ) SELECT * FROM journey"
+             JOIN trace_tree r ON t.{psid} = r.{sid}\
+             ) SELECT * FROM trace_tree ORDER BY {ts}",
+            ts = self.col("timestamp")
         );
-        sql.push_str(&self.compile_compound_suffix(cq)?);
         Ok(sql)
     }
 
-    fn compile_message_paths(&self, topic: &str, cq: &CompoundQuery) -> Result<String, ROSQLError> {
-        let tbl = self.qtable("otel_traces");
-        let psid = self.col("parent_span_id");
-        let sid = self.col("span_id");
-        let topic_attr = self.dialect.json_access(
-            self.registry
-                .resolve("topic")
-                .map(|f| f.column.as_str())
-                .unwrap_or("span_attributes"),
-            "ros.topic",
-        );
-        let mut sql = format!(
-            "WITH RECURSIVE paths AS (\
-             SELECT * FROM {tbl} WHERE {topic_attr} = '{topic}' \
-             UNION ALL \
-             SELECT t.* FROM {tbl} t \
-             JOIN paths p ON t.{psid} = p.{sid}\
-             ) SELECT * FROM paths"
-        );
-        sql.push_str(&self.compile_compound_suffix(cq)?);
-        Ok(sql)
-    }
-
-    fn compile_message_path(
+    /// `MESSAGE FLOW FROM TOPIC '...' [TO NODE '...' | TO TOPIC '...'] [SHOW ...]`
+    fn compile_message_flow(
         &self,
         from_topic: &str,
-        to_node: &str,
+        to_target: &Option<FlowTarget>,
         cq: &CompoundQuery,
     ) -> Result<String, ROSQLError> {
         let tbl = self.qtable("otel_traces");
@@ -402,25 +438,131 @@ impl<'a> CompileCtx<'a> {
             .map(|f| f.column.as_str())
             .unwrap_or("span_attributes");
         let topic_attr = self.dialect.json_access(span_attrs_col, "ros.topic");
-        let node_attr = self.dialect.json_access(span_attrs_col, "ros.node");
+
+        // Seed filter: spans on the source topic
+        let mut seed_where = format!("{topic_attr} = '{from_topic}'");
+        if let Some(ref scope) = cq.scope {
+            for f in self.compile_scope_filters(scope) {
+                seed_where.push_str(&format!(" AND {f}"));
+            }
+        }
+        if let Some(ref tr) = cq.time_range {
+            seed_where.push_str(&format!(" AND {}", self.compile_time_range(tr, "")?));
+        }
+
+        // Terminal filter for TO NODE / TO TOPIC
+        let terminal_filter = match to_target {
+            None => String::new(),
+            Some(FlowTarget::Node(node)) => {
+                let node_attr = self.dialect.json_access(span_attrs_col, "ros.node");
+                format!(" WHERE {node_attr} = '{node}'")
+            }
+            Some(FlowTarget::Topic(topic)) => {
+                format!(" WHERE {topic_attr} = '{topic}'")
+            }
+        };
+
         let mut sql = format!(
-            "WITH RECURSIVE msg_path AS (\
-             SELECT * FROM {tbl} WHERE {topic_attr} = '{from_topic}' \
+            "WITH RECURSIVE msg_flow AS (\
+             SELECT * FROM {tbl} WHERE {seed_where} \
              UNION ALL \
              SELECT t.* FROM {tbl} t \
-             JOIN msg_path p ON t.{psid} = p.{sid}\
-             ) SELECT * FROM msg_path WHERE {node_attr} = '{to_node}'"
+             JOIN msg_flow f ON t.{psid} = f.{sid}\
+             ) SELECT * FROM msg_flow{terminal_filter}"
         );
         sql.push_str(&self.compile_compound_suffix(cq)?);
         Ok(sql)
     }
 
-    fn compile_trace(&self, trace_id: &str) -> Result<String, ROSQLError> {
+    /// `SHOW DEPLOYMENTS` — distinct version/environment deployment history.
+    fn compile_show_deployments(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
         let tbl = self.qtable("otel_traces");
+        let res = "resource_attributes";
+        let ver = self.dialect.json_access(res, "service.version");
+        let env = self.dialect.json_access(res, "deployment.environment");
+        let ts = self.col("timestamp");
+
+        let mut where_parts = Vec::new();
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+        let where_clause = if where_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_parts.join(" AND "))
+        };
+
+        Ok(format!(
+            "SELECT {ver} AS version, {env} AS environment, \
+             MIN({ts}) AS first_seen, MAX({ts}) AS last_seen \
+             FROM {tbl}{where_clause} \
+             GROUP BY {ver}, {env} \
+             ORDER BY last_seen DESC"
+        ))
+    }
+
+    /// `SHOW SPAN SUMMARY` — aggregate span stats by name.
+    fn compile_show_span_summary(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let sn = self.col("span_name");
+        let dur = self.col("duration");
+        let _ = self.col("timestamp"); // satisfy field_registry usage; not used in output
+
+        let mut where_parts = Vec::new();
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+        let where_clause = if where_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_parts.join(" AND "))
+        };
+
+        Ok(format!(
+            "SELECT {sn} AS span_name, COUNT(*) AS count, \
+             AVG({dur}) AS avg_duration, MAX({dur}) AS max_duration \
+             FROM {tbl}{where_clause} \
+             GROUP BY {sn} \
+             ORDER BY avg_duration DESC"
+        ))
+    }
+
+    /// `SHOW PLANS [FOR TRACE 'id']` — plan-related spans, optionally filtered by trace.
+    fn compile_show_plans(
+        &self,
+        trace_id: &Option<String>,
+        cq: &CompoundQuery,
+    ) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let span_attrs_col = self
+            .registry
+            .resolve("topic")
+            .map(|f| f.column.as_str())
+            .unwrap_or("span_attributes");
+        let plan_attr = self.dialect.json_access(span_attrs_col, "ros.plan.id");
         let tid = self.col("trace_id");
         let ts = self.col("timestamp");
+
+        let mut where_parts = vec![format!("{plan_attr} IS NOT NULL")];
+        if let Some(ref id) = trace_id {
+            where_parts.push(format!("{tid} = '{id}'"));
+        }
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+
         Ok(format!(
-            "SELECT * FROM {tbl} WHERE {tid} = '{trace_id}' ORDER BY {ts}"
+            "SELECT * FROM {tbl} WHERE {} ORDER BY {ts}",
+            where_parts.join(" AND ")
         ))
     }
 
@@ -461,22 +603,10 @@ impl<'a> CompileCtx<'a> {
 
     // ── Helpers ─────────────────────────────────────────────────────
 
+    /// Appends ORDER BY / LIMIT / OFFSET to a compound query.
+    /// Time range and conditions are handled inline by the specific compile_* functions.
     fn compile_compound_suffix(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
         let mut parts = Vec::new();
-
-        let mut where_parts = Vec::new();
-        if let Some(ref tr) = cq.time_range {
-            // Use a generic table ref since compound queries may span CTEs
-            where_parts.push(self.compile_time_range(tr, "")?);
-        }
-        if let Some(ref cond) = cq.conditions {
-            where_parts.push(self.compile_condition(cond, "")?);
-        }
-
-        if !where_parts.is_empty() {
-            // The CTE already has a terminal SELECT; append WHERE to it
-            // Actually, we need to restructure: wrap the CTE result
-        }
 
         if let Some(ref ob) = cq.order_by {
             let dir = match ob.direction {
@@ -1143,18 +1273,20 @@ mod tests {
     // ── Compound clauses ────────────────────────────────────────────
 
     #[test]
-    fn message_journey() {
-        let sql = compile_pg("MESSAGE JOURNEY FOR TRACE 'abc123'");
-        assert!(sql.contains("WITH RECURSIVE journey"), "got: {sql}");
+    fn trace_recursive_cte() {
+        let sql = compile_pg("TRACE 'abc123'");
+        assert!(sql.contains("WITH RECURSIVE trace_tree"), "got: {sql}");
         assert!(sql.contains("abc123"), "got: {sql}");
         assert!(sql.contains("parent_span_id"), "got: {sql}");
+        assert!(sql.contains("otel_traces"), "got: {sql}");
     }
 
     #[test]
-    fn trace_query() {
-        let sql = compile_pg("TRACE 'abc123'");
-        assert!(sql.contains("abc123"), "got: {sql}");
-        assert!(sql.contains("otel_traces"), "got: {sql}");
+    fn trace_with_robot_scope() {
+        let sql = compile_pg("TRACE 'abc123' FOR ROBOT 'r1'");
+        assert!(sql.contains("WITH RECURSIVE trace_tree"), "got: {sql}");
+        assert!(sql.contains("robot.id"), "got: {sql}");
+        assert!(sql.contains("r1"), "got: {sql}");
     }
 
     #[test]

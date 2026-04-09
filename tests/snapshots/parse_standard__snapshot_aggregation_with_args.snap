@@ -11,7 +11,7 @@ Standard:
           - Literal:
               Integer: 95
   data_source: Logs
-  robot_scope: ~
+  scope: ~
   conditions: ~
   facet: ~
   time_range: ~

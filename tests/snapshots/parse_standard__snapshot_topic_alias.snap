@@ -7,7 +7,7 @@ Standard:
     - Star
   data_source:
     TopicAlias: Odom
-  robot_scope: ~
+  scope: ~
   conditions: ~
   facet: ~
   time_range:

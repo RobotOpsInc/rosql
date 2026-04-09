@@ -76,6 +76,8 @@ pub enum Token<'src> {
     Message,
     #[token("JOURNEY", ignore(ascii_case))]
     Journey,
+    #[token("FLOW", ignore(ascii_case))]
+    Flow,
     #[token("PATHS", ignore(ascii_case))]
     Paths,
     #[token("PATH", ignore(ascii_case))]
@@ -110,6 +112,8 @@ pub enum Token<'src> {
     Week,
     #[token("DEPLOYMENT", ignore(ascii_case))]
     Deployment,
+    #[token("DEPLOYMENTS", ignore(ascii_case))]
+    Deployments,
     #[token("RESTART", ignore(ascii_case))]
     Restart,
     #[token("FAILURE", ignore(ascii_case))]
@@ -126,6 +130,18 @@ pub enum Token<'src> {
     Topic,
     #[token("NODE", ignore(ascii_case))]
     Node,
+    #[token("VERSION", ignore(ascii_case))]
+    Version,
+    #[token("ENVIRONMENT", ignore(ascii_case))]
+    Environment,
+    #[token("SESSION", ignore(ascii_case))]
+    Session,
+    #[token("PLANS", ignore(ascii_case))]
+    Plans,
+    #[token("SPAN", ignore(ascii_case))]
+    Span,
+    #[token("SUMMARY", ignore(ascii_case))]
+    Summary,
 
     // ── Time basis ──────────────────────────────────────────────────
     #[token("ROS_TIME", ignore(ascii_case))]
