@@ -6,14 +6,10 @@ Compound:
   clause:
     PathDeviation:
       target:
-        Robot: robot_42
-      plan_index: ~
+        Trace: abc
+      plan_index: -1
   scope: ~
-  time_range:
-    Since:
-      Relative:
-        amount: 1
-        unit: days
+  time_range: ~
   time_basis: ~
   conditions: ~
   facet: ~

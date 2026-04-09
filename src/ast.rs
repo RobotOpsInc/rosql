@@ -265,6 +265,21 @@ pub enum Condition {
         low: Box<Expr>,
         high: Box<Expr>,
     },
+    /// `<expr> WITHIN <radius> OF (<lat>, <lon>)` or `OF POSITION (<x>, <y>)`
+    Within {
+        field: Expr,
+        radius: UnitValue,
+        center: GeospatialCenter,
+    },
+}
+
+/// Center point for a WITHIN geospatial condition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum GeospatialCenter {
+    /// GPS coordinates (lat, lon) — Haversine distance.
+    Gps(f64, f64),
+    /// Local frame position (x, y) — Euclidean distance.
+    Local(f64, f64),
 }
 
 /// Comparison operators.
@@ -456,6 +471,8 @@ pub struct EnrichmentClause {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Baseline {
     LastWeek,
+    /// `COMPARED TO last 24 hours`
+    Last24Hours,
     Fleet,
     Robot(String),
     LastDeployment,
@@ -464,6 +481,15 @@ pub enum Baseline {
     Version(String),
     /// `COMPARE VERSION 'v1.0' TO VERSION 'v2.0'`
     VersionPair(String, String),
+}
+
+/// Target selector for PATH DEVIATION and JOINT DEVIATION queries.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DeviationTarget {
+    /// `FOR TRACE 'trace_id'`
+    Trace(String),
+    /// `FOR ROBOT 'robot_id'`
+    Robot(String),
 }
 
 // ===========================================================================
@@ -505,14 +531,24 @@ pub enum CompoundClause {
     /// `HEALTH() [FOR ROBOT ...]`
     Health,
 
-    /// `ANOMALY(field) [COMPARED TO ...]`
+    /// `ANOMALY(field) [FROM <source>] COMPARED TO <baseline>`
     Anomaly {
         field: String,
-        compared_to: Option<Baseline>,
+        /// Required in v0.5 — COMPARED TO baseline.
+        compared_to: Baseline,
+        /// Optional data source override (defaults to `otel_traces`).
+        data_source: Option<DataSource>,
     },
 
-    /// `PATH DEVIATION [FOR ROBOT ...] [SHOW ...]`
-    PathDeviation { show: Option<Vec<String>> },
+    /// `PATH DEVIATION [PLAN <n>] FOR TRACE|ROBOT ...`
+    PathDeviation {
+        target: DeviationTarget,
+        /// Plan index: 0 = first plan, -1 = latest (default).
+        plan_index: Option<i64>,
+    },
+
+    /// `JOINT DEVIATION FOR TRACE|ROBOT ...`
+    JointDeviation { target: DeviationTarget },
 
     /// `CORRELATE WITH <source>`
     Correlate { with_source: DataSource },
@@ -537,4 +573,7 @@ pub enum CompoundClause {
 
     /// `SHOW NODE GRAPH [FOR ROBOT ...] [SINCE ...]`
     ShowNodeGraph,
+
+    /// `SHOW JOINTS [FOR ROBOT ...]`
+    ShowJoints,
 }

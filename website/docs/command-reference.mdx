@@ -71,6 +71,27 @@ FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
 
 **JSON field access**: `fields['key']` on `topic_messages.fields` (JSONB)
 
+**Array-indexed field access**: `fields['array[N]']` accesses element N of a JSON array field. Example: `fields['position[0]']` → `"fields"->'position'->>0` (PostgreSQL/DuckDB).
+
+---
+
+### `WHERE position WITHIN <radius> OF <center>` _(v0.4.3+)_
+
+Geospatial filter. Returns rows where the `position` field falls within `radius` of `center`.
+
+```sql
+-- GPS coordinates (Haversine great-circle distance)
+FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago
+
+-- Local frame (Euclidean distance, metres)
+FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago
+```
+
+- **GPS form** `OF (lat, lon)`: uses inline Haversine SQL; extracts `position.latitude` and `position.longitude` from the `fields` JSONB column.
+- **Local frame** `OF POSITION (x, y)`: uses Euclidean `SQRT(POWER(x - cx, 2) + POWER(y - cy, 2))`; extracts `pose.pose.position.x` and `pose.pose.position.y` from `fields`.
+
+Requires the `topic_messages` table with position data in `fields`.
+
 ---
 
 ### `SINCE <time>`
@@ -277,35 +298,66 @@ Returns a structured health report including error rates, log severity counts, a
 
 ---
 
-### `ANOMALY(<field>)`
+### `ANOMALY(<field>) COMPARED TO <baseline>` _(v0.4.3+)_
 
-:::caution Not implemented in v0.4
-`ANOMALY()` is reserved syntax and is not yet compiled. Use `MOVING_AVG` or `DERIVATIVE` to surface time-series outliers.
-:::
-
-Detect statistical anomalies in a field using z-score analysis (AVG/STDDEV).
+Detect statistical anomalies in a field using a two-phase z-score CTE. `COMPARED TO` is required. `FACET` is strongly recommended to get per-robot breakdown.
 
 ```sql
-ANOMALY(duration)
+-- Compare current duration anomalies to last week, by robot
+ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago
+
+-- Compare to fleet-wide baseline
+ANOMALY(duration) COMPARED TO fleet SINCE 1 hour ago FACET robot_id
+
+-- Scope to a specific data source
+ANOMALY(duration) FROM traces COMPARED TO last 24 hours FACET robot_id SINCE 12 hours ago
 ```
 
-Returns spans whose `duration` deviates significantly from the mean.
+**Baselines**: `last week`, `last 24 hours`, `fleet`
+
+Returns `robot_id`, `avg_current`, `avg_baseline`, `z_score`, `is_anomalous` (|z| > 2), `direction` (higher/lower/normal).
+
+Requires the [`robot_joint_map`](#robot_joint_map) and `otel_traces` tables.
 
 ---
 
-### `PATH DEVIATION FOR ROBOT <robot_id>`
+### `PATH DEVIATION` _(v0.4.3+)_
 
-:::caution Not implemented in v0.4
-`PATH DEVIATION` is reserved syntax and is not yet compiled. Query `/odom` topic data directly: `FROM odom WHERE robot_id = '...' SINCE 1 hour ago`.
-:::
-
-Detect if a robot deviated from its planned path by querying `/odom` trajectory data.
+Compare actual robot trajectory (from `/odom` topic messages) against the planned path (from `/plan` topic messages). Computes lateral deviation in metres at each waypoint.
 
 ```sql
-PATH DEVIATION FOR ROBOT 'robot_sim_001'
+-- Deviation for a specific trace
+PATH DEVIATION FOR TRACE 'trace-002'
+
+-- Deviation for a robot over a time window
+PATH DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+
+-- Select a specific plan (0 = first, -1 = latest, default = -1)
+PATH DEVIATION PLAN 0 FOR ROBOT 'robot_sim_001' SINCE 6 hours ago
+PATH DEVIATION PLAN -1 FOR TRACE 'trace-002'
 ```
 
-Requires the `topic_messages` table with `/odom` data.
+Returns `waypoint_index`, `planned_x`, `planned_y`, `actual_x`, `actual_y`, `lateral_deviation_m`, and summary stats (`max_deviation_m`, `avg_deviation_m`, `planned_path_length_m`, `actual_path_length_m`).
+
+Requires the `topic_messages` table with `/odom` and `/plan` data.
+
+---
+
+### `JOINT DEVIATION` _(v0.4.3+)_
+
+Compare planned joint trajectory (from `/joint_trajectory` topic messages) against actual joint states (from `/joint_states` topic messages). Computes per-joint position error in radians.
+
+```sql
+-- Joint deviation for a specific trace
+JOINT DEVIATION FOR TRACE 'trace-002'
+
+-- Joint deviation for a robot over a time window
+JOINT DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+```
+
+Returns `joint_name`, `joint_index`, `planned_position`, `actual_position`, `position_error_rad`, and summary stats (`max_error_rad`, `avg_error_rad`, `sample_count`).
+
+Requires the `topic_messages` table with `/joint_trajectory` and `/joint_states` data.
 
 ---
 
@@ -371,6 +423,21 @@ SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 hour ago
 ```
 
 Returns plan spans with timing, robot, and trace context.
+
+---
+
+### `SHOW JOINTS` _(v0.4.3+)_
+
+Return the joint map for a robot from the `robot_joint_map` table. Queries the URDF-derived joint metadata registered for that robot model.
+
+```sql
+SHOW JOINTS FOR ROBOT 'robot_sim_001'
+SHOW JOINTS FOR ROBOT 'arm_01'
+```
+
+Returns `joint_name`, `joint_index`, `joint_type`, `lower_limit`, `upper_limit` for every joint in the robot's URDF model.
+
+Requires the optional [`robot_joint_map`](#robot_joint_map) table.
 
 ---
 
@@ -495,7 +562,7 @@ SELECT APPROX_PERCENTILE(duration, 95) FROM traces
 
 - All timestamps in results are UTC ISO 8601
 - `duration` is stored as nanoseconds (`BIGINT`); ROSQL expressions like `500 ms` are automatically converted
-- Default `LIMIT` is 100 if not specified. Exempt query types: scalar aggregations, `FACET`, `TRACE`, `MESSAGE FLOW`, `PATH`
+- Default `LIMIT` is 100 if not specified. Exempt query types: scalar aggregations, `FACET`, `TRACE`, `MESSAGE FLOW`, `PATH DEVIATION`, `JOINT DEVIATION`, `ANOMALY`, `SHOW JOINTS`
 - `SINCE` is always relative to query execution time
 - FOR clauses filter on resource attributes: `FOR ROBOT` → `robot_id`, `FOR VERSION` → `service.version`, `FOR ENVIRONMENT` → `deployment.environment`, `FOR SESSION` → `ros.session.id`
 - **Removed in v0.4.1**: `MESSAGE JOURNEY FOR TRACE`, `MESSAGE PATHS FOR TOPIC`, `MESSAGE PATH FROM TOPIC ... TO NODE` — see [Message causality](#message-causality) for replacements

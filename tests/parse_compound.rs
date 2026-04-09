@@ -166,3 +166,77 @@ fn show_node_without_graph_errors() {
         "got: {err:?}"
     );
 }
+
+// ── PATH DEVIATION (redesigned v0.4.3) ──────────────────────────────────────
+
+#[test]
+fn snapshot_path_deviation_for_trace() {
+    let ast = parse("PATH DEVIATION FOR TRACE 'abc123'").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_path_deviation_for_robot_since() {
+    let ast = parse("PATH DEVIATION FOR ROBOT 'r1' SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_path_deviation_plan_index() {
+    let ast = parse("PATH DEVIATION PLAN 0 FOR TRACE 'abc'").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_path_deviation_plan_negative() {
+    let ast = parse("PATH DEVIATION PLAN -1 FOR TRACE 'abc'").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+// ── JOINT DEVIATION ─────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_joint_deviation_for_trace() {
+    let ast = parse("JOINT DEVIATION FOR TRACE 'abc'").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_joint_deviation_for_robot() {
+    let ast = parse("JOINT DEVIATION FOR ROBOT 'arm_01' SINCE yesterday").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+// ── ANOMALY (redesigned v0.4.3) ──────────────────────────────────────────────
+
+#[test]
+fn snapshot_anomaly_from_traces() {
+    let ast = parse(
+        "ANOMALY(duration) FROM traces COMPARED TO last week FACET robot_id SINCE 7 days ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_anomaly_last_24h() {
+    let ast = parse("ANOMALY(duration) COMPARED TO last 24 hours SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn anomaly_missing_compared_to_errors() {
+    let errs = parse("ANOMALY(duration) SINCE 1 hour ago").unwrap_err();
+    assert!(
+        errs.iter().any(|e| e.to_string().contains("COMPARED TO")),
+        "expected COMPARED TO error, got: {errs:?}"
+    );
+}
+
+// ── SHOW JOINTS ──────────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_show_joints() {
+    let ast = parse("SHOW JOINTS FOR ROBOT 'arm_01'").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}

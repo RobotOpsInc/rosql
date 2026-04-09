@@ -320,6 +320,9 @@ fn condition_to_proto(cond: &ast::Condition) -> pb::Condition {
                 high: Some(expr_to_proto(high)),
             })
         }
+        // WITHIN geospatial condition — proto not yet defined; fall back to a stub.
+        // TODO: add WithinCondition to ast.proto for full proto round-trip support.
+        ast::Condition::Within { .. } => pb::condition::Condition::IsNotNull(pb::Expr::default()),
     };
     pb::Condition {
         condition: Some(cond_oneof),
@@ -429,6 +432,8 @@ fn output_format_to_proto(f: ast::OutputFormat) -> pb::OutputFormat {
 fn baseline_to_proto(b: &ast::Baseline) -> pb::Baseline {
     let baseline = match b {
         ast::Baseline::LastWeek => pb::baseline::Baseline::LastWeek(true),
+        // Last24Hours not yet in proto — map to LastWeek as a stub until proto is updated.
+        ast::Baseline::Last24Hours => pb::baseline::Baseline::LastWeek(true),
         ast::Baseline::Fleet => pb::baseline::Baseline::Fleet(true),
         ast::Baseline::Robot(id) => pb::baseline::Baseline::RobotId(id.clone()),
         ast::Baseline::LastDeployment => pb::baseline::Baseline::LastDeployment(true),
@@ -493,16 +498,23 @@ fn compound_clause_to_proto(cc: &ast::CompoundClause) -> pb::CompoundClause {
             pb::compound_clause::Clause::ShowTraceBreakdown(true)
         }
         ast::CompoundClause::Health => pb::compound_clause::Clause::Health(true),
-        ast::CompoundClause::Anomaly { field, compared_to } => {
+        ast::CompoundClause::Anomaly {
+            field, compared_to, ..
+        } => {
             pb::compound_clause::Clause::Anomaly(pb::AnomalyClause {
                 field: field.clone(),
-                compared_to: compared_to.as_ref().map(baseline_to_proto),
+                // compared_to is now required; wrap in Some for proto (which expects optional)
+                compared_to: Some(baseline_to_proto(compared_to)),
             })
         }
-        ast::CompoundClause::PathDeviation { show } => {
-            pb::compound_clause::Clause::PathDeviation(pb::PathDeviationClause {
-                show: show.clone().unwrap_or_default(),
-            })
+        ast::CompoundClause::PathDeviation { .. } => {
+            // Proto PathDeviationClause not yet updated to match new AST shape.
+            // Use ShowRecording as a placeholder until proto is updated.
+            pb::compound_clause::Clause::PathDeviation(pb::PathDeviationClause { show: vec![] })
+        }
+        ast::CompoundClause::JointDeviation { .. } => {
+            // Not yet in proto — stub as ShowRecording until proto is updated.
+            pb::compound_clause::Clause::ShowRecording(true)
         }
         ast::CompoundClause::Correlate { with_source } => {
             pb::compound_clause::Clause::Correlate(pb::CorrelateClause {
@@ -513,6 +525,8 @@ fn compound_clause_to_proto(cc: &ast::CompoundClause) -> pb::CompoundClause {
         ast::CompoundClause::ShowTopics => pb::compound_clause::Clause::ShowTopics(true),
         ast::CompoundClause::ShowNodes => pb::compound_clause::Clause::ShowNodes(true),
         ast::CompoundClause::ShowNodeGraph => pb::compound_clause::Clause::ShowNodeGraph(true),
+        // ShowJoints not yet in proto — stub as ShowTopics until proto is updated.
+        ast::CompoundClause::ShowJoints => pb::compound_clause::Clause::ShowTopics(true),
     };
     pb::CompoundClause {
         clause: Some(clause),

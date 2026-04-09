@@ -54,7 +54,11 @@ pub fn get_completions(query: &str, cursor_pos: usize) -> Vec<Completion> {
         return time_completions();
     }
 
-    if upper.ends_with("COMPARE TO ") || upper.ends_with("COMPARE TO") {
+    if upper.ends_with("COMPARE TO ")
+        || upper.ends_with("COMPARE TO")
+        || upper.ends_with("COMPARED TO ")
+        || upper.ends_with("COMPARED TO")
+    {
         return baseline_completions();
     }
 
@@ -105,6 +109,10 @@ fn query_start_completions() -> Vec<Completion> {
         kw("HEALTH()", "Derived robot health assessment"),
         kw("ANOMALY()", "Statistical anomaly detection"),
         kw("PATH DEVIATION", "Spatial trajectory analysis"),
+        kw(
+            "JOINT DEVIATION",
+            "Compare planned vs actual joint trajectory",
+        ),
         kw("TRACE", "Show spans for a trace ID"),
         kw("MESSAGE FLOW", "Trace message flow between topics/nodes"),
         kw("CORRELATE", "Cross-signal correlation"),
@@ -158,6 +166,7 @@ fn show_completions() -> Vec<Completion> {
         kw("DEPLOYMENTS", "List software deployments"),
         kw("SPAN SUMMARY", "Span latency summary"),
         kw("PLANS", "List navigation plans"),
+        kw("JOINTS", "List robot joints from URDF mapping"),
     ]
 }
 
@@ -175,6 +184,7 @@ fn time_completions() -> Vec<Completion> {
 fn baseline_completions() -> Vec<Completion> {
     vec![
         kw("last week", "Compare to previous week"),
+        kw("last 24 hours", "Compare to last 24 hours"),
         kw("fleet", "Compare to fleet average"),
         kw("last deployment", "Compare to before last deployment"),
     ]
@@ -205,7 +215,8 @@ fn lifecycle_anchor_completions() -> Vec<Completion> {
         kw("action failure", "Last action failure"),
         kw("topic drop", "Last topic drop"),
         kw("diagnostic warning", "Last diagnostic warning"),
-        kw("week", "Last week (for COMPARE TO)"),
+        kw("week", "Last week (for COMPARE TO / COMPARED TO)"),
+        kw("24 hours", "Last 24 hours (for COMPARED TO)"),
     ]
 }
 
@@ -244,6 +255,10 @@ fn keyword_completions() -> Vec<Completion> {
         kw("COMPARE TO", "Baseline comparison"),
         kw("FOR ROBOT", "Scope to a robot"),
         kw("FOR FLEET", "Scope to fleet"),
+        kw(
+            "WITHIN",
+            "Geospatial filter (e.g. WITHIN 500 m OF (lat, lon))",
+        ),
         kw("USING", "Time basis (ROS_TIME/WALL_TIME)"),
     ]
 }

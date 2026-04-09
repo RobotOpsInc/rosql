@@ -19,6 +19,8 @@ pub struct CompileResult {
     pub default_limit_applied: bool,
     /// Enrichment plans to execute in phase 2 (empty for non-enriched queries).
     pub enrichments: Vec<EnrichmentPlan>,
+    /// Non-fatal compiler warnings (e.g. ANOMALY without FACET).
+    pub warnings: Vec<String>,
 }
 
 /// A compiled enrichment plan for two-phase execution (ENRICH WITH).
@@ -64,11 +66,32 @@ pub fn compile(
         Query::Compound(cq) => ctx.compile_compound(cq).map(|s| (s, vec![])),
     }?;
 
+    // Collect non-fatal warnings (e.g. ANOMALY without FACET).
+    let warnings = collect_warnings(query_ref);
+
     Ok(CompileResult {
         sql,
         default_limit_applied,
         enrichments,
+        warnings,
     })
+}
+
+/// Collect non-fatal compiler warnings from the (possibly limit-adjusted) query.
+fn collect_warnings(query: &Query) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if let Query::Compound(cq) = query {
+        if let CompoundClause::Anomaly { .. } = &cq.clause {
+            if cq.facet.is_none() {
+                warnings.push(
+                    "ANOMALY without FACET compares heterogeneous spans (e.g. heartbeats vs \
+                     navigation). Add FACET robot_id or FACET action_name for meaningful z-scores."
+                        .into(),
+                );
+            }
+        }
+    }
+    warnings
 }
 
 /// Return a human-readable name for a DataSource.
@@ -130,6 +153,10 @@ fn is_limit_exempt(query: &Query) -> bool {
                 | CompoundClause::ShowTopics
                 | CompoundClause::ShowNodes
                 | CompoundClause::ShowNodeGraph
+                | CompoundClause::ShowJoints
+                | CompoundClause::PathDeviation { .. }
+                | CompoundClause::JointDeviation { .. }
+                | CompoundClause::Anomaly { .. }
         ),
     }
 }
@@ -455,19 +482,17 @@ impl<'a> CompileCtx<'a> {
                            See the ROSQL cookbook for a complete health dashboard recipe."
                     .into(),
             }),
-            CompoundClause::Anomaly { .. } => Err(ROSQLError::NotImplemented {
-                feature: "ANOMALY()".into(),
-                message: "ANOMALY() is being redesigned. Use manual z-score computation: \
-                           SELECT *, (value - AVG(value) OVER()) / NULLIF(STDDEV(value) OVER(), 0) \
-                           AS z_score FROM metrics."
-                    .into(),
-            }),
-            CompoundClause::PathDeviation { .. } => Err(ROSQLError::NotImplemented {
-                feature: "PATH DEVIATION".into(),
-                message: "PATH DEVIATION requires redesign. \
-                           Use `SELECT * FROM odom` to retrieve raw odometry data."
-                    .into(),
-            }),
+            CompoundClause::Anomaly {
+                field,
+                compared_to,
+                data_source,
+            } => self.compile_anomaly(field, compared_to, data_source.as_ref(), cq),
+            CompoundClause::PathDeviation { target, plan_index } => {
+                self.compile_path_deviation(target, *plan_index, cq)
+            }
+            CompoundClause::JointDeviation { target } => {
+                self.compile_joint_deviation(target, cq)
+            }
             CompoundClause::Correlate { .. } => Err(ROSQLError::NotImplemented {
                 feature: "CORRELATE WITH".into(),
                 message: "CORRELATE WITH requires redesign. \
@@ -476,9 +501,12 @@ impl<'a> CompileCtx<'a> {
             }),
             CompoundClause::ShowRecording => Err(ROSQLError::NotImplemented {
                 feature: "SHOW RECORDING".into(),
-                message: "SHOW RECORDING is being replaced by improved `FROM recordings` syntax."
+                message: "SHOW RECORDING is deprecated. Use `FROM recordings` or \
+                           `FROM recordings WHERE topic = '/camera/image_raw'` for topic-filtered \
+                           recording queries."
                     .into(),
             }),
+            CompoundClause::ShowJoints => self.compile_show_joints(cq),
             CompoundClause::During {
                 inner_source,
                 inner_conditions,
@@ -864,6 +892,297 @@ impl<'a> CompileCtx<'a> {
         ))
     }
 
+    /// `SHOW JOINTS [FOR ROBOT ...]` — joint map query from `robot_joint_map`.
+    fn compile_show_joints(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("robot_joint_map");
+
+        let mut where_parts = Vec::new();
+        if let Some(ref scope) = cq.scope {
+            if let Some(ref robot) = scope.robot {
+                if let RobotScope::Single(id) = robot {
+                    where_parts.push(format!("robot_ids @> ARRAY['{id}']"));
+                }
+            }
+            if let Some(ref ver) = scope.version {
+                where_parts.push(format!("version = '{ver}'"));
+            }
+        }
+        // Validity window: if a time range is given, filter on valid_from/valid_to
+        if let Some(ref tr) = cq.time_range {
+            let ts = self.compile_time_range_timestamp(tr)?;
+            where_parts.push(format!(
+                "valid_from <= {ts} AND (valid_to IS NULL OR valid_to > {ts})"
+            ));
+        }
+
+        let where_clause = if where_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_parts.join(" AND "))
+        };
+
+        Ok(format!(
+            "SELECT robot_model, version, robot_ids, \
+             jsonb_object_keys(joint_map) AS joint_name, \
+             (joint_map->jsonb_object_keys(joint_map)->>'index')::INT AS index, \
+             joint_map->jsonb_object_keys(joint_map)->>'type' AS joint_type, \
+             (joint_map->jsonb_object_keys(joint_map)->'limits'->>'lower')::FLOAT AS lower_limit, \
+             (joint_map->jsonb_object_keys(joint_map)->'limits'->>'upper')::FLOAT AS upper_limit \
+             FROM {tbl}{where_clause} \
+             ORDER BY robot_model, index"
+        ))
+    }
+
+    /// `PATH DEVIATION [PLAN N] FOR TRACE|ROBOT ...` — compare planned vs actual path.
+    fn compile_path_deviation(
+        &self,
+        target: &DeviationTarget,
+        plan_index: Option<i64>,
+        cq: &CompoundQuery,
+    ) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("topic_messages");
+        let plan_offset = match plan_index.unwrap_or(-1) {
+            -1 => 0i64,       // latest plan = most recent = OFFSET 0 after DESC sort
+            n if n >= 0 => n, // first plan = OFFSET 0, second = OFFSET 1, etc.
+            n => -n - 1,      // negative indexing from end
+        };
+
+        let mut target_filters = Vec::new();
+        match target {
+            DeviationTarget::Trace(id) => {
+                target_filters.push(format!("trace_id = '{id}'"));
+            }
+            DeviationTarget::Robot(id) => {
+                target_filters.push(format!("robot_id = '{id}'"));
+            }
+        }
+        if let Some(ref tr) = cq.time_range {
+            target_filters.push(self.compile_time_range(tr, "")?);
+        }
+        let target_where = if target_filters.is_empty() {
+            String::new()
+        } else {
+            format!(" AND {}", target_filters.join(" AND "))
+        };
+
+        // CTE 1: planned path (one nav plan, latest by default)
+        // CTE 2: actual poses from /odom
+        // CTE 3: per-pose lateral deviation (distance to nearest planned waypoint)
+        let fields = self.col("fields");
+        Ok(format!(
+            "WITH planned_path AS (\
+             SELECT timestamp, \
+             {fields}->>'pose.pose.position.x' AS x, \
+             {fields}->>'pose.pose.position.y' AS y \
+             FROM {tbl} \
+             WHERE topic_name = '/plan'{target_where} \
+             ORDER BY timestamp DESC LIMIT 1 OFFSET {plan_offset}\
+             ), actual_poses AS (\
+             SELECT timestamp, \
+             {fields}->>'pose.pose.position.x' AS actual_x, \
+             {fields}->>'pose.pose.position.y' AS actual_y \
+             FROM {tbl} \
+             WHERE topic_name = '/odom'{target_where} \
+             ORDER BY timestamp\
+             ), deviations AS (\
+             SELECT a.timestamp, \
+             a.actual_x::FLOAT AS actual_x, a.actual_y::FLOAT AS actual_y, \
+             p.x::FLOAT AS planned_x, p.y::FLOAT AS planned_y, \
+             SQRT(POWER(a.actual_x::FLOAT - p.x::FLOAT, 2) + \
+                  POWER(a.actual_y::FLOAT - p.y::FLOAT, 2)) AS lateral_deviation_m \
+             FROM actual_poses a \
+             CROSS JOIN LATERAL (\
+               SELECT x, y FROM planned_path ORDER BY ABS(EXTRACT(EPOCH FROM \
+               (planned_path.timestamp - a.timestamp))) LIMIT 1\
+             ) p\
+             ) SELECT \
+             MAX(lateral_deviation_m) AS max_lateral_deviation_m, \
+             AVG(lateral_deviation_m) AS mean_lateral_deviation_m, \
+             COUNT(*) AS actual_pose_count, \
+             (SELECT COUNT(*) FROM planned_path) AS planned_waypoint_count, \
+             MIN(timestamp) AS start_time, MAX(timestamp) AS end_time \
+             FROM deviations"
+        ))
+    }
+
+    /// `JOINT DEVIATION FOR TRACE|ROBOT ...` — compare planned vs actual joint positions.
+    fn compile_joint_deviation(
+        &self,
+        target: &DeviationTarget,
+        cq: &CompoundQuery,
+    ) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("topic_messages");
+        let fields = self.col("fields");
+
+        let mut target_filters = Vec::new();
+        match target {
+            DeviationTarget::Trace(id) => {
+                target_filters.push(format!("trace_id = '{id}'"));
+            }
+            DeviationTarget::Robot(id) => {
+                target_filters.push(format!("robot_id = '{id}'"));
+            }
+        }
+        if let Some(ref tr) = cq.time_range {
+            target_filters.push(self.compile_time_range(tr, "")?);
+        }
+        let target_where = if target_filters.is_empty() {
+            String::new()
+        } else {
+            format!(" AND {}", target_filters.join(" AND "))
+        };
+
+        Ok(format!(
+            "WITH planned_joints AS (\
+             SELECT timestamp, \
+             {fields}->>'joint_names' AS joint_names, \
+             {fields}->>'positions' AS planned_positions \
+             FROM {tbl} \
+             WHERE topic_name = '/joint_trajectory'{target_where} \
+             ORDER BY timestamp\
+             ), actual_joints AS (\
+             SELECT timestamp, \
+             {fields}->>'name' AS joint_names, \
+             {fields}->>'position' AS actual_positions \
+             FROM {tbl} \
+             WHERE topic_name = '/joint_states'{target_where} \
+             ORDER BY timestamp\
+             ) SELECT \
+             a.timestamp, \
+             a.joint_names, \
+             a.actual_positions, \
+             p.planned_positions, \
+             MAX(ABS(\
+               (a.actual_positions::JSONB->>0)::FLOAT - (p.planned_positions::JSONB->>0)::FLOAT\
+             )) AS max_joint_error_rad, \
+             AVG(ABS(\
+               (a.actual_positions::JSONB->>0)::FLOAT - (p.planned_positions::JSONB->>0)::FLOAT\
+             )) AS mean_joint_error_rad \
+             FROM actual_joints a \
+             CROSS JOIN LATERAL (\
+               SELECT planned_positions FROM planned_joints p2 \
+               ORDER BY ABS(EXTRACT(EPOCH FROM (p2.timestamp - a.timestamp))) LIMIT 1\
+             ) p \
+             GROUP BY a.timestamp, a.joint_names, a.actual_positions, p.planned_positions \
+             ORDER BY a.timestamp"
+        ))
+    }
+
+    /// `ANOMALY(field) COMPARED TO <baseline>` — two-phase CTE statistical anomaly detection.
+    fn compile_anomaly(
+        &self,
+        field: &str,
+        compared_to: &Baseline,
+        data_source: Option<&DataSource>,
+        cq: &CompoundQuery,
+    ) -> Result<String, ROSQLError> {
+        let table = match data_source {
+            Some(ds) => self.resolve_table(ds)?,
+            None => self.qtable("otel_traces"),
+        };
+        let resolved_field = self.resolve_column(field, &table)?;
+
+        // Build the facet dimension (GROUP BY column)
+        let facet_col = match &cq.facet {
+            Some(f) => self.resolve_column(&f.dimension, &table)?,
+            None => "1".into(), // no facet — aggregate everything together
+        };
+
+        // Current time filter
+        let current_filter = if let Some(ref tr) = cq.time_range {
+            self.compile_time_range(tr, "")?
+        } else {
+            "1=1".into()
+        };
+
+        // Baseline time filter
+        let baseline_filter = self.compile_baseline_time_filter(compared_to)?;
+
+        // Scope filters
+        let mut scope_parts = Vec::new();
+        if let Some(ref scope) = cq.scope {
+            scope_parts.extend(self.compile_scope_filters(scope));
+        }
+        let scope_clause = if scope_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" AND {}", scope_parts.join(" AND "))
+        };
+
+        // p95 expression
+        let p95 = self.dialect.percentile_cont(0.95, &resolved_field);
+
+        Ok(format!(
+            "WITH current_stats AS (\
+             SELECT {facet_col} AS facet_dim, \
+             AVG({resolved_field}) AS current_avg, \
+             {p95} AS current_p95, \
+             STDDEV({resolved_field}) AS current_stddev, \
+             COUNT(*) AS current_count \
+             FROM {table} \
+             WHERE ({current_filter}){scope_clause} \
+             GROUP BY {facet_col}\
+             ), baseline_stats AS (\
+             SELECT {facet_col} AS facet_dim, \
+             AVG({resolved_field}) AS baseline_avg, \
+             {p95} AS baseline_p95, \
+             STDDEV({resolved_field}) AS baseline_stddev, \
+             COUNT(*) AS baseline_count \
+             FROM {table} \
+             WHERE ({baseline_filter}){scope_clause} \
+             GROUP BY {facet_col}\
+             ) SELECT \
+             c.facet_dim, \
+             c.current_avg, c.current_p95, c.current_count, \
+             b.baseline_avg, b.baseline_p95, b.baseline_count, \
+             (c.current_avg - b.baseline_avg) / NULLIF(b.baseline_stddev, 0) AS z_score, \
+             ABS((c.current_avg - b.baseline_avg) / NULLIF(b.baseline_stddev, 0)) > 2 \
+               AS is_anomalous, \
+             CASE \
+               WHEN c.current_avg > b.baseline_avg THEN 'higher' \
+               WHEN c.current_avg < b.baseline_avg THEN 'lower' \
+               ELSE 'normal' \
+             END AS direction \
+             FROM current_stats c \
+             LEFT JOIN baseline_stats b ON c.facet_dim = b.facet_dim \
+             ORDER BY ABS((c.current_avg - b.baseline_avg) / \
+               NULLIF(b.baseline_stddev, 0)) DESC NULLS LAST"
+        ))
+    }
+
+    /// Convert a `Baseline` to a SQL WHERE time predicate for the baseline window.
+    fn compile_baseline_time_filter(&self, baseline: &Baseline) -> Result<String, ROSQLError> {
+        let ts = self.col("timestamp");
+        match baseline {
+            Baseline::LastWeek => Ok(format!(
+                "{ts} >= {} AND {ts} < {}",
+                self.dialect.interval_ago(14.0, "days"),
+                self.dialect.interval_ago(7.0, "days"),
+            )),
+            Baseline::Last24Hours => Ok(format!(
+                "{ts} >= {} AND {ts} < {}",
+                self.dialect.interval_ago(48.0, "hours"),
+                self.dialect.interval_ago(24.0, "hours"),
+            )),
+            Baseline::Fleet => Ok("1=1".into()), // no time restriction — fleet-wide baseline
+            other => Err(ROSQLError::CompilationError {
+                message: format!(
+                    "ANOMALY COMPARED TO {:?} is not supported. \
+                     Use COMPARED TO last week, COMPARED TO last 24 hours, or COMPARED TO fleet.",
+                    other
+                ),
+            }),
+        }
+    }
+
+    /// Extract the timestamp expression from a TimeRange for point-in-time comparisons.
+    fn compile_time_range_timestamp(&self, tr: &TimeRange) -> Result<String, ROSQLError> {
+        match tr {
+            TimeRange::Since(te) => self.compile_time_expr(te),
+            TimeRange::Between { start, .. } => self.compile_time_expr(start),
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     /// Appends ORDER BY / LIMIT / OFFSET to a compound query.
@@ -1169,6 +1488,40 @@ impl<'a> CompileCtx<'a> {
                 let h = self.compile_expr(high, table)?;
                 Ok(format!("{e} BETWEEN {l} AND {h}"))
             }
+            Condition::Within {
+                field: _,
+                radius,
+                center,
+            } => {
+                let r = radius.si_value;
+                match center {
+                    GeospatialCenter::Gps(lat, lon) => {
+                        // Inline Haversine SQL: sqrt((2 * R * asin(sqrt(haversin(dlat) + cos(lat1)*cos(lat2)*haversin(dlon)))))
+                        // Field paths: fields->'pose'->'pose'->'position'->'x' = longitude,
+                        //              fields->'pose'->'pose'->'position'->'y' = latitude
+                        // For nav_msgs/Odometry stored in topic_messages.fields JSONB.
+                        let fields = self.col("fields");
+                        let lat_col = format!("({fields}->>'latitude')::FLOAT");
+                        let lon_col = format!("({fields}->>'longitude')::FLOAT");
+                        Ok(format!(
+                            "(6371000.0 * 2 * ASIN(SQRT(\
+                             POWER(SIN(RADIANS(({lat_col} - {lat}) / 2.0)), 2) + \
+                             COS(RADIANS({lat})) * COS(RADIANS({lat_col})) * \
+                             POWER(SIN(RADIANS(({lon_col} - {lon}) / 2.0)), 2)\
+                             ))) <= {r}"
+                        ))
+                    }
+                    GeospatialCenter::Local(cx, cy) => {
+                        // Euclidean distance in local frame using pose.pose.position.x / .y
+                        let fields = self.col("fields");
+                        let x_col = format!("({fields}->>'pose.pose.position.x')::FLOAT");
+                        let y_col = format!("({fields}->>'pose.pose.position.y')::FLOAT");
+                        Ok(format!(
+                            "SQRT(POWER({x_col} - {cx}, 2) + POWER({y_col} - {cy}, 2)) <= {r}"
+                        ))
+                    }
+                }
+            }
         }
     }
 
@@ -1181,7 +1534,21 @@ impl<'a> CompileCtx<'a> {
                 Ok(format!("{}", uv.si_value))
             }
             Expr::Aggregation(agg) => self.compile_aggregation(agg, table),
-            Expr::FieldAccess { base, key } => Ok(self.dialect.json_access(base, key)),
+            Expr::FieldAccess { base, key } => {
+                // Detect array index notation: "name[N]" → json_array_access
+                if let Some(bracket) = key.find('[') {
+                    if let Some(close) = key.rfind(']') {
+                        if close > bracket {
+                            let field_name = &key[..bracket];
+                            let index_str = &key[bracket + 1..close];
+                            if let Ok(index) = index_str.parse::<usize>() {
+                                return Ok(self.dialect.json_array_access(base, field_name, index));
+                            }
+                        }
+                    }
+                }
+                Ok(self.dialect.json_access(base, key))
+            }
             Expr::BinaryOp { left, op, right } => {
                 let l = self.compile_expr(left, table)?;
                 let r = self.compile_expr(right, table)?;
@@ -1562,11 +1929,26 @@ mod tests {
     }
 
     #[test]
-    fn anomaly_query_gated() {
-        let err = compile_pg_err("ANOMALY(duration) SINCE 24 hours ago");
+    fn anomaly_compiles_two_cte() {
+        // ANOMALY now compiles to a two-phase CTE (current_stats + baseline_stats).
+        let sql =
+            compile_pg("ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago");
+        assert!(sql.contains("current_stats"), "got: {sql}");
+        assert!(sql.contains("baseline_stats"), "got: {sql}");
+        assert!(sql.contains("z_score"), "got: {sql}");
+        assert!(sql.contains("is_anomalous"), "got: {sql}");
+        assert!(sql.contains("direction"), "got: {sql}");
+    }
+
+    #[test]
+    fn anomaly_missing_compared_to_is_parse_error() {
+        // ANOMALY without COMPARED TO is now a parse error, not a NotImplemented.
+        let result = crate::parse("ANOMALY(duration) SINCE 1 hour ago");
+        assert!(result.is_err(), "expected parse error");
+        let errs = result.unwrap_err();
         assert!(
-            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "ANOMALY()"),
-            "got: {err:?}"
+            errs.iter().any(|e| matches!(e, ROSQLError::ParseError { message, .. } if message.contains("COMPARED TO"))),
+            "got: {errs:?}"
         );
     }
 
@@ -1580,12 +1962,14 @@ mod tests {
     }
 
     #[test]
-    fn path_deviation_gated() {
-        let err = compile_pg_err("PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday");
-        assert!(
-            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "PATH DEVIATION"),
-            "got: {err:?}"
-        );
+    fn path_deviation_compiles() {
+        // PATH DEVIATION now compiles to a multi-CTE SQL query.
+        let sql = compile_pg("PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday");
+        assert!(sql.contains("planned_path"), "got: {sql}");
+        assert!(sql.contains("actual_poses"), "got: {sql}");
+        assert!(sql.contains("lateral_deviation_m"), "got: {sql}");
+        assert!(sql.contains("/plan"), "got: {sql}");
+        assert!(sql.contains("/odom"), "got: {sql}");
     }
 
     #[test]

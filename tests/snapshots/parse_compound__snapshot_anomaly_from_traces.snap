@@ -6,14 +6,14 @@ Compound:
   clause:
     Anomaly:
       field: duration
-      compared_to: Fleet
-      data_source: ~
+      compared_to: LastWeek
+      data_source: Traces
   scope: ~
   time_range:
     Since:
       Relative:
-        amount: 24
-        unit: hours
+        amount: 7
+        unit: days
   time_basis: ~
   conditions: ~
   facet:

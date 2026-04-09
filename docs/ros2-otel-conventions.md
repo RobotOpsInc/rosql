@@ -18,14 +18,15 @@ This document defines the complete schema that ROSQL expects from a ROS2 telemet
 
 | Attribute | Type | Example | Used by ROSQL for |
 |-----------|------|---------|-------------------|
-| `ros.topic` | string | `/cmd_vel` | Topic filtering, `MESSAGE PATHS` |
+| `ros.topic` | string | `/cmd_vel` | Topic filtering, `MESSAGE FLOW` |
 | `ros.message_type` | string | `geometry_msgs/msg/Twist` | Message type filtering |
 | `ros.publisher_node` | string | `/controller_server` | Publisher attribution |
 | `ros.subscriber_node` | string | `/motor_driver` | Subscriber attribution |
+| `ros.plan.id` | string | UUID | `PATH DEVIATION` plan correlation (cross-repo: rmw_robotops) |
 
-### ParentSpanId convention for MESSAGE JOURNEY
+### ParentSpanId convention for TRACE
 
-The publish span's `SpanId` must be set as the `ParentSpanId` of the corresponding subscribe span. This creates the causal chain that `MESSAGE JOURNEY` traverses.
+The publish span's `SpanId` must be set as the `ParentSpanId` of the corresponding subscribe span. This creates the causal chain that `TRACE` traverses.
 
 ```
 Publisher span (SpanId: "abc")
@@ -71,7 +72,7 @@ CREATE TABLE otel_traces (
 );
 ```
 
-Used by: `FROM traces`, `MESSAGE JOURNEY`, `MESSAGE PATHS`, `TRACE`, `HEALTH()`, `ANOMALY()`, `DURING()`, `CORRELATE`, `SINCE last action failure`
+Used by: `FROM traces`, `TRACE`, `HEALTH()`, `ANOMALY()`, `DURING()`, `CORRELATE`, `SINCE last action failure`
 
 #### `otel_logs`
 
@@ -121,7 +122,7 @@ CREATE TABLE topic_messages (
 );
 ```
 
-Used by: `FROM topics`, `FROM odom` (and other topic aliases), `PATH DEVIATION`
+Used by: `FROM topics`, `FROM odom` (and other topic aliases), `PATH DEVIATION`, `JOINT DEVIATION`, `WITHIN`
 
 #### `mcap_metadata`
 
@@ -132,11 +133,27 @@ CREATE TABLE mcap_metadata (
     start_time           TIMESTAMPTZ NOT NULL,
     end_time             TIMESTAMPTZ NOT NULL,
     s3_key               TEXT NOT NULL,
-    topics               TEXT[] NOT NULL DEFAULT '{}'
+    topics               TEXT[] NOT NULL DEFAULT '{}',
+    message_types        JSONB NOT NULL DEFAULT '{}'  -- topic → message_type map
 );
 ```
 
-Used by: `FROM recordings`, `SHOW RECORDING`
+Used by: `FROM recordings`, `FROM recordings WHERE topic = '...'`
+
+#### `robot_joint_map` _(v0.4.3+, optional)_
+
+```sql
+CREATE TABLE robot_joint_map (
+    robot_model          TEXT NOT NULL,
+    valid_from           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    valid_to             TIMESTAMPTZ,
+    version              TEXT NOT NULL DEFAULT '',
+    robot_ids            TEXT[] NOT NULL DEFAULT '{}',
+    joint_map            JSONB NOT NULL DEFAULT '[]'
+);
+```
+
+Used by: `SHOW JOINTS`, `JOINT DEVIATION`
 
 ## ROSQL field mappings
 
@@ -176,6 +193,18 @@ These are the ROSQL field names and what columns they resolve to.
 | `message` | `body` |
 | `severity` | `severity_text` |
 | `severity_number` | `severity_number` |
+
+### From `topic_messages` (position data)
+
+ROSQL `WITHIN` and `JOINT DEVIATION` extract values from the `fields` JSONB column using these paths:
+
+| ROSQL path | `fields` JSON path | ROS2 message type |
+|---|---|---|
+| `position.latitude` | `fields->>'position.latitude'` | `sensor_msgs/NavSatFix` |
+| `position.longitude` | `fields->>'position.longitude'` | `sensor_msgs/NavSatFix` |
+| `pose.pose.position.x` | `fields->>'pose.pose.position.x'` | `nav_msgs/Odometry` |
+| `pose.pose.position.y` | `fields->>'pose.pose.position.y'` | `nav_msgs/Odometry` |
+| `position[N]` | `fields->'position'->>N` | `sensor_msgs/JointState` |
 
 ## Schema profiles
 
