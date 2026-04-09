@@ -220,14 +220,39 @@ Used by: `SHOW JOINTS`, `JOINT DEVIATION`
 
 ### From `otel_metrics`
 
-| ROSQL field | Resolved as | Storage unit |
-|-------------|------------|-------------|
-| `metric_name` | `metric_name` | — |
-| `metric_value` | `value` | varies |
-| `publish_rate` | `value` WHERE `metric_name = 'ros2.topic.rx_rate_hz'` | Hz |
-| `bandwidth` | `value` WHERE `metric_name = 'ros2.topic.rx_bandwidth_bps'` | B/s |
-| `cpu_usage` | `value` WHERE `metric_name = 'system.cpu.total_usage_pct'` | % |
-| `memory_usage` | `value` WHERE `metric_name = 'system.memory.usage_pct'` | % |
+| ROSQL field | Metric name | Unit |
+|-------------|------------|------|
+| `metric_name` | _(direct column)_ | — |
+| `metric_value` | _(direct column)_ | varies |
+| `publish_rate` | `ros2.topic.message_rate` | Hz |
+| `bandwidth` | `ros2.topic.bandwidth` | B/s |
+| `messages_received` | `ros2.topic.messages_received` | count |
+| `messages_captured` | `ros2.topic.messages_captured` | count |
+| `messages_filtered` | `ros2.topic.messages_filtered` | count |
+| `action_servers_count` | `ros2.action_servers.count` | count |
+| `services_count` | `ros2.services.count` | count |
+| `queued_goals` | `ros2.action.queued_goals` | count |
+| `active_goals` | `ros2.action.active_goals` | count |
+| `completion_rate` | `ros2.action.completion_rate` | Hz |
+| `cpu_usage` | `system.cpu.utilization` | % |
+| `memory_usage` | `system.memory.utilization` | % |
+| `memory_bytes` | `system.memory.usage` | bytes |
+| `disk_usage` | `system.filesystem.utilization` | % |
+| `disk_bytes` | `system.filesystem.usage` | bytes |
+| `disk_io` | `system.disk.io` | B/s |
+| `disk_iops` | `system.disk.operations` | ops/s |
+| `network_io` | `system.network.io` | B/s |
+| `network_packets` | `system.network.packets` | packets/s |
+| `network_latency` | `system.network.latency` | ms |
+| `network_jitter` | `system.network.jitter` | ms |
+| `packet_loss` | `system.network.packet_loss` | % |
+| `temperature` | `system.temperature` | °C |
+| `battery_charge` | `system.battery.charge` | % |
+| `battery_voltage` | `system.battery.voltage` | V |
+| `battery_current` | `system.battery.current` | A |
+| `battery_temperature` | `system.battery.temperature` | °C |
+| `process_cpu` | `process.cpu.utilization` | % |
+| `process_memory` | `process.memory.usage` | bytes |
 
 ### From `otel_logs`
 
@@ -241,15 +266,24 @@ Used by: `SHOW JOINTS`, `JOINT DEVIATION`
 
 ROSQL geospatial operators (`WITHIN`) and `JOINT DEVIATION` extract nested values from the `fields` JSONB column using these conventions:
 
-| ROSQL path | `fields` JSON path | Description |
-|---|---|---|
-| `position.latitude` | `fields->>'position.latitude'` | GPS latitude (degrees) |
-| `position.longitude` | `fields->>'position.longitude'` | GPS longitude (degrees) |
-| `pose.pose.position.x` | `fields->>'pose.pose.position.x'` | Local frame X (metres) |
-| `pose.pose.position.y` | `fields->>'pose.pose.position.y'` | Local frame Y (metres) |
-| `position[N]` | `fields->'position'->>N` | Joint position array element N (radians) |
+| ROSQL path | `fields` JSON path | ROS2 type | Description |
+|---|---|---|---|
+| `position.latitude` | `fields->>'position.latitude'` | `sensor_msgs/NavSatFix` | GPS latitude (degrees) |
+| `position.longitude` | `fields->>'position.longitude'` | `sensor_msgs/NavSatFix` | GPS longitude (degrees) |
+| `gps.lat` | `fields->>'position.latitude'` | `sensor_msgs/NavSatFix` | GPS latitude alias |
+| `gps.lon` | `fields->>'position.longitude'` | `sensor_msgs/NavSatFix` | GPS longitude alias |
+| `pose.pose.position.x` | `fields->>'pose.pose.position.x'` | `nav_msgs/Odometry` | Local frame X (metres) |
+| `pose.pose.position.y` | `fields->>'pose.pose.position.y'` | `nav_msgs/Odometry` | Local frame Y (metres) |
+| `position.x` | `fields->>'pose.pose.position.x'` | `nav_msgs/Odometry` | Local X alias |
+| `position.y` | `fields->>'pose.pose.position.y'` | `nav_msgs/Odometry` | Local Y alias |
+| `orientation.yaw` | computed from quaternion | `nav_msgs/Odometry` | Yaw angle (radians) |
+| `position[N]` | `fields->'position'->>N` | `sensor_msgs/JointState` | Joint position at index N (radians) |
+| `velocity[N]` | `fields->'velocity'->>N` | `sensor_msgs/JointState` | Joint velocity at index N (rad/s) |
+| `effort[N]` | `fields->'effort'->>N` | `sensor_msgs/JointState` | Joint effort at index N (Nm) |
 
-These match the standard `nav_msgs/Odometry` and `sensor_msgs/JointState` ROS2 message layouts.
+`orientation.yaw` is derived from the Odometry quaternion via `atan2(2*(qw·qz + qx·qy), 1 − 2*(qy² + qz²))`.
+
+For `JointState` fields, `N` is the zero-based array index. To access joints by name instead of index, use `SHOW JOINTS FOR ROBOT '...'` to inspect the robot's joint map, then use the named index. See [Joint state array indexing](/docs/concepts#joint-state-array-indexing).
 
 ---
 
@@ -279,3 +313,29 @@ Custom schema profiles: tracked in [#22](https://github.com/RobotOpsInc/rosql/is
 | `FROM battery` | `FROM topics WHERE topic_name = '/battery_state'` |
 | `FROM cmd_vel` | `FROM topics WHERE topic_name = '/cmd_vel'` |
 | `FROM imu` | `FROM topics WHERE topic_name = '/imu/data'` |
+
+
+---
+
+## Error taxonomy
+
+ROSQL produces structured errors with actionable messages. No raw SQL or database error text is ever surfaced to the user.
+
+| Error type | When raised | What to do |
+|---|---|---|
+| `ParseError` | Syntax or grammar error in the query | Fix the query syntax. The error includes a `suggestion` field with a "did you mean?" hint. |
+| `UnitError` | Invalid unit or incompatible unit comparison | Use a compatible unit (e.g. `500 ms` not `500 kg`). |
+| `NotImplemented` | Feature parses correctly but is not yet implemented | Check the docs for the current feature set. A cookbook link is included in the error message. |
+| `ReservedSyntax` | A reserved keyword is used (e.g. `ALERT`, `DEFINE`) | These keywords are reserved for the Robot Ops platform, not the open-source ROSQL layer. |
+| `DataSourceUnavailable` | A required table is missing from the database | Verify the table exists and telemetry is being ingested. The error names the exact missing table. |
+| `MutationRejected` | `INSERT`, `UPDATE`, `DELETE`, or `DROP` attempted | ROSQL is read-only. |
+| `CompilationError` | Valid syntax but cannot be compiled (e.g. scope mismatch) | Read the error message — it describes the specific constraint. |
+| `ExecutionError` | Database execution failed | The error names the data source and includes an actionable suggestion. Never leaks raw driver text. |
+
+### Warnings (non-fatal)
+
+Some queries compile and execute successfully but include `warnings` alongside the result. Each warning has a `code`, `message`, and `suggestion`:
+
+| Code | Raised when | Suggestion |
+|---|---|---|
+| `ANOMALY_NO_FACET` | `ANOMALY(...)` is used without `FACET` | Add `FACET robot_id` or `FACET action_name` to compare like-for-like spans |

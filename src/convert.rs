@@ -429,6 +429,26 @@ fn output_format_to_proto(f: ast::OutputFormat) -> pb::OutputFormat {
     }
 }
 
+/// Convert a `FormatHint` to its proto enum integer value.
+///
+/// The proto `FormatHint` enum is defined in `result.proto` but not yet
+/// code-generated (we use the raw integer constants here).
+pub fn format_hint_to_proto_int(hint: ast::FormatHint) -> i32 {
+    match hint {
+        ast::FormatHint::Table => 1,
+        ast::FormatHint::LineChart => 2,
+        ast::FormatHint::StackedLineChart => 3,
+        ast::FormatHint::BarChart => 4,
+        ast::FormatHint::HorizontalBars => 5,
+        ast::FormatHint::Gantt => 6,
+        ast::FormatHint::DirectedGraph => 7,
+        ast::FormatHint::NodeGraph => 8,
+        ast::FormatHint::ScalarCards => 9,
+        ast::FormatHint::LogTable => 10,
+        ast::FormatHint::RecordingList => 11,
+    }
+}
+
 fn baseline_to_proto(b: &ast::Baseline) -> pb::Baseline {
     let baseline = match b {
         ast::Baseline::LastWeek => pb::baseline::Baseline::LastWeek(true),

@@ -2,18 +2,18 @@
 
 -- /cmd_vel topic publish rate (Hz) — normally 10 Hz, drops during failures
 INSERT INTO otel_metrics (timestamp, metric_name, value, attributes, service_name) VALUES
-('2026-03-24T10:00:00Z', 'ros2.topic.rx_rate_hz', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:02:00Z', 'ros2.topic.rx_rate_hz', 10.1, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:04:00Z', 'ros2.topic.rx_rate_hz', 9.9,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:06:00Z', 'ros2.topic.rx_rate_hz', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:08:00Z', 'ros2.topic.rx_rate_hz', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:09:00Z', 'ros2.topic.rx_rate_hz', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:11:00Z', 'ros2.topic.rx_rate_hz', 8.5,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:13:00Z', 'ros2.topic.rx_rate_hz', 5.2,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:15:00Z', 'ros2.topic.rx_rate_hz', 0.0,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:25:00Z', 'ros2.topic.rx_rate_hz', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:35:00Z', 'ros2.topic.rx_rate_hz', 9.8,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
-('2026-03-24T10:45:00Z', 'ros2.topic.rx_rate_hz', 9.5,  '{"topic": "/cmd_vel"}', 'robot_sim_001');
+('2026-03-24T10:00:00Z', 'ros2.topic.message_rate', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:02:00Z', 'ros2.topic.message_rate', 10.1, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:04:00Z', 'ros2.topic.message_rate', 9.9,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:06:00Z', 'ros2.topic.message_rate', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:08:00Z', 'ros2.topic.message_rate', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:09:00Z', 'ros2.topic.message_rate', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:11:00Z', 'ros2.topic.message_rate', 8.5,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:13:00Z', 'ros2.topic.message_rate', 5.2,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:15:00Z', 'ros2.topic.message_rate', 0.0,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:25:00Z', 'ros2.topic.message_rate', 10.0, '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:35:00Z', 'ros2.topic.message_rate', 9.8,  '{"topic": "/cmd_vel"}', 'robot_sim_001'),
+('2026-03-24T10:45:00Z', 'ros2.topic.message_rate', 9.5,  '{"topic": "/cmd_vel"}', 'robot_sim_001');
 
 -- CPU usage (%) — baseline 30%, spikes to 92% during action 2
 INSERT INTO otel_metrics (timestamp, metric_name, value, attributes, service_name) VALUES

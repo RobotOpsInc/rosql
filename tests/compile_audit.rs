@@ -9,6 +9,7 @@
 //!   - OFFSET parses and compiles correctly
 //!   - ALERT/DEFINE produce specific error messages
 
+use rosql::ast::FormatHint;
 use rosql::drivers::compiler::compile;
 use rosql::drivers::dialect::SqlDialect;
 use rosql::drivers::otel_registry::default_otel_registry;
@@ -44,6 +45,17 @@ fn compile_with_default_limit(query: &str, default: u64) -> (String, bool) {
     (cr.sql, cr.default_limit_applied)
 }
 
+fn compile_result(query: &str) -> rosql::drivers::compiler::CompileResult {
+    let ast = rosql::parse(query).unwrap_or_else(|e| panic!("parse failed: {e:?}"));
+    let registry = default_otel_registry();
+    compile(&ast, &registry, &SqlDialect::DuckDB, &caps(), None)
+        .unwrap_or_else(|e| panic!("compile failed: {e}"))
+}
+
+fn format_hint(query: &str) -> FormatHint {
+    compile_result(query).format_hint
+}
+
 // ── Implemented aggregation functions ───────────────────────────────────────
 
 #[test]
@@ -52,6 +64,15 @@ fn topic_rate_compiles_to_subquery() {
     assert!(sql.contains("otel_metrics"), "got: {sql}");
     assert!(sql.contains("ros2.topic.message_rate"), "got: {sql}");
     assert!(sql.contains("AVG"), "got: {sql}");
+    // Uses the registry-resolved column name, not the ROSQL alias.
+    assert!(
+        sql.contains(r#""value""#),
+        "expected resolved column 'value', got: {sql}"
+    );
+    assert!(
+        !sql.contains("metric_value"),
+        "should not contain raw alias 'metric_value', got: {sql}"
+    );
 }
 
 #[test]
@@ -61,7 +82,13 @@ fn topic_rate_with_topic_arg() {
         SqlDialect::PostgreSQL,
     );
     assert!(sql.contains("otel_metrics"), "got: {sql}");
-    assert!(sql.contains("topic_name"), "got: {sql}");
+    // Topic filter uses JSON extraction from the attributes column, not a bare column.
+    assert!(sql.contains("attributes"), "got: {sql}");
+    assert!(sql.contains("topic"), "got: {sql}");
+    assert!(
+        !sql.contains("topic_name"),
+        "should not use bare topic_name column, got: {sql}"
+    );
     assert!(sql.contains("/cmd_vel"), "got: {sql}");
 }
 
@@ -75,6 +102,12 @@ fn action_success_rate_no_arg() {
     assert!(sql.contains("CASE WHEN"), "got: {sql}");
     assert!(sql.contains("COUNT"), "got: {sql}");
     assert!(sql.contains("NULLIF"), "got: {sql}");
+    // Uses JSON extraction, not a bare column name.
+    assert!(
+        sql.contains("span_attributes"),
+        "expected span_attributes JSON access, got: {sql}"
+    );
+    assert!(sql.contains("ros.action.status"), "got: {sql}");
 }
 
 #[test]
@@ -85,6 +118,58 @@ fn action_success_rate_with_arg() {
     );
     assert!(sql.contains("navigate_to_pose"), "got: {sql}");
     assert!(sql.contains("succeeded"), "got: {sql}");
+    // action_name filter also uses JSON extraction.
+    assert!(
+        sql.contains("ros.action.name"),
+        "expected ros.action.name JSON key, got: {sql}"
+    );
+    assert!(
+        sql.contains("span_attributes"),
+        "expected span_attributes JSON access, got: {sql}"
+    );
+}
+
+#[test]
+fn facet_adds_column_to_select() {
+    // Explicit aggregation + FACET must include the facet column in SELECT.
+    let sql = compile_sql(
+        "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET service_name",
+        SqlDialect::DuckDB,
+    );
+    // service_name is a real column on otel_traces — should appear in SELECT and GROUP BY.
+    let col = r#""service_name""#;
+    assert!(
+        sql.contains(&format!("SELECT {col}")) || sql.contains(&format!("{col}, COUNT")),
+        "facet column missing from SELECT, got: {sql}"
+    );
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+}
+
+#[test]
+fn facet_robot_id_resolves_json_on_traces() {
+    // robot_id on otel_traces must resolve to resource_attributes->>'robot.id', not a bare column.
+    let sql = compile_sql(
+        "SELECT COUNT(*) FROM traces FACET robot_id",
+        SqlDialect::DuckDB,
+    );
+    assert!(
+        sql.contains("resource_attributes") && sql.contains("robot.id"),
+        "expected JSON extraction for robot_id on otel_traces, got: {sql}"
+    );
+}
+
+#[test]
+fn facet_robot_id_bare_on_topic_messages() {
+    // robot_id on topic_messages must resolve to the bare column, not JSON extraction.
+    let sql = compile_sql("FROM odom FACET robot_id", SqlDialect::DuckDB);
+    assert!(
+        sql.contains(r#""robot_id""#),
+        "expected bare robot_id column on topic_messages, got: {sql}"
+    );
+    assert!(
+        !sql.contains("resource_attributes"),
+        "should not use resource_attributes on topic_messages, got: {sql}"
+    );
 }
 
 #[test]
@@ -798,4 +883,223 @@ fn enrich_with_multiple_plans() {
     assert_eq!(cr.enrichments.len(), 2);
     assert_eq!(cr.enrichments[0].source_name, "logs");
     assert_eq!(cr.enrichments[1].source_name, "recordings");
+}
+
+// ── Format hint inference (issue #65) ────────────────────────────────────────
+
+#[test]
+fn format_hint_timeseries_no_facet_is_line_chart() {
+    assert_eq!(
+        format_hint("SELECT COUNT(*) FROM traces TIMESERIES 5 min SINCE 1 hour ago"),
+        FormatHint::LineChart
+    );
+}
+
+#[test]
+fn format_hint_timeseries_with_facet_is_stacked_line_chart() {
+    assert_eq!(
+        format_hint("SELECT COUNT(*) FROM traces TIMESERIES 5 min FACET robot_id SINCE 1 hour ago"),
+        FormatHint::StackedLineChart
+    );
+}
+
+#[test]
+fn format_hint_stacked_viz_has_series_key_and_x_axis() {
+    let cr = compile_result(
+        "SELECT COUNT(*) FROM traces TIMESERIES 5 min FACET robot_id SINCE 1 hour ago",
+    );
+    let viz = cr.visualization.expect("expected VisualizationConfig");
+    assert_eq!(viz.series_key.as_deref(), Some("robot_id"));
+    assert_eq!(viz.x_axis.as_deref(), Some("time_bucket"));
+}
+
+#[test]
+fn format_hint_facet_no_timeseries_is_bar_chart() {
+    assert_eq!(
+        format_hint("SELECT COUNT(*) FROM traces FACET action_name SINCE 1 hour ago"),
+        FormatHint::BarChart
+    );
+}
+
+#[test]
+fn format_hint_bar_chart_viz_has_x_axis() {
+    let cr = compile_result("SELECT COUNT(*) FROM traces FACET action_name");
+    let viz = cr.visualization.expect("expected VisualizationConfig");
+    assert_eq!(viz.x_axis.as_deref(), Some("action_name"));
+}
+
+#[test]
+fn format_hint_trace_is_gantt() {
+    assert_eq!(format_hint("TRACE 'abc123'"), FormatHint::Gantt);
+}
+
+#[test]
+fn format_hint_message_flow_is_directed_graph() {
+    assert_eq!(
+        format_hint("MESSAGE FLOW FROM TOPIC '/cmd_vel'"),
+        FormatHint::DirectedGraph
+    );
+}
+
+#[test]
+fn format_hint_show_node_graph_is_node_graph() {
+    assert_eq!(format_hint("SHOW NODE GRAPH"), FormatHint::NodeGraph);
+}
+
+#[test]
+fn format_hint_show_span_summary_is_horizontal_bars() {
+    assert_eq!(
+        format_hint("SHOW SPAN SUMMARY SINCE 1 hour ago"),
+        FormatHint::HorizontalBars
+    );
+}
+
+#[test]
+fn format_hint_span_summary_viz_has_axes() {
+    let cr = compile_result("SHOW SPAN SUMMARY SINCE 1 hour ago");
+    let viz = cr.visualization.expect("expected VisualizationConfig");
+    assert_eq!(viz.x_axis.as_deref(), Some("span_name"));
+    assert_eq!(viz.y_axis.as_deref(), Some("duration"));
+}
+
+#[test]
+fn format_hint_anomaly_is_table_with_color_field() {
+    assert_eq!(
+        format_hint("ANOMALY(duration) COMPARED TO last week FACET robot_id"),
+        FormatHint::Table
+    );
+    let cr = compile_result("ANOMALY(duration) COMPARED TO last week FACET robot_id");
+    let viz = cr.visualization.expect("expected VisualizationConfig");
+    assert_eq!(viz.color_field.as_deref(), Some("is_anomalous"));
+}
+
+#[test]
+fn format_hint_scalar_aggregation_is_scalar_cards() {
+    assert_eq!(
+        format_hint(
+            "SELECT COUNT(*) AS total_errors, AVG(duration) AS avg_duration FROM traces SINCE 1 hour ago"
+        ),
+        FormatHint::ScalarCards
+    );
+}
+
+#[test]
+fn format_hint_from_logs_is_log_table() {
+    assert_eq!(
+        format_hint("FROM logs WHERE severity = 'ERROR'"),
+        FormatHint::LogTable
+    );
+}
+
+#[test]
+fn format_hint_log_table_viz_has_color_field() {
+    let cr = compile_result("FROM logs");
+    let viz = cr.visualization.expect("expected VisualizationConfig");
+    assert_eq!(viz.color_field.as_deref(), Some("severity"));
+}
+
+#[test]
+fn format_hint_path_deviation_is_line_chart() {
+    assert_eq!(
+        format_hint("PATH DEVIATION FOR TRACE 'abc123'"),
+        FormatHint::LineChart
+    );
+}
+
+#[test]
+fn format_hint_joint_deviation_is_bar_chart() {
+    assert_eq!(
+        format_hint("JOINT DEVIATION FOR TRACE 'abc123'"),
+        FormatHint::BarChart
+    );
+}
+
+#[test]
+fn format_hint_format_clause_overrides_inference() {
+    // TIMESERIES normally infers LineChart, but explicit FORMAT table overrides it.
+    assert_eq!(
+        format_hint("SELECT COUNT(*) FROM traces TIMESERIES 5 min FORMAT table"),
+        FormatHint::Table
+    );
+}
+
+#[test]
+fn format_hint_plain_from_traces_is_table() {
+    assert_eq!(
+        format_hint("FROM traces WHERE status = 'ERROR' LIMIT 20"),
+        FormatHint::Table
+    );
+}
+
+// ── CompilerWarning structured output (issue #65) ───────────────────────────
+
+#[test]
+fn anomaly_no_facet_emits_structured_warning() {
+    let cr = compile_result("ANOMALY(duration) COMPARED TO last week SINCE 1 hour ago");
+    assert_eq!(cr.warnings.len(), 1);
+    let w = &cr.warnings[0];
+    assert_eq!(w.code, "ANOMALY_NO_FACET");
+    assert!(
+        w.message.contains("ANOMALY without FACET"),
+        "got: {}",
+        w.message
+    );
+    assert!(w.suggestion.is_some(), "expected suggestion");
+    let suggestion = w.suggestion.as_deref().unwrap();
+    assert!(
+        suggestion.contains("FACET"),
+        "suggestion should mention FACET: {suggestion}"
+    );
+}
+
+#[test]
+fn anomaly_with_facet_has_no_warnings() {
+    let cr = compile_result("ANOMALY(duration) COMPARED TO last week FACET robot_id");
+    assert!(
+        cr.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        cr.warnings
+    );
+}
+
+#[test]
+fn non_anomaly_query_has_no_warnings() {
+    let cr = compile_result("FROM traces WHERE status = 'ERROR'");
+    assert!(cr.warnings.is_empty());
+}
+
+// ── ExecutionError display (issue #65) ──────────────────────────────────────
+
+#[test]
+fn execution_error_display_includes_data_source() {
+    let err = rosql::error::ROSQLError::ExecutionError {
+        message: "Table not found.".into(),
+        data_source: "PostgreSQL".into(),
+        compiled_sql: None,
+        suggestion: Some("Verify ingestion.".into()),
+    };
+    let msg = err.to_string();
+    assert!(msg.contains("PostgreSQL"), "got: {msg}");
+    assert!(msg.contains("Table not found"), "got: {msg}");
+}
+
+#[test]
+fn execution_error_no_raw_driver_text() {
+    // Verify the error type exists and doesn't accidentally embed raw DB output.
+    let err = rosql::error::ROSQLError::ExecutionError {
+        message: "Query execution failed.".into(),
+        data_source: "DuckDB".into(),
+        compiled_sql: Some("SELECT * FROM nonexistent".into()),
+        suggestion: Some("Check your schema.".into()),
+    };
+    // The display should not include the raw compiled_sql
+    let display = err.to_string();
+    assert!(
+        !display.contains("SELECT"),
+        "raw SQL should not appear in display: {display}"
+    );
+    assert!(
+        display.contains("DuckDB"),
+        "data source should appear: {display}"
+    );
 }

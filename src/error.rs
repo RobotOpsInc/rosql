@@ -49,13 +49,30 @@ pub enum ROSQLError {
     #[error("Not implemented: {feature}. {message}")]
     NotImplemented { feature: String, message: String },
 
-    /// A driver or connection error.
+    /// A driver or connection error (pre-execution, e.g. connection refused).
     #[error("Driver error: {message}")]
     DriverError { message: String },
 
     /// An error compiling the AST to SQL.
     #[error("Compilation error: {message}")]
     CompilationError { message: String },
+
+    /// A database execution error with context and an actionable suggestion.
+    ///
+    /// Unlike `DriverError` (which covers connection/setup failures), this
+    /// variant is raised when the compiled SQL reaches the database and fails.
+    /// The `suggestion` field always tells the user what to do differently.
+    #[error("Execution failed on {data_source}: {message}")]
+    ExecutionError {
+        /// Short description of the failure (no raw driver error text).
+        message: String,
+        /// Human-readable data source name (e.g. `"PostgreSQL"`, `"DuckDB"`).
+        data_source: String,
+        /// The compiled SQL that caused the failure (for `--verbose` display).
+        compiled_sql: Option<String>,
+        /// Actionable next step for the user.
+        suggestion: Option<String>,
+    },
 }
 
 #[cfg(test)]

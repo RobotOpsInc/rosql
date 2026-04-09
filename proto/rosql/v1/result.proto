@@ -6,9 +6,49 @@ import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "rosql/v1/ast.proto";
 
+// Presentation-layer format hint — inferred from query shape, overridable via FORMAT clause.
+enum FormatHint {
+  FORMAT_HINT_UNSPECIFIED = 0;
+  FORMAT_HINT_TABLE = 1;
+  FORMAT_HINT_LINE_CHART = 2;
+  FORMAT_HINT_STACKED_LINE_CHART = 3;
+  FORMAT_HINT_BAR_CHART = 4;
+  FORMAT_HINT_HORIZONTAL_BARS = 5;
+  FORMAT_HINT_GANTT = 6;
+  FORMAT_HINT_DIRECTED_GRAPH = 7;
+  FORMAT_HINT_NODE_GRAPH = 8;
+  FORMAT_HINT_SCALAR_CARDS = 9;
+  FORMAT_HINT_LOG_TABLE = 10;
+  FORMAT_HINT_RECORDING_LIST = 11;
+}
+
+// Visualization configuration hints for frontend rendering.
+message VisualizationConfig {
+  // Field to use on the x-axis (e.g. "time_bucket").
+  string x_axis = 1;
+  // Field to use on the y-axis (e.g. primary aggregated metric).
+  string y_axis = 2;
+  // Field to split series by (e.g. "robot_id" from FACET).
+  string series_key = 3;
+  // Field to drive color encoding (e.g. "severity", "is_anomalous").
+  string color_field = 4;
+  // Field to use as a display label (e.g. aliased scalar column).
+  string label_field = 5;
+}
+
+// A non-fatal compiler warning with structured context.
+message CompilerWarning {
+  // Machine-readable warning code (e.g. "ANOMALY_NO_FACET").
+  string code = 1;
+  // Human-readable warning message.
+  string message = 2;
+  // Optional actionable suggestion.
+  string suggestion = 3;
+}
+
 // Query result envelope — all ROSQL query results share this structure.
 message QueryResult {
-  // The output format of the result.
+  // The output format of the result (user-facing FORMAT clause value).
   OutputFormat format = 1;
   // The original ROSQL query text.
   string query = 2;
@@ -22,6 +62,13 @@ message QueryResult {
   bool truncated = 6;
   // Whether a default LIMIT of 100 was automatically applied.
   bool default_limit_applied = 7;
+
+  // Presentation-layer format hint (inferred from query shape).
+  FormatHint format_hint = 8;
+  // Visualization configuration (axes, series key, color field, etc.).
+  VisualizationConfig visualization = 9;
+  // Non-fatal compiler warnings surfaced alongside the result.
+  repeated CompilerWarning warnings = 16;
 
   // Format-specific result data.
   oneof data {

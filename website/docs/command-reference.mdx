@@ -558,6 +558,72 @@ SELECT APPROX_PERCENTILE(duration, 95) FROM traces
 
 ---
 
+## Output format hints
+
+Every ROSQL response includes a `format_hint` field in its metadata. This tells frontends how to best visualize the result — the REPL and dashboard use it to automatically choose a chart type.
+
+### Inferred format hints
+
+ROSQL infers the appropriate hint from the query shape:
+
+| Query pattern | `format_hint` | Use for |
+|---|---|---|
+| `TIMESERIES` without `FACET` | `LineChart` | Single time series |
+| `TIMESERIES` with `FACET` | `StackedLineChart` | Multiple series, split by dimension |
+| `FACET` without `TIMESERIES` | `BarChart` | Categorical aggregations |
+| `TRACE 'id'` | `Gantt` | Span waterfall chart |
+| `MESSAGE FLOW` | `DirectedGraph` | Pub/sub topology |
+| `SHOW NODE GRAPH` | `NodeGraph` | Node connectivity map |
+| `SHOW SPAN SUMMARY` | `HorizontalBars` | Ranked span durations |
+| `ANOMALY(...)` | `Table` (with `color_field: is_anomalous`) | Highlighted anomaly rows |
+| Scalar aggregation only | `ScalarCards` | KPI metric cards |
+| `FROM logs` / `FROM system_logs` | `LogTable` (with `color_field: severity`) | Severity-colored log viewer |
+| `FROM recordings` / `SHOW RECORDING` | `RecordingList` | Recording file list |
+| Everything else | `Table` | Generic tabular display |
+
+### Visualization config
+
+Alongside `format_hint`, the response metadata includes a `visualization` object with rendering hints:
+
+| Field | Description |
+|---|---|
+| `x_axis` | Field to place on the x-axis (e.g. `"time_bucket"` for timeseries) |
+| `y_axis` | Field to place on the y-axis (e.g. the primary aggregated metric alias) |
+| `series_key` | Field to split series by (populated from `FACET` dimension) |
+| `color_field` | Field to drive color encoding (e.g. `"severity"`, `"is_anomalous"`) |
+| `label_field` | Field to use as a display label (e.g. the scalar alias) |
+
+### FORMAT clause (explicit override)
+
+Append `FORMAT <value>` to any query to override the inferred hint:
+
+```sql
+FROM traces TIMESERIES 5 min SINCE 6 hours ago FORMAT table
+SELECT COUNT(*) FROM traces FACET robot_id FORMAT table
+```
+
+Valid values: `table`, `timeseries`, `scalar`, `trace_tree`, `graph`, `path`.
+
+---
+
+## Error types
+
+ROSQL produces structured errors — no raw SQL or database error text is ever surfaced. Each error type tells you exactly what to do differently:
+
+| Error type | When raised | Example |
+|---|---|---|
+| `ParseError` | Syntax error in the query | `Unexpected token 'WHER' at line 1, col 22. Did you mean 'WHERE'?` |
+| `NotImplemented` | Feature parses but is not yet implemented | `HEALTH() is not yet implemented. See cookbook: rosql.org/docs/cookbook` |
+| `ReservedSyntax` | Reserved keyword used (ALERT, DEFINE) | `ALERT is reserved but not supported. Alerts belong in the Robot Ops platform.` |
+| `DataSourceUnavailable` | Required table is missing | `PATH DEVIATION requires topic_messages table. Configure topic ingest.` |
+| `CompilationError` | Valid syntax but cannot compile | `Named joint access requires FOR ROBOT scope to resolve joint names.` |
+| `ExecutionError` | Database returned an error | `Execution failed on PostgreSQL: Table not found. Verify that telemetry data has been ingested.` |
+| `ValidationWarning` | Non-fatal advisory (in `warnings` array) | `ANOMALY without FACET compares heterogeneous spans. Add FACET action_name for meaningful z-scores.` |
+
+`ValidationWarning` is not thrown as an error — it is included in the `warnings` array alongside a successful result, with a `code`, `message`, and `suggestion` field.
+
+---
+
 ## Notes
 
 - All timestamps in results are UTC ISO 8601

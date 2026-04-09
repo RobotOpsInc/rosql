@@ -15,8 +15,8 @@ use super::dialect::SqlDialect;
 use super::field_registry::FieldRegistry;
 use super::otel_registry::default_otel_registry;
 use super::{
-    BackendCapabilities, ColumnMeta, EnrichmentMeta, ExecOptions, ROSQLBackend, ROSQLResult,
-    ResultMetadata,
+    BackendCapabilities, ColumnMeta, EnrichmentMeta, ExecOptions, FormatHint, ROSQLBackend,
+    ROSQLResult, ResultMetadata, VisualizationConfig,
 };
 
 #[cfg(any(feature = "postgres", feature = "mysql"))]
@@ -93,6 +93,9 @@ impl ROSQLBackend for SqlBackend {
         )?;
         let compiled_sql = compile_result.sql;
         let default_limit_applied = compile_result.default_limit_applied;
+        let format_hint = compile_result.format_hint;
+        let visualization = compile_result.visualization;
+        let warnings = compile_result.warnings;
 
         if opts.dry_run {
             return Ok(ROSQLResult {
@@ -109,6 +112,9 @@ impl ROSQLBackend for SqlBackend {
                     compiled_sql,
                     default_limit_applied,
                     enrichment_metadata: vec![],
+                    format_hint,
+                    visualization,
+                    warnings,
                 },
             });
         }
@@ -144,6 +150,9 @@ impl ROSQLBackend for SqlBackend {
                 compiled_sql,
                 default_limit_applied,
                 enrichment_metadata,
+                format_hint,
+                visualization,
+                warnings,
             },
         })
     }
@@ -181,8 +190,11 @@ impl SqlBackend {
                     execute_duckdb(&guard, &sql)
                 })
                 .await
-                .map_err(|e| ROSQLError::DriverError {
-                    message: format!("duckdb task join error: {e}"),
+                .map_err(|e| ROSQLError::ExecutionError {
+                    message: "DuckDB task join error.".into(),
+                    data_source: "DuckDB".into(),
+                    compiled_sql: None,
+                    suggestion: Some(format!("Internal error: {e}. This is likely a ROSQL bug — report at github.com/RobotOpsInc/rosql/issues")),
                 })?
             }
         }
@@ -194,7 +206,7 @@ impl SqlBackend {
         &self,
         plans: &[super::compiler::EnrichmentPlan],
         primary_cols: &[ColumnMeta],
-        primary_rows: &mut Vec<Vec<serde_json::Value>>,
+        primary_rows: &mut [Vec<serde_json::Value>],
     ) -> Result<Vec<EnrichmentMeta>, ROSQLError> {
         use serde_json::{json, Map, Value};
 
@@ -355,17 +367,26 @@ impl SqlBackend {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "postgres")]
+fn pg_execution_error(e: sqlx::Error, sql: &str) -> ROSQLError {
+    let raw = e.to_string();
+    let (message, suggestion) = classify_db_error(&raw);
+    ROSQLError::ExecutionError {
+        message,
+        data_source: "PostgreSQL".into(),
+        compiled_sql: Some(sql.to_string()),
+        suggestion,
+    }
+}
+
+#[cfg(feature = "postgres")]
 async fn execute_pg(
     pool: &sqlx::PgPool,
     sql: &str,
 ) -> Result<(Vec<ColumnMeta>, Vec<Vec<serde_json::Value>>), ROSQLError> {
-    let rows: Vec<sqlx::postgres::PgRow> =
-        sqlx::query(sql)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| ROSQLError::DriverError {
-                message: format!("query execution failed: {e}"),
-            })?;
+    let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(sql)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| pg_execution_error(e, sql))?;
 
     let columns: Vec<ColumnMeta> = if let Some(first) = rows.first() {
         first
@@ -425,17 +446,26 @@ fn pg_value_to_json(row: &sqlx::postgres::PgRow, i: usize) -> serde_json::Value 
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "mysql")]
+fn mysql_execution_error(e: sqlx::Error, sql: &str) -> ROSQLError {
+    let raw = e.to_string();
+    let (message, suggestion) = classify_db_error(&raw);
+    ROSQLError::ExecutionError {
+        message,
+        data_source: "MySQL".into(),
+        compiled_sql: Some(sql.to_string()),
+        suggestion,
+    }
+}
+
+#[cfg(feature = "mysql")]
 async fn execute_mysql(
     pool: &sqlx::MySqlPool,
     sql: &str,
 ) -> Result<(Vec<ColumnMeta>, Vec<Vec<serde_json::Value>>), ROSQLError> {
-    let rows: Vec<sqlx::mysql::MySqlRow> =
-        sqlx::query(sql)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| ROSQLError::DriverError {
-                message: format!("query execution failed: {e}"),
-            })?;
+    let rows: Vec<sqlx::mysql::MySqlRow> = sqlx::query(sql)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| mysql_execution_error(e, sql))?;
 
     let columns: Vec<ColumnMeta> = if let Some(first) = rows.first() {
         first
@@ -485,6 +515,18 @@ async fn execute_mysql(
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "duckdb")]
+fn duckdb_execution_error(e: duckdb::Error, sql: &str) -> ROSQLError {
+    let raw = e.to_string();
+    let (message, suggestion) = classify_db_error(&raw);
+    ROSQLError::ExecutionError {
+        message,
+        data_source: "DuckDB".into(),
+        compiled_sql: Some(sql.to_string()),
+        suggestion,
+    }
+}
+
+#[cfg(feature = "duckdb")]
 fn execute_duckdb(
     conn: &duckdb::Connection,
     sql: &str,
@@ -494,13 +536,9 @@ fn execute_duckdb(
     let meta_sql = format!("SELECT * FROM ({sql}) AS __rosql_meta LIMIT 0");
     let mut meta = conn
         .prepare(&meta_sql)
-        .map_err(|e| ROSQLError::DriverError {
-            message: format!("query preparation failed: {e}"),
-        })?;
+        .map_err(|e| duckdb_execution_error(e, sql))?;
     // Execute and immediately drop Rows<'_> so the borrow on `meta` is released.
-    let _ = meta.query([]).map_err(|e| ROSQLError::DriverError {
-        message: format!("query metadata failed: {e}"),
-    })?;
+    let _ = meta.query([]).map_err(|e| duckdb_execution_error(e, sql))?;
     let col_count = meta.column_count();
     let columns: Vec<ColumnMeta> = (0..col_count)
         .map(|i| ColumnMeta {
@@ -514,24 +552,20 @@ fn execute_duckdb(
         .collect();
 
     // Execute the real query.
-    let mut stmt = conn.prepare(sql).map_err(|e| ROSQLError::DriverError {
-        message: format!("query preparation failed: {e}"),
-    })?;
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| duckdb_execution_error(e, sql))?;
     let rows_iter = stmt
         .query_map([], |row| {
             Ok((0..col_count)
                 .map(|i| duckdb_value_to_json(row, i))
                 .collect::<Vec<_>>())
         })
-        .map_err(|e| ROSQLError::DriverError {
-            message: format!("query execution failed: {e}"),
-        })?;
+        .map_err(|e| duckdb_execution_error(e, sql))?;
 
     let mut result_rows = Vec::new();
     for row in rows_iter {
-        result_rows.push(row.map_err(|e| ROSQLError::DriverError {
-            message: format!("row error: {e}"),
-        })?);
+        result_rows.push(row.map_err(|e| duckdb_execution_error(e, sql))?);
     }
 
     Ok((columns, result_rows))
@@ -554,6 +588,89 @@ fn duckdb_value_to_json(row: &duckdb::Row<'_>, i: usize) -> serde_json::Value {
         return serde_json::Value::String(v);
     }
     serde_json::Value::Null
+}
+
+// ---------------------------------------------------------------------------
+// Error classification
+// ---------------------------------------------------------------------------
+
+/// Map a raw database error string to a human-readable message and an
+/// actionable suggestion. Never leaks raw driver error text to the user.
+fn classify_db_error(raw: &str) -> (String, Option<String>) {
+    let lower = raw.to_lowercase();
+
+    if lower.contains("relation") && lower.contains("does not exist") {
+        return (
+            "Table not found.".into(),
+            Some(
+                "Verify that telemetry data has been ingested. Run `SHOW TOPICS` or \
+                 `SHOW DEPLOYMENTS` to check available data. See: rosql.org/docs/schema-reference"
+                    .into(),
+            ),
+        );
+    }
+    if lower.contains("column") && lower.contains("does not exist") {
+        return (
+            "Column not found.".into(),
+            Some(
+                "Check your field names against the ROSQL field reference: \
+                 rosql.org/docs/schema-reference"
+                    .into(),
+            ),
+        );
+    }
+    if lower.contains("table") && lower.contains("does not exist") {
+        return (
+            "Table not found.".into(),
+            Some(
+                "Verify that telemetry data has been ingested and the correct schema profile is \
+                 selected (--schema otel-postgres or otel-clickhouse). \
+                 See: rosql.org/docs/schema-reference"
+                    .into(),
+            ),
+        );
+    }
+    if lower.contains("connection refused")
+        || lower.contains("could not connect")
+        || lower.contains("connection timed out")
+    {
+        return (
+            "Cannot reach database.".into(),
+            Some("Verify your connection string and check that the database is running.".into()),
+        );
+    }
+    if lower.contains("authentication failed") || lower.contains("password") {
+        return (
+            "Database authentication failed.".into(),
+            Some(
+                "Check the credentials in your connection string. The URL format is: \
+                 postgresql://user:password@host:port/database"
+                    .into(),
+            ),
+        );
+    }
+    if lower.contains("permission denied") || lower.contains("access denied") {
+        return (
+            "Permission denied.".into(),
+            Some(
+                "The database user lacks SELECT permission on the telemetry tables. \
+                 Grant SELECT on otel_traces, otel_logs, otel_metrics."
+                    .into(),
+            ),
+        );
+    }
+    if lower.contains("syntax error") {
+        return (
+            "SQL syntax error (this is a ROSQL compiler bug — please report it).".into(),
+            Some("Report this at: github.com/RobotOpsInc/rosql/issues".into()),
+        );
+    }
+
+    // Fallback: generic message without leaking raw driver text.
+    (
+        "Query execution failed.".into(),
+        Some("Run with --verbose to see the compiled SQL. Report persistent issues at: github.com/RobotOpsInc/rosql/issues".into()),
+    )
 }
 
 // ---------------------------------------------------------------------------

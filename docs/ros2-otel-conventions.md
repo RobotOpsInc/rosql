@@ -38,13 +38,76 @@ Implementing this correctly requires middleware-level instrumentation — it can
 
 ## Metric naming conventions
 
-| Metric name | Unit | Description |
-|-------------|------|-------------|
-| `ros2.topic.rx_rate_hz` | Hz | Topic receive rate |
-| `ros2.topic.rx_bandwidth_bps` | B/s | Topic bandwidth |
-| `ros2.topic.last_message_age_ms` | ms | Age of last received message |
-| `system.cpu.total_usage_pct` | % | Total CPU usage |
-| `system.memory.usage_pct` | % | Memory usage |
+The robot_agent `MetricsCollector` emits metrics using these canonical names. ROSQL exposes them via shorthand field aliases in the query language.
+
+### System metrics
+
+| Metric name | Unit | Attributes | ROSQL shorthand | Description |
+|-------------|------|-----------|-----------------|-------------|
+| `system.cpu.utilization` | % | `cpu=all` or core index | `cpu_usage` | CPU utilization |
+| `system.memory.usage` | bytes | `state=used\|available` | `memory_bytes` | Memory bytes |
+| `system.memory.utilization` | % | — | `memory_usage` | Memory % |
+| `system.filesystem.usage` | bytes | `mountpoint`, `state=used\|free` | `disk_bytes` | Disk bytes |
+| `system.filesystem.utilization` | % | `mountpoint` | `disk_usage` | Disk % per mountpoint |
+| `system.disk.io` | bytes/s | `device`, `direction=read\|write` | `disk_io` | Disk throughput |
+| `system.disk.operations` | ops/s | `device` | `disk_iops` | Disk IOPS |
+| `system.network.io` | bytes/s | `device`, `direction=sent\|recv` | `network_io` | Network throughput |
+| `system.network.packets` | packets/s | `device` | `network_packets` | Network packet rate |
+| `system.network.latency` | ms | `stat=avg\|min\|max` | `network_latency` | Ping latency |
+| `system.network.jitter` | ms | — | `network_jitter` | Network jitter |
+| `system.network.packet_loss` | % | — | `packet_loss` | Packet loss rate |
+| `system.temperature` | °C | `sensor.id`, `sensor.type` | `temperature` | Sensor temperature |
+| `system.battery.charge` | % | `battery.id` | `battery_charge` | Battery charge level |
+| `system.battery.voltage` | V | `battery.id` | `battery_voltage` | Battery voltage |
+| `system.battery.current` | A | `battery.id` | `battery_current` | Battery current draw |
+| `system.battery.temperature` | °C | `battery.id` | `battery_temperature` | Battery temperature |
+
+### ROS2 runtime metrics
+
+| Metric name | Unit | Attributes | ROSQL shorthand | Description |
+|-------------|------|-----------|-----------------|-------------|
+| `ros2.topic.message_rate` | Hz | `topic.name`, `topic.type` | `publish_rate` | Topic message rate |
+| `ros2.topic.bandwidth` | bytes/s | `topic.name` | `bandwidth` | Topic bandwidth |
+| `ros2.topic.messages_received` | count | `topic.name` | `messages_received` | Total messages received |
+| `ros2.topic.messages_captured` | count | `topic.name` | `messages_captured` | Total messages captured |
+| `ros2.topic.messages_filtered` | count | `topic.name` | `messages_filtered` | Total messages filtered |
+| `ros2.action_servers.count` | count | — | `action_servers_count` | Action servers discovered |
+| `ros2.services.count` | count | — | `services_count` | Services discovered |
+| `ros2.action.queued_goals` | count | `action.name` | `queued_goals` | Per-action queued goals |
+| `ros2.action.active_goals` | count | `action.name` | `active_goals` | Per-action active goals |
+| `ros2.action.completion_rate` | Hz | `action.name` | `completion_rate` | Per-action completion rate |
+
+### Process metrics
+
+| Metric name | Unit | Attributes | ROSQL shorthand | Description |
+|-------------|------|-----------|-----------------|-------------|
+| `process.cpu.utilization` | % | `process.pid`, `process.name` | `process_cpu` | Per-process CPU |
+| `process.memory.usage` | bytes | `process.pid`, `type=rss\|vms` | `process_memory` | Per-process memory |
+
+### Deprecated metric names
+
+These legacy names are emitted by older agent versions. New deployments should use the canonical names above.
+
+| Legacy name | Replaced by |
+|-------------|-------------|
+| `system.cpu.total_usage_pct` | `system.cpu.utilization` |
+| `system.memory.usage_pct` | `system.memory.utilization` |
+| `ros2.topic.rx_rate_hz` | `ros2.topic.message_rate` |
+| `ros2.topic.rx_bandwidth_bps` | `ros2.topic.bandwidth` |
+| `ros2.topic.last_message_age_ms` | _(no longer collected by default)_ |
+
+## Resource attributes
+
+Resource attributes are set at the bridge/SDK level and enable `FOR` clause scoping across all query types.
+
+| Attribute | Type | Example | Used by ROSQL for |
+|-----------|------|---------|-------------------|
+| `robot.id` | string | `robot_42` | `FOR ROBOT` scoping |
+| `service.version` | string | `2.3.1` | `FOR VERSION` scoping |
+| `deployment.environment` | string | `production` | `FOR ENVIRONMENT` scoping |
+| `ros.session.id` | string | `delivery_042` | `FOR SESSION` scoping |
+| `ros.session.type` | string | `delivery` | WHERE filtering |
+| `ros.plan.id` | string | UUID | `PATH DEVIATION` plan correlation |
 
 ## Complete table definitions
 
@@ -138,6 +201,16 @@ CREATE TABLE mcap_metadata (
 );
 ```
 
+The `message_types` column maps topic names to their ROS2 message types:
+
+```json
+{
+  "/camera/image_raw": "sensor_msgs/Image",
+  "/cmd_vel": "geometry_msgs/msg/Twist",
+  "/odom": "nav_msgs/Odometry"
+}
+```
+
 Used by: `FROM recordings`, `FROM recordings WHERE topic = '...'`
 
 #### `robot_joint_map` _(v0.4.3+, optional)_
@@ -151,6 +224,15 @@ CREATE TABLE robot_joint_map (
     robot_ids            TEXT[] NOT NULL DEFAULT '{}',
     joint_map            JSONB NOT NULL DEFAULT '[]'
 );
+```
+
+The `joint_map` column is a JSON array of joint descriptors:
+
+```json
+[
+  { "name": "shoulder_pan", "index": 0, "type": "revolute", "lower_limit": -3.14, "upper_limit": 3.14 },
+  { "name": "shoulder_lift", "index": 1, "type": "revolute", "lower_limit": -1.57, "upper_limit": 1.57 }
+]
 ```
 
 Used by: `SHOW JOINTS`, `JOINT DEVIATION`
@@ -177,14 +259,37 @@ These are the ROSQL field names and what columns they resolve to.
 
 ### From `otel_metrics`
 
-| ROSQL field | Resolved as | Storage unit |
-|-------------|------------|-------------|
-| `metric_name` | `metric_name` | — |
-| `metric_value` | `value` | varies |
-| `publish_rate` | `value` WHERE `metric_name = 'ros2.topic.rx_rate_hz'` | Hz |
-| `bandwidth` | `value` WHERE `metric_name = 'ros2.topic.rx_bandwidth_bps'` | B/s |
-| `cpu_usage` | `value` WHERE `metric_name = 'system.cpu.total_usage_pct'` | % |
-| `memory_usage` | `value` WHERE `metric_name = 'system.memory.usage_pct'` | % |
+| ROSQL field | Metric name | Unit |
+|-------------|-------------|------|
+| `publish_rate` | `ros2.topic.message_rate` | Hz |
+| `bandwidth` | `ros2.topic.bandwidth` | B/s |
+| `messages_received` | `ros2.topic.messages_received` | count |
+| `messages_captured` | `ros2.topic.messages_captured` | count |
+| `messages_filtered` | `ros2.topic.messages_filtered` | count |
+| `action_servers_count` | `ros2.action_servers.count` | count |
+| `services_count` | `ros2.services.count` | count |
+| `queued_goals` | `ros2.action.queued_goals` | count |
+| `active_goals` | `ros2.action.active_goals` | count |
+| `completion_rate` | `ros2.action.completion_rate` | Hz |
+| `cpu_usage` | `system.cpu.utilization` | % |
+| `memory_usage` | `system.memory.utilization` | % |
+| `memory_bytes` | `system.memory.usage` | bytes |
+| `disk_usage` | `system.filesystem.utilization` | % |
+| `disk_bytes` | `system.filesystem.usage` | bytes |
+| `disk_io` | `system.disk.io` | B/s |
+| `disk_iops` | `system.disk.operations` | ops/s |
+| `network_io` | `system.network.io` | B/s |
+| `network_packets` | `system.network.packets` | packets/s |
+| `network_latency` | `system.network.latency` | ms |
+| `network_jitter` | `system.network.jitter` | ms |
+| `packet_loss` | `system.network.packet_loss` | % |
+| `temperature` | `system.temperature` | °C |
+| `battery_charge` | `system.battery.charge` | % |
+| `battery_voltage` | `system.battery.voltage` | V |
+| `battery_current` | `system.battery.current` | A |
+| `battery_temperature` | `system.battery.temperature` | °C |
+| `process_cpu` | `process.cpu.utilization` | % |
+| `process_memory` | `process.memory.usage` | bytes |
 
 ### From `otel_logs`
 
@@ -194,17 +299,26 @@ These are the ROSQL field names and what columns they resolve to.
 | `severity` | `severity_text` |
 | `severity_number` | `severity_number` |
 
-### From `topic_messages` (position data)
+### From `topic_messages` (position and joint data)
 
 ROSQL `WITHIN` and `JOINT DEVIATION` extract values from the `fields` JSONB column using these paths:
 
-| ROSQL path | `fields` JSON path | ROS2 message type |
-|---|---|---|
-| `position.latitude` | `fields->>'position.latitude'` | `sensor_msgs/NavSatFix` |
-| `position.longitude` | `fields->>'position.longitude'` | `sensor_msgs/NavSatFix` |
-| `pose.pose.position.x` | `fields->>'pose.pose.position.x'` | `nav_msgs/Odometry` |
-| `pose.pose.position.y` | `fields->>'pose.pose.position.y'` | `nav_msgs/Odometry` |
-| `position[N]` | `fields->'position'->>N` | `sensor_msgs/JointState` |
+| ROSQL path | `fields` JSON path | ROS2 message type | Notes |
+|---|---|---|---|
+| `position.latitude` | `fields->>'position.latitude'` | `sensor_msgs/NavSatFix` | GPS lat |
+| `position.longitude` | `fields->>'position.longitude'` | `sensor_msgs/NavSatFix` | GPS lon |
+| `gps.lat` | `fields->>'position.latitude'` | `sensor_msgs/NavSatFix` | Alias |
+| `gps.lon` | `fields->>'position.longitude'` | `sensor_msgs/NavSatFix` | Alias |
+| `pose.pose.position.x` | `fields->>'pose.pose.position.x'` | `nav_msgs/Odometry` | Local x |
+| `pose.pose.position.y` | `fields->>'pose.pose.position.y'` | `nav_msgs/Odometry` | Local y |
+| `position.x` | `fields->>'pose.pose.position.x'` | `nav_msgs/Odometry` | Alias |
+| `position.y` | `fields->>'pose.pose.position.y'` | `nav_msgs/Odometry` | Alias |
+| `orientation.yaw` | computed from quaternion | `nav_msgs/Odometry` | Computed via atan2 |
+| `position[N]` | `fields->'position'->>N` | `sensor_msgs/JointState` | Joint position at index N |
+| `velocity[N]` | `fields->'velocity'->>N` | `sensor_msgs/JointState` | Joint velocity at index N |
+| `effort[N]` | `fields->'effort'->>N` | `sensor_msgs/JointState` | Joint effort at index N |
+
+The `orientation.yaw` field is computed as `atan2(2*(qw*qz + qx*qy), 1 - 2*(qy^2 + qz^2))` from the quaternion components in `nav_msgs/Odometry`.
 
 ## Schema profiles
 

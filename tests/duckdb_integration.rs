@@ -90,16 +90,6 @@ async fn query_trace_recursive_cte() {
 }
 
 #[tokio::test]
-async fn query_health() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "HEALTH()").await;
-    assert_eq!(
-        result.metadata.row_count, 3,
-        "expected 3 signal types (traces, logs, metrics)"
-    );
-}
-
-#[tokio::test]
 async fn query_trace() {
     let (_tmp, url) = setup_fixture_db();
     let result = execute_query(&url, "TRACE 'trace-002'").await;
@@ -112,7 +102,8 @@ async fn query_trace() {
 #[tokio::test]
 async fn query_show_recording() {
     let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "SHOW RECORDING").await;
+    // SHOW RECORDING is deprecated — use FROM recordings instead
+    let result = execute_query(&url, "FROM recordings LIMIT 5").await;
     assert_eq!(
         result.metadata.row_count, 1,
         "expected 1 recording from fixtures"
@@ -191,7 +182,7 @@ async fn capability_error_no_recordings() {
     .await
     .expect("failed to connect");
 
-    let ast = rosql::parse("SHOW RECORDING").unwrap();
+    let ast = rosql::parse("FROM recordings LIMIT 5").unwrap();
     let opts = ExecOptions::default();
     let err = backend.execute(&ast, &opts).await.unwrap_err();
     assert!(
@@ -259,4 +250,124 @@ async fn query_timeseries_with_facet() {
     .await;
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(col_names.contains(&"time_bucket"), "got: {col_names:?}");
+}
+
+// ── Health dashboard composable query integration tests ──────────────────────
+// These five tests cover the shapes that replaced HEALTH() per issue #61.
+
+/// Shape 1: Node liveness — already covered by query_show_nodes above.
+
+/// Shape 2: Error rate with FACET
+#[tokio::test]
+async fn query_error_rate_facet() {
+    let (_tmp, url) = setup_fixture_db();
+    // FACET service_name: service_name is a real column on otel_traces.
+    let result = execute_query(
+        &url,
+        "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET service_name SINCE 30 days ago",
+    )
+    .await;
+    assert!(
+        result.metadata.row_count > 0,
+        "expected error counts per service"
+    );
+    let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+    assert!(col_names.contains(&"service_name"), "got: {col_names:?}");
+    // DuckDB names COUNT(*) as "count_star()" internally; we just verify there are 2 columns.
+    assert_eq!(
+        col_names.len(),
+        2,
+        "expected service_name + count column, got: {col_names:?}"
+    );
+}
+
+/// Shape 3: Action success/failure via ACTION_SUCCESS_RATE
+#[tokio::test]
+async fn query_action_success_rate() {
+    let (_tmp, url) = setup_fixture_db();
+    let result = execute_query(
+        &url,
+        "SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces SINCE 30 days ago",
+    )
+    .await;
+    // ACTION_SUCCESS_RATE with arg compiles as a scalar subquery — returns one row per outer row.
+    // Verify it executes without error and returns a non-null numeric value.
+    assert!(
+        result.metadata.row_count > 0,
+        "ACTION_SUCCESS_RATE should return rows"
+    );
+    if let Some(row) = result.rows.first() {
+        if let Some(v) = row.first() {
+            assert!(!v.is_null(), "expected a numeric success rate, got null");
+        }
+    }
+}
+
+/// Shape 4: Resource utilization
+#[tokio::test]
+async fn query_resource_utilization() {
+    let (_tmp, url) = setup_fixture_db();
+    let result = execute_query(
+        &url,
+        "SELECT AVG(metric_value) FROM metrics WHERE metric_name = 'system.cpu.total_usage_pct' SINCE 30 days ago",
+    )
+    .await;
+    assert_eq!(result.metadata.row_count, 1, "AVG should return 1 row");
+    if let Some(row) = result.rows.first() {
+        if let Some(serde_json::Value::Number(n)) = row.first() {
+            let avg = n.as_f64().unwrap();
+            assert!(avg > 0.0, "expected non-zero average CPU usage, got {avg}");
+        }
+    }
+}
+
+/// Shape 5: Log severity distribution
+#[tokio::test]
+async fn query_log_severity_facet() {
+    let (_tmp, url) = setup_fixture_db();
+    let result = execute_query(
+        &url,
+        "SELECT COUNT(*) FROM logs FACET severity SINCE 30 days ago",
+    )
+    .await;
+    assert!(
+        result.metadata.row_count > 0,
+        "expected severity counts from fixture logs"
+    );
+    let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+    // `severity` maps to the `severity_text` column in otel_logs.
+    assert!(
+        col_names.contains(&"severity_text"),
+        "expected severity_text column, got: {col_names:?}"
+    );
+    assert_eq!(
+        col_names.len(),
+        2,
+        "expected severity_text + count column, got: {col_names:?}"
+    );
+}
+
+/// TOPIC_RATE — publishes rate from otel_metrics
+#[tokio::test]
+async fn query_topic_rate() {
+    let (_tmp, url) = setup_fixture_db();
+    let result = execute_query(
+        &url,
+        "SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 days ago",
+    )
+    .await;
+    // TOPIC_RATE compiles as a scalar subquery — returns one row per outer metric row.
+    // Verify it executes without error and returns a non-null numeric value.
+    assert!(
+        result.metadata.row_count > 0,
+        "TOPIC_RATE should return rows"
+    );
+    if let Some(row) = result.rows.first() {
+        if let Some(v) = row.first() {
+            assert!(
+                !v.is_null(),
+                "expected a non-null topic rate for /cmd_vel, got null"
+            );
+        }
+    }
 }

@@ -7,6 +7,7 @@
 pub mod compiler;
 pub mod dialect;
 pub mod field_registry;
+pub mod format_inference;
 pub mod otel_registry;
 
 #[cfg(any(feature = "postgres", feature = "mysql", feature = "duckdb"))]
@@ -17,6 +18,8 @@ use crate::error::ROSQLError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub use crate::ast::FormatHint;
+pub use compiler::CompilerWarning;
 pub use field_registry::{FieldDef, FieldRegistry};
 
 // ---------------------------------------------------------------------------
@@ -93,6 +96,21 @@ pub struct ColumnMeta {
     pub unit: Option<String>,
 }
 
+/// Visualization configuration hints for the frontend rendering layer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VisualizationConfig {
+    /// The field to use on the x-axis (e.g. `"time_bucket"` for timeseries).
+    pub x_axis: Option<String>,
+    /// The field to use on the y-axis (e.g. the primary aggregated metric).
+    pub y_axis: Option<String>,
+    /// The field to split series by (e.g. `"robot_id"` from FACET).
+    pub series_key: Option<String>,
+    /// The field to drive color encoding (e.g. `"severity"`, `"is_anomalous"`).
+    pub color_field: Option<String>,
+    /// The field to use as a display label (e.g. the aliased scalar column).
+    pub label_field: Option<String>,
+}
+
 /// Metadata about the query execution.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResultMetadata {
@@ -106,6 +124,12 @@ pub struct ResultMetadata {
     pub default_limit_applied: bool,
     /// Per-enrichment metadata (populated when ENRICH WITH is used).
     pub enrichment_metadata: Vec<EnrichmentMeta>,
+    /// Inferred presentation-layer format hint for frontend rendering.
+    pub format_hint: FormatHint,
+    /// Visualization configuration (axes, series key, color field, etc.).
+    pub visualization: Option<VisualizationConfig>,
+    /// Non-fatal compiler warnings (e.g. ANOMALY without FACET).
+    pub warnings: Vec<CompilerWarning>,
 }
 
 /// Metadata for one ENRICH WITH source in a result.
