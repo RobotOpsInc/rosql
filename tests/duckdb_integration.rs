@@ -55,7 +55,6 @@ async fn execute_query(url: &str, query: &str) -> rosql::ROSQLResult {
     backend.execute(&ast, &opts).await.expect("query failed")
 }
 
-
 // ---------------------------------------------------------------------------
 // Query tests
 // ---------------------------------------------------------------------------
@@ -89,7 +88,6 @@ async fn query_trace_recursive_cte() {
         "expected 4 spans in trace tree"
     );
 }
-
 
 #[tokio::test]
 async fn query_trace() {
@@ -276,7 +274,11 @@ async fn query_error_rate_facet() {
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(col_names.contains(&"service_name"), "got: {col_names:?}");
     // DuckDB names COUNT(*) as "count_star()" internally; we just verify there are 2 columns.
-    assert_eq!(col_names.len(), 2, "expected service_name + count column, got: {col_names:?}");
+    assert_eq!(
+        col_names.len(),
+        2,
+        "expected service_name + count column, got: {col_names:?}"
+    );
 }
 
 /// Shape 3: Action success/failure via ACTION_SUCCESS_RATE
@@ -338,7 +340,11 @@ async fn query_log_severity_facet() {
         col_names.contains(&"severity_text"),
         "expected severity_text column, got: {col_names:?}"
     );
-    assert_eq!(col_names.len(), 2, "expected severity_text + count column, got: {col_names:?}");
+    assert_eq!(
+        col_names.len(),
+        2,
+        "expected severity_text + count column, got: {col_names:?}"
+    );
 }
 
 /// TOPIC_RATE — publishes rate from otel_metrics

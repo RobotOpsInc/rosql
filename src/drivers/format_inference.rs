@@ -145,7 +145,10 @@ fn infer_standard(sq: &crate::ast::ROSQLQuery) -> (FormatHint, Option<Visualizat
 }
 
 fn infer_pipeline(pq: &crate::ast::PipelineQuery) -> (FormatHint, Option<VisualizationConfig>) {
-    let has_timeseries = pq.stages.iter().any(|s| matches!(s, PipelineStage::Timeseries(_)));
+    let has_timeseries = pq
+        .stages
+        .iter()
+        .any(|s| matches!(s, PipelineStage::Timeseries(_)));
     let facet_stage = pq.stages.iter().find_map(|s| {
         if let PipelineStage::Facet(f) = s {
             Some(f)
@@ -391,7 +394,10 @@ mod tests {
 
     #[test]
     fn message_flow_is_directed_graph() {
-        assert_eq!(hint("MESSAGE FLOW FROM TOPIC '/cmd_vel'"), FormatHint::DirectedGraph);
+        assert_eq!(
+            hint("MESSAGE FLOW FROM TOPIC '/cmd_vel'"),
+            FormatHint::DirectedGraph
+        );
     }
 
     #[test]
@@ -401,7 +407,10 @@ mod tests {
 
     #[test]
     fn show_span_summary_is_horizontal_bars() {
-        assert_eq!(hint("SHOW SPAN SUMMARY SINCE 1 hour ago"), FormatHint::HorizontalBars);
+        assert_eq!(
+            hint("SHOW SPAN SUMMARY SINCE 1 hour ago"),
+            FormatHint::HorizontalBars
+        );
     }
 
     #[test]
@@ -424,7 +433,10 @@ mod tests {
 
     #[test]
     fn from_logs_is_log_table() {
-        assert_eq!(hint("FROM logs WHERE severity = 'ERROR'"), FormatHint::LogTable);
+        assert_eq!(
+            hint("FROM logs WHERE severity = 'ERROR'"),
+            FormatHint::LogTable
+        );
     }
 
     #[test]

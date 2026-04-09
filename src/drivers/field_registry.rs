@@ -213,7 +213,9 @@ mod tests {
             metric_filter: None,
         });
         // Unknown table falls back to the one entry.
-        let def = reg.resolve_for_table("duration", "some_other_table").unwrap();
+        let def = reg
+            .resolve_for_table("duration", "some_other_table")
+            .unwrap();
         assert_eq!(def.column, "Duration");
     }
 }

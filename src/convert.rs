@@ -435,17 +435,17 @@ fn output_format_to_proto(f: ast::OutputFormat) -> pb::OutputFormat {
 /// code-generated (we use the raw integer constants here).
 pub fn format_hint_to_proto_int(hint: ast::FormatHint) -> i32 {
     match hint {
-        ast::FormatHint::Table => 0,
-        ast::FormatHint::LineChart => 1,
-        ast::FormatHint::StackedLineChart => 2,
-        ast::FormatHint::BarChart => 3,
-        ast::FormatHint::HorizontalBars => 4,
-        ast::FormatHint::Gantt => 5,
-        ast::FormatHint::DirectedGraph => 6,
-        ast::FormatHint::NodeGraph => 7,
-        ast::FormatHint::ScalarCards => 8,
-        ast::FormatHint::LogTable => 9,
-        ast::FormatHint::RecordingList => 10,
+        ast::FormatHint::Table => 1,
+        ast::FormatHint::LineChart => 2,
+        ast::FormatHint::StackedLineChart => 3,
+        ast::FormatHint::BarChart => 4,
+        ast::FormatHint::HorizontalBars => 5,
+        ast::FormatHint::Gantt => 6,
+        ast::FormatHint::DirectedGraph => 7,
+        ast::FormatHint::NodeGraph => 8,
+        ast::FormatHint::ScalarCards => 9,
+        ast::FormatHint::LogTable => 10,
+        ast::FormatHint::RecordingList => 11,
     }
 }
 
