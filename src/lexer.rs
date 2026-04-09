@@ -102,6 +102,18 @@ pub enum Token<'src> {
     Compared,
     #[token("ROBOTS", ignore(ascii_case))]
     Robots,
+    #[token("JOINT", ignore(ascii_case))]
+    Joint,
+    #[token("JOINTS", ignore(ascii_case))]
+    Joints,
+    #[token("WITHIN", ignore(ascii_case))]
+    Within,
+    #[token("OF", ignore(ascii_case))]
+    Of,
+    #[token("POSITION", ignore(ascii_case))]
+    Position,
+    #[token("PLAN", ignore(ascii_case))]
+    Plan,
 
     // ── Time-related keywords ───────────────────────────────────────
     #[token("AGO", ignore(ascii_case))]

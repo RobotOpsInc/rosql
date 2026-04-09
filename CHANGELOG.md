@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-04-09
+
+### Added
+
+- **PATH DEVIATION** redesign (replaces reserved stub) — `PATH DEVIATION FOR TRACE 'id'` or `FOR ROBOT 'id' SINCE ...`
+  - Optional `PLAN N` selects nth plan (0 = first, -1 = latest, default = -1)
+  - Compiles to a three-CTE SQL query: `planned_path` + `actual_poses` + `deviations` with lateral deviation in metres
+  - Returns per-waypoint `lateral_deviation_m` plus summary stats (`max_deviation_m`, `avg_deviation_m`, path lengths)
+  - Requires `topic_messages` table with `/plan` and `/odom` data
+- **JOINT DEVIATION** (new) — `JOINT DEVIATION FOR TRACE 'id'` or `FOR ROBOT 'id' SINCE ...`
+  - Compares planned joint trajectory (`/joint_trajectory`) to actual joint states (`/joint_states`)
+  - Compiles to a two-CTE SQL query; returns per-joint `position_error_rad` and summary statistics
+- **ANOMALY redesign** (replaces reserved stub) — `ANOMALY(<field>) COMPARED TO <baseline> [FACET <field>] [SINCE ...]`
+  - `COMPARED TO` is now required (parse error if absent, with suggestion)
+  - Optional `FROM <source>` scopes the data source
+  - Supported baselines: `last week`, `last 24 hours`, `fleet`
+  - Compiles to a two-CTE SQL query: `current_stats` + `baseline_stats`; returns `z_score`, `is_anomalous` (|z| > 2), `direction`
+  - Emits a compiler warning if `FACET` is absent
+- **WITHIN geospatial operator** — `WHERE <field> WITHIN <radius> OF (<lat>, <lon>)` or `OF POSITION (<x>, <y>)`
+  - GPS form uses inline Haversine SQL (great-circle distance)
+  - Local frame form uses Euclidean `SQRT(POWER(...))` distance
+  - Field path conventions: `position.latitude/longitude` (GPS), `pose.pose.position.x/y` (local)
+- **SHOW JOINTS** — `SHOW JOINTS FOR ROBOT 'id'`
+  - Returns URDF-derived joint map from `robot_joint_map` table: `joint_name`, `joint_index`, `joint_type`, `lower_limit`, `upper_limit`
+- **Array-indexed field access** — `fields['position[0]']` compiles to `"fields"->'position'->>0` (PostgreSQL/DuckDB) or `JSON_EXTRACT(fields, '$.position[0]')` (MySQL)
+- **`Baseline::Last24Hours`** — `COMPARED TO last 24 hours` baseline for `ANOMALY()`
+- **`DeviationTarget` enum** — `Trace(String)` | `Robot(String)` for scoping `PATH DEVIATION` and `JOINT DEVIATION`
+- **`robot_joint_map` table** — new optional schema table for URDF joint metadata (see schema reference)
+- **`mcap_metadata.message_types`** column — `JSONB` map of topic → message_type (added to DDL fixture)
+- **Completions**: `JOINT DEVIATION`, `SHOW JOINTS`, `WITHIN`, `COMPARED TO`, `last 24 hours` added to autocomplete
+
+### Changed
+
+- `CompileResult` now carries `warnings: Vec<String>` (non-breaking; empty for queries without ANOMALY without FACET)
+- `PATH DEVIATION` syntax changed: `FOR TRACE 'id'` or `FOR ROBOT 'id'` now required (was optional bare clause)
+- `ANOMALY()` syntax changed: `COMPARED TO <baseline>` now required (was optional)
+- Docs (command-reference, cookbook, schema-reference, ros2-otel-conventions) updated in both `website/docs/` and `website/versioned_docs/version-0.4/`
+- `SHOW RECORDING` error message updated to suggest `FROM recordings WHERE topic = '...'`
+
+### Notes
+
+- `ros.plan.id` span attribute is needed for full `PATH DEVIATION` correlation — cross-repo ticket required for `rmw_robotops`
+
 ## [0.4.2] - 2026-04-09
 
 ### Added

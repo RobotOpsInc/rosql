@@ -6,18 +6,17 @@ Compound:
   clause:
     Anomaly:
       field: duration
-      compared_to: Fleet
+      compared_to: Last24Hours
       data_source: ~
   scope: ~
   time_range:
     Since:
       Relative:
-        amount: 24
-        unit: hours
+        amount: 1
+        unit: hour
   time_basis: ~
   conditions: ~
-  facet:
-    dimension: robot_id
+  facet: ~
   order_by: ~
   limit: ~
   offset: ~

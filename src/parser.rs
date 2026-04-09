@@ -176,6 +176,9 @@ impl<'src> Parser<'src> {
             Some(Token::Path) if matches!(self.peek_second(), Some(Token::Deviation)) => {
                 self.parse_compound_query()
             }
+            Some(Token::Joint) if matches!(self.peek_second(), Some(Token::Deviation)) => {
+                self.parse_compound_query()
+            }
             Some(Token::Correlate) => self.parse_compound_query(),
             Some(Token::Show) => self.parse_compound_query(),
             Some(Token::During) => self.parse_compound_query(),
@@ -548,6 +551,7 @@ impl<'src> Parser<'src> {
             Some(Token::Health) => self.parse_health_clause(),
             Some(Token::Anomaly) => self.parse_anomaly_clause(),
             Some(Token::Path) => self.parse_path_deviation_clause(),
+            Some(Token::Joint) => self.parse_joint_deviation_clause(),
             Some(Token::Correlate) => self.parse_correlate_clause(),
             Some(Token::Show) => self.parse_show_clause(),
             Some(Token::During) => self.parse_during_clause(),
@@ -646,26 +650,105 @@ impl<'src> Parser<'src> {
         self.expect(&Token::LParen)?;
         let field = self.parse_identifier_string()?;
         self.expect(&Token::RParen)?;
-        let compared_to = if matches!(self.peek(), Some(Token::Compared)) {
-            self.advance(); // COMPARED
-            self.expect(&Token::To)?;
-            Some(self.parse_baseline_value()?)
+
+        // Optional FROM <source>
+        let data_source = if matches!(self.peek(), Some(Token::From)) {
+            self.advance();
+            Some(self.parse_data_source()?)
         } else {
             None
         };
-        Ok(CompoundClause::Anomaly { field, compared_to })
+
+        // COMPARED TO is now required
+        if !matches!(self.peek(), Some(Token::Compared)) {
+            return Err(ROSQLError::ParseError {
+                message: "ANOMALY() requires COMPARED TO <baseline>".into(),
+                location: self.current_location(),
+                suggestion: Some(
+                    "add COMPARED TO <baseline>, e.g. COMPARED TO last week, COMPARED TO fleet, COMPARED TO last 24 hours".into(),
+                ),
+            });
+        }
+        self.advance(); // consume COMPARED
+        self.expect(&Token::To)?;
+        let compared_to = self.parse_baseline_value()?;
+
+        Ok(CompoundClause::Anomaly {
+            field,
+            compared_to,
+            data_source,
+        })
     }
 
     fn parse_path_deviation_clause(&mut self) -> Result<CompoundClause, ROSQLError> {
         self.advance(); // consume PATH
         self.expect(&Token::Deviation)?;
-        let show = if matches!(self.peek(), Some(Token::Show)) {
-            self.advance();
-            Some(self.parse_identifier_list()?)
+
+        // Optional PLAN <integer> (e.g. PLAN 0 or PLAN -1)
+        let plan_index = if matches!(self.peek(), Some(Token::Plan)) {
+            self.advance(); // consume PLAN
+            let neg = if matches!(self.peek(), Some(Token::Minus)) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+            match self.peek() {
+                Some(Token::Integer(s)) => {
+                    let n: i64 = s
+                        .parse()
+                        .map_err(|_| self.error("expected integer after PLAN".into()))?;
+                    self.advance();
+                    Some(if neg { -n } else { n })
+                }
+                _ => return Err(self.error("expected integer after PLAN in PATH DEVIATION".into())),
+            }
         } else {
             None
         };
-        Ok(CompoundClause::PathDeviation { show })
+
+        // Required FOR TRACE 'id' or FOR ROBOT 'id'
+        self.expect(&Token::For)?;
+        let target = match self.peek() {
+            Some(Token::Trace) => {
+                self.advance();
+                DeviationTarget::Trace(self.parse_string_literal()?)
+            }
+            Some(Token::Robot) => {
+                self.advance();
+                DeviationTarget::Robot(self.parse_string_literal()?)
+            }
+            _ => {
+                return Err(self.error("expected TRACE or ROBOT after FOR in PATH DEVIATION".into()))
+            }
+        };
+
+        Ok(CompoundClause::PathDeviation { target, plan_index })
+    }
+
+    fn parse_joint_deviation_clause(&mut self) -> Result<CompoundClause, ROSQLError> {
+        self.advance(); // consume JOINT
+        self.expect(&Token::Deviation)?;
+
+        // Required FOR TRACE 'id' or FOR ROBOT 'id'
+        self.expect(&Token::For)?;
+        let target = match self.peek() {
+            Some(Token::Trace) => {
+                self.advance();
+                DeviationTarget::Trace(self.parse_string_literal()?)
+            }
+            Some(Token::Robot) => {
+                self.advance();
+                DeviationTarget::Robot(self.parse_string_literal()?)
+            }
+            _ => {
+                return Err(
+                    self.error("expected TRACE or ROBOT after FOR in JOINT DEVIATION".into())
+                )
+            }
+        };
+
+        Ok(CompoundClause::JointDeviation { target })
     }
 
     fn parse_correlate_clause(&mut self) -> Result<CompoundClause, ROSQLError> {
@@ -735,8 +818,12 @@ impl<'src> Parser<'src> {
                     _ => Err(self.error("expected GRAPH after SHOW NODE".into())),
                 }
             }
+            Some(Token::Joints) => {
+                self.advance();
+                Ok(CompoundClause::ShowJoints)
+            }
             _ => Err(self.error(
-                "expected RECORDING, TRACE_BREAKDOWN, DEPLOYMENTS, SPAN SUMMARY, PLANS, TOPICS, NODES, or NODE GRAPH after SHOW"
+                "expected RECORDING, TRACE_BREAKDOWN, DEPLOYMENTS, SPAN SUMMARY, PLANS, TOPICS, NODES, NODE GRAPH, or JOINTS after SHOW"
                     .into(),
             )),
         }
@@ -1110,6 +1197,45 @@ impl<'src> Parser<'src> {
                 expr: left,
                 low: Box::new(low),
                 high: Box::new(high),
+            });
+        }
+
+        // WITHIN <radius> OF [POSITION] (<x>, <y>)
+        if matches!(self.peek(), Some(Token::Within)) {
+            self.advance(); // consume WITHIN
+                            // Parse the radius as a unit value expression, e.g. "500 m" or "2 m"
+            let radius_expr = self.parse_primary_expr()?;
+            let radius = match radius_expr {
+                Expr::UnitValue(uv) => uv,
+                _ => {
+                    return Err(
+                        self.error("expected a unit value after WITHIN (e.g. 500 m, 2 m)".into())
+                    )
+                }
+            };
+            self.expect(&Token::Of)?;
+            let center = if matches!(self.peek(), Some(Token::Position)) {
+                // Local frame: WITHIN N m OF POSITION (x, y)
+                self.advance(); // consume POSITION
+                self.expect(&Token::LParen)?;
+                let x = self.parse_float_or_int()?;
+                self.expect(&Token::Comma)?;
+                let y = self.parse_float_or_int()?;
+                self.expect(&Token::RParen)?;
+                GeospatialCenter::Local(x, y)
+            } else {
+                // GPS: WITHIN N m OF (lat, lon)
+                self.expect(&Token::LParen)?;
+                let lat = self.parse_float_or_int()?;
+                self.expect(&Token::Comma)?;
+                let lon = self.parse_float_or_int()?;
+                self.expect(&Token::RParen)?;
+                GeospatialCenter::Gps(lat, lon)
+            };
+            return Ok(Condition::Within {
+                field: left,
+                radius,
+                center,
             });
         }
 
@@ -1610,7 +1736,22 @@ impl<'src> Parser<'src> {
                         self.advance();
                         Ok(Baseline::LastDeployment)
                     }
-                    _ => Err(self.error("expected WEEK or DEPLOYMENT after LAST".into())),
+                    Some(Token::Integer(s)) if *s == "24" => {
+                        self.advance(); // consume 24
+                                        // Expect the identifier "hours" (case-insensitive)
+                        match self.peek() {
+                            Some(Token::Identifier(u)) if u.eq_ignore_ascii_case("hours") => {
+                                self.advance();
+                                Ok(Baseline::Last24Hours)
+                            }
+                            _ => Err(self.error(
+                                "expected 'hours' after LAST 24 (e.g. LAST 24 HOURS)".into(),
+                            )),
+                        }
+                    }
+                    _ => {
+                        Err(self.error("expected WEEK, DEPLOYMENT, or 24 HOURS after LAST".into()))
+                    }
                 }
             }
             Some(Token::Fleet) => {
@@ -1639,6 +1780,35 @@ impl<'src> Parser<'src> {
     }
 
     // ── Identifier helpers ──────────────────────────────────────────
+
+    /// Parse a floating-point or integer literal as an `f64`. Handles optional
+    /// leading minus sign (for negative coordinates, e.g. `-122.4194`).
+    fn parse_float_or_int(&mut self) -> Result<f64, ROSQLError> {
+        let neg = if matches!(self.peek(), Some(Token::Minus)) {
+            self.advance();
+            true
+        } else {
+            false
+        };
+        let v = match self.peek() {
+            Some(Token::Float(s)) => {
+                let val: f64 = s
+                    .parse()
+                    .map_err(|_| self.error("invalid float literal".into()))?;
+                self.advance();
+                val
+            }
+            Some(Token::Integer(s)) => {
+                let val: f64 = s
+                    .parse()
+                    .map_err(|_| self.error("invalid integer literal".into()))?;
+                self.advance();
+                val
+            }
+            _ => return Err(self.error("expected a numeric literal".into())),
+        };
+        Ok(if neg { -v } else { v })
+    }
 
     fn parse_string_literal(&mut self) -> Result<String, ROSQLError> {
         match self.peek() {
@@ -1674,7 +1844,13 @@ impl<'src> Parser<'src> {
                     | Token::Restart
                     | Token::Failure
                     | Token::Diagnostic
-                    | Token::Deviation,
+                    | Token::Deviation
+                    // New tokens that may appear as field names
+                    | Token::Position
+                    | Token::Joint
+                    | Token::Joints
+                    | Token::Plan
+                    | Token::Of,
                 ) => Some(self.source[span.clone()].to_string()),
                 _ => None,
             }
@@ -1744,6 +1920,7 @@ impl<'src> Parser<'src> {
         Ok(result)
     }
 
+    #[allow(dead_code)]
     fn parse_identifier_list(&mut self) -> Result<Vec<String>, ROSQLError> {
         let mut ids = vec![self.parse_dotted_identifier()?];
         while matches!(self.peek(), Some(Token::Comma)) {
@@ -2517,9 +2694,11 @@ mod tests {
         match q {
             Query::Compound(cq) => {
                 match &cq.clause {
-                    CompoundClause::Anomaly { field, compared_to } => {
+                    CompoundClause::Anomaly {
+                        field, compared_to, ..
+                    } => {
                         assert_eq!(field, "duration");
-                        assert_eq!(*compared_to, Some(Baseline::Fleet));
+                        assert_eq!(*compared_to, Baseline::Fleet);
                     }
                     _ => panic!("expected Anomaly"),
                 }
@@ -2532,13 +2711,15 @@ mod tests {
 
     #[test]
     fn path_deviation() {
-        let q = parse_ok("PATH DEVIATION FOR ROBOT 'robot_42' SINCE yesterday");
+        let q = parse_ok("PATH DEVIATION FOR TRACE 'trace-002'");
         match q {
-            Query::Compound(cq) => {
-                assert!(matches!(cq.clause, CompoundClause::PathDeviation { .. }));
-                let scope = cq.scope.unwrap();
-                assert_eq!(scope.robot, Some(RobotScope::Single("robot_42".into())));
-            }
+            Query::Compound(cq) => match &cq.clause {
+                CompoundClause::PathDeviation { target, plan_index } => {
+                    assert_eq!(*target, DeviationTarget::Trace("trace-002".into()));
+                    assert_eq!(*plan_index, None);
+                }
+                _ => panic!("expected PathDeviation"),
+            },
             _ => panic!("expected Compound"),
         }
     }

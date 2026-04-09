@@ -1,0 +1,39 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source:
+    TopicAlias: JointStates
+  scope:
+    robot:
+      Single: arm_01
+    version: ~
+    environment: ~
+    session: ~
+  conditions:
+    Comparison:
+      left:
+        FieldAccess:
+          base: fields
+          key: "position[0]"
+      op: Gt
+      right:
+        Literal:
+          Float: 1.5
+  facet: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~
+  timeseries: ~
+  enrichments: []

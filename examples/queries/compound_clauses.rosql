@@ -30,21 +30,34 @@ MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/controller_server'
 HEALTH() FOR ROBOT 'robot_sim_001'
 
 -- ============================================================================
--- PATH DEVIATION — did the robot deviate from its planned path?
--- Queries /odom trajectory data from topic_messages.
+-- PATH DEVIATION — did the robot deviate from its planned path? (v0.4.3+)
+-- Redesigned: FOR TRACE 'id' or FOR ROBOT 'id' required.
+-- Optional PLAN N selects nth plan (0=first, -1=latest, default=-1).
 -- ============================================================================
-PATH DEVIATION FOR ROBOT 'robot_sim_001'
+PATH DEVIATION FOR TRACE 'trace-002'
+PATH DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+PATH DEVIATION PLAN 0 FOR ROBOT 'robot_sim_001' SINCE 6 hours ago
 
 -- ============================================================================
--- SHOW RECORDING — find the MCAP recording that covers the failure window
+-- JOINT DEVIATION — compare planned vs actual joint trajectory (v0.4.3+)
+-- Computes per-joint position error in radians.
+-- ============================================================================
+JOINT DEVIATION FOR TRACE 'trace-002'
+JOINT DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+
+-- ============================================================================
+-- SHOW RECORDING — DEPRECATED. Use FROM recordings instead.
 -- ============================================================================
 SHOW RECORDING
 
 -- ============================================================================
--- ANOMALY — detect statistical anomalies in span duration
--- Uses z-score (AVG/STDDEV) to find outlier spans.
+-- ANOMALY — statistical anomaly detection via two-phase z-score CTE (v0.4.3+)
+-- COMPARED TO is now required. FACET is strongly recommended.
+-- Supported baselines: LAST WEEK, LAST 24 HOURS, FLEET.
 -- ============================================================================
-ANOMALY(duration)
+ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago
+ANOMALY(duration) COMPARED TO fleet SINCE 1 hour ago FACET robot_id
+ANOMALY(duration) FROM traces COMPARED TO last 24 hours FACET robot_id SINCE 12 hours ago
 
 -- ============================================================================
 -- SHOW DEPLOYMENTS — deployment history (version × environment)
@@ -79,3 +92,9 @@ SHOW NODES FOR ROBOT 'robot_sim_001' SINCE 30 minutes ago
 -- Returns (source_node, topic, target_node) rows for building a network graph.
 -- ============================================================================
 SHOW NODE GRAPH FOR ROBOT 'robot_sim_001' SINCE 30 minutes ago
+
+-- ============================================================================
+-- SHOW JOINTS — robot joint map from URDF mapping (v0.4.3+)
+-- Returns joint_name, index, type, lower/upper limits per robot model.
+-- ============================================================================
+SHOW JOINTS FOR ROBOT 'robot_sim_001'

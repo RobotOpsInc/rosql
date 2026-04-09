@@ -4,20 +4,19 @@ expression: ast
 ---
 Compound:
   clause:
-    Anomaly:
-      field: duration
-      compared_to: Fleet
-      data_source: ~
+    PathDeviation:
+      target:
+        Robot: r1
+      plan_index: ~
   scope: ~
   time_range:
     Since:
       Relative:
-        amount: 24
-        unit: hours
+        amount: 1
+        unit: hour
   time_basis: ~
   conditions: ~
-  facet:
-    dimension: robot_id
+  facet: ~
   order_by: ~
   limit: ~
   offset: ~

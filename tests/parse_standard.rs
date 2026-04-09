@@ -168,3 +168,31 @@ fn snapshot_enrich_multiple() {
     let ast = parse("SELECT * FROM traces WHERE status = 'ERROR' ENRICH WITH logs ENRICH WITH recordings SINCE 1 hour ago").unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
+
+// ── Geospatial WITHIN ────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_within_gps() {
+    let ast =
+        parse("FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago")
+            .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_within_local() {
+    let ast = parse("FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago")
+        .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+// ── Array-indexed field access ───────────────────────────────────────────────
+
+#[test]
+fn snapshot_field_access_array_index() {
+    let ast = parse(
+        "FROM joint_states WHERE fields['position[0]'] > 1.5 FOR ROBOT 'arm_01' SINCE 1 hour ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}

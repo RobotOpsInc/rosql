@@ -216,20 +216,123 @@ fn health_gated() {
 }
 
 #[test]
-fn anomaly_gated() {
-    let err = compile_err("ANOMALY(duration)", SqlDialect::DuckDB);
-    assert!(
-        matches!(&err, ROSQLError::NotImplemented { feature, .. } if feature == "ANOMALY()"),
-        "got: {err:?}"
+fn anomaly_compiles_two_cte() {
+    // ANOMALY now compiles to a two-phase CTE with z-score output.
+    let sql = compile_sql(
+        "ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago",
+        SqlDialect::DuckDB,
     );
+    assert!(sql.contains("current_stats"), "got: {sql}");
+    assert!(sql.contains("baseline_stats"), "got: {sql}");
+    assert!(sql.contains("z_score"), "got: {sql}");
+    assert!(sql.contains("is_anomalous"), "got: {sql}");
+    assert!(sql.contains("direction"), "got: {sql}");
 }
 
 #[test]
-fn path_deviation_gated() {
-    let err = compile_err("PATH DEVIATION", SqlDialect::DuckDB);
+fn anomaly_last_24h_baseline() {
+    let sql = compile_sql(
+        "ANOMALY(duration) COMPARED TO last 24 hours FACET robot_id SINCE 12 hours ago",
+        SqlDialect::PostgreSQL,
+    );
+    // Should reference a 48-hour and 24-hour window for the baseline
+    assert!(sql.contains("48"), "expected 48-hour window: {sql}");
+    assert!(sql.contains("24"), "expected 24-hour window: {sql}");
+    assert!(sql.contains("baseline_stats"), "got: {sql}");
+}
+
+#[test]
+fn anomaly_missing_compared_to_is_parse_error() {
+    // ANOMALY without COMPARED TO is now a parse error (not NotImplemented).
+    let result = rosql::parse("ANOMALY(duration)");
+    assert!(result.is_err(), "expected parse error");
+}
+
+#[test]
+fn path_deviation_compiles() {
+    // PATH DEVIATION now compiles to a two-CTE SQL query.
+    let sql = compile_sql(
+        "PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("planned_path"), "got: {sql}");
+    assert!(sql.contains("actual_poses"), "got: {sql}");
+    assert!(sql.contains("lateral_deviation_m"), "got: {sql}");
+}
+
+#[test]
+fn path_deviation_trace_compiles() {
+    let sql = compile_sql("PATH DEVIATION FOR TRACE 'abc123'", SqlDialect::DuckDB);
+    assert!(sql.contains("planned_path"), "got: {sql}");
+    assert!(sql.contains("actual_poses"), "got: {sql}");
+    assert!(sql.contains("'abc123'"), "got: {sql}");
+}
+
+#[test]
+fn path_deviation_plan_index_compiles() {
+    let sql = compile_sql(
+        "PATH DEVIATION PLAN 0 FOR TRACE 'abc'",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("OFFSET 0"), "expected OFFSET 0: {sql}");
+}
+
+#[test]
+fn joint_deviation_compiles() {
+    let sql = compile_sql(
+        "JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 2 hours ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("planned_joints"), "got: {sql}");
+    assert!(sql.contains("actual_joints"), "got: {sql}");
+    assert!(sql.contains("/joint_trajectory"), "got: {sql}");
+    assert!(sql.contains("/joint_states"), "got: {sql}");
+    assert!(sql.contains("joint_error_rad"), "got: {sql}");
+}
+
+#[test]
+fn show_joints_compiles() {
+    let sql = compile_sql("SHOW JOINTS FOR ROBOT 'arm_01'", SqlDialect::PostgreSQL);
+    assert!(sql.contains("robot_joint_map"), "got: {sql}");
+    assert!(sql.contains("arm_01"), "got: {sql}");
+}
+
+#[test]
+fn within_local_compiles() {
+    let sql = compile_sql(
+        "FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("SQRT"), "expected Euclidean formula: {sql}");
+    assert!(sql.contains("POWER"), "expected POWER: {sql}");
+    assert!(sql.contains("2"), "expected radius 2: {sql}");
+}
+
+#[test]
+fn within_gps_compiles() {
+    let sql = compile_sql(
+        "FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(sql.contains("ASIN"), "expected Haversine ASIN: {sql}");
+    assert!(sql.contains("6371000"), "expected Earth radius: {sql}");
+    assert!(sql.contains("500"), "expected 500 m radius: {sql}");
+}
+
+#[test]
+fn field_access_array_index_compiles() {
+    let sql = compile_sql(
+        "FROM joint_states WHERE fields['position[0]'] > 1.5 FOR ROBOT 'arm_01' SINCE 1 hour ago",
+        SqlDialect::PostgreSQL,
+    );
+    // Should compile to "fields"->'position'->>0 not "fields"->>'position[0]'
     assert!(
-        matches!(&err, ROSQLError::NotImplemented { feature, .. } if feature == "PATH DEVIATION"),
-        "got: {err:?}"
+        sql.contains("'position'"),
+        "expected JSON array path: {sql}"
+    );
+    assert!(
+        sql.contains("->>0") || sql.contains("->> 0"),
+        "expected ->>0 array access: {sql}"
     );
 }
 

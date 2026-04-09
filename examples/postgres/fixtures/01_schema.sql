@@ -49,5 +49,16 @@ CREATE TABLE IF NOT EXISTS mcap_metadata (
     start_time         TIMESTAMPTZ NOT NULL,
     end_time           TIMESTAMPTZ NOT NULL,
     s3_key             TEXT NOT NULL,
-    topics             TEXT[] NOT NULL DEFAULT '{}'
+    topics             TEXT[] NOT NULL DEFAULT '{}',
+    message_types      JSONB NOT NULL DEFAULT '{}'  -- topic → message_type map
+);
+
+-- Optional: URDF-derived joint map for SHOW JOINTS / JOINT DEVIATION (v0.4.3+)
+CREATE TABLE IF NOT EXISTS robot_joint_map (
+    robot_model        TEXT NOT NULL,
+    valid_from         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    valid_to           TIMESTAMPTZ,                          -- NULL = currently active
+    version            TEXT NOT NULL DEFAULT '',
+    robot_ids          TEXT[] NOT NULL DEFAULT '{}',
+    joint_map          JSONB NOT NULL DEFAULT '[]'
 );

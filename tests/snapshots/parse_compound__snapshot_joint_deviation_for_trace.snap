@@ -4,16 +4,11 @@ expression: ast
 ---
 Compound:
   clause:
-    PathDeviation:
+    JointDeviation:
       target:
-        Robot: robot_42
-      plan_index: ~
+        Trace: abc
   scope: ~
-  time_range:
-    Since:
-      Relative:
-        amount: 1
-        unit: days
+  time_range: ~
   time_basis: ~
   conditions: ~
   facet: ~

@@ -100,3 +100,43 @@ fn roundtrip_for_fleet() {
 fn roundtrip_path_deviation() {
     roundtrip("PATH DEVIATION FOR ROBOT 'robot_42' SINCE yesterday");
 }
+
+#[test]
+fn roundtrip_path_deviation_trace() {
+    roundtrip("PATH DEVIATION FOR TRACE 'abc123'");
+}
+
+#[test]
+fn roundtrip_path_deviation_plan_index() {
+    roundtrip("PATH DEVIATION PLAN 0 FOR TRACE 'abc'");
+}
+
+#[test]
+fn roundtrip_joint_deviation() {
+    roundtrip("JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 1 hour ago");
+}
+
+#[test]
+fn roundtrip_anomaly_redesigned() {
+    roundtrip("ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago");
+}
+
+#[test]
+fn roundtrip_anomaly_last_24h() {
+    roundtrip("ANOMALY(duration) COMPARED TO last 24 hours SINCE 1 hour ago");
+}
+
+#[test]
+fn roundtrip_show_joints() {
+    roundtrip("SHOW JOINTS FOR ROBOT 'arm_01'");
+}
+
+#[test]
+fn roundtrip_within_gps() {
+    roundtrip("FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago");
+}
+
+#[test]
+fn roundtrip_within_local() {
+    roundtrip("FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago");
+}

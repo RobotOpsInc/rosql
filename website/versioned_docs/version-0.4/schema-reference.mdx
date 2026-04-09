@@ -157,11 +157,42 @@ CREATE TABLE mcap_metadata (
     start_time           TIMESTAMPTZ NOT NULL,
     end_time             TIMESTAMPTZ NOT NULL,
     s3_key               TEXT NOT NULL,
-    topics               TEXT[] NOT NULL DEFAULT '{}'
+    topics               TEXT[] NOT NULL DEFAULT '{}',
+    message_types        JSONB NOT NULL DEFAULT '{}'  -- topic → message_type map
 );
 ```
 
-Used by: `FROM recordings`
+Used by: `FROM recordings`, `FROM recordings WHERE topic = '...'`
+
+---
+
+### `robot_joint_map` _(v0.4.3+, optional)_
+
+Stores URDF-derived joint metadata per robot model. Required for `SHOW JOINTS`.
+
+```sql
+CREATE TABLE robot_joint_map (
+    robot_model          TEXT NOT NULL,
+    valid_from           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    valid_to             TIMESTAMPTZ,                          -- NULL = currently active
+    version              TEXT NOT NULL DEFAULT '',
+    robot_ids            TEXT[] NOT NULL DEFAULT '{}',         -- robots using this model
+    joint_map            JSONB NOT NULL DEFAULT '[]'           -- array of joint descriptors
+);
+```
+
+`joint_map` element schema:
+```json
+{
+  "joint_name": "shoulder_pan_joint",
+  "joint_index": 0,
+  "joint_type": "revolute",
+  "lower_limit": -3.14159,
+  "upper_limit": 3.14159
+}
+```
+
+Used by: `SHOW JOINTS`, `JOINT DEVIATION`
 
 ---
 
@@ -205,6 +236,20 @@ Used by: `FROM recordings`
 | `message` | `body` |
 | `severity` | `severity_text` |
 | `severity_number` | `severity_number` |
+
+### From `topic_messages` (odom / position data)
+
+ROSQL geospatial operators (`WITHIN`) and `JOINT DEVIATION` extract nested values from the `fields` JSONB column using these conventions:
+
+| ROSQL path | `fields` JSON path | Description |
+|---|---|---|
+| `position.latitude` | `fields->>'position.latitude'` | GPS latitude (degrees) |
+| `position.longitude` | `fields->>'position.longitude'` | GPS longitude (degrees) |
+| `pose.pose.position.x` | `fields->>'pose.pose.position.x'` | Local frame X (metres) |
+| `pose.pose.position.y` | `fields->>'pose.pose.position.y'` | Local frame Y (metres) |
+| `position[N]` | `fields->'position'->>N` | Joint position array element N (radians) |
+
+These match the standard `nav_msgs/Odometry` and `sensor_msgs/JointState` ROS2 message layouts.
 
 ---
 

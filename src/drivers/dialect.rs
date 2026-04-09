@@ -181,6 +181,21 @@ impl SqlDialect {
         }
     }
 
+    /// Generate a JSON array element access expression, e.g. for `fields['position[0]']`.
+    ///
+    /// Compiles `base->'field'->>N` for PostgreSQL/DuckDB, or MySQL's JSON_EXTRACT with array path.
+    pub fn json_array_access(&self, column: &str, field: &str, index: usize) -> String {
+        let col = self.quote_ident(column);
+        match self {
+            SqlDialect::PostgreSQL | SqlDialect::DuckDB => {
+                format!("{col}->'{field}'->>{index}")
+            }
+            SqlDialect::MySQL => {
+                format!("JSON_UNQUOTE(JSON_EXTRACT({col}, '$.{field}[{index}]'))")
+            }
+        }
+    }
+
     /// The timestamp column name used in the standard OTel schema.
     pub fn timestamp_column(&self) -> &'static str {
         "Timestamp"

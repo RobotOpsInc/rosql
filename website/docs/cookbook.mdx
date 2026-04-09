@@ -209,29 +209,81 @@ HEALTH() FOR ROBOT 'robot_sim_001'
 
 Fan-out across traces, logs, and metrics to produce an overall health assessment.
 
-### Detect statistical anomalies in span duration
+### Detect statistical anomalies in span duration _(v0.4.3+)_
 
-:::caution Not implemented in v0.4
-`ANOMALY()` is not yet compiled. Use `MOVING_AVG` or `DERIVATIVE` to surface outliers.
-:::
+Uses a two-phase z-score CTE to compare current values against a historical or fleet-wide baseline.
 
 ```sql
-ANOMALY(duration)
+-- Anomalous robots compared to last week
+ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago
+
+-- Anomalies compared to fleet-wide baseline
+ANOMALY(duration) COMPARED TO fleet SINCE 1 hour ago FACET robot_id
 ```
 
-Uses z-score (AVG/STDDEV) to find outlier spans — spans whose duration deviates significantly from the mean.
+Returns `robot_id`, `avg_current`, `avg_baseline`, `z_score`, `is_anomalous`, `direction`.
 
-### Path deviation
+### Finding anomalous robots after deployment _(v0.4.3+)_
 
-:::caution Not implemented in v0.4
-`PATH DEVIATION` is not yet compiled. Query `/odom` directly: `FROM odom WHERE robot_id = '...' SINCE 1 hour ago`.
-:::
+Compare post-deployment behaviour against the previous week's baseline to catch regressions:
 
 ```sql
-PATH DEVIATION FOR ROBOT 'robot_sim_001'
+ANOMALY(duration) FROM traces COMPARED TO last week FACET robot_id SINCE 24 hours ago
 ```
 
-Queries `/odom` trajectory data from `topic_messages` to detect if the robot deviated from its planned path.
+Pair with `FOR VERSION` to scope to a specific release:
+
+```sql
+FOR VERSION 'v1.3.0' ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 12 hours ago
+```
+
+### Path deviation analysis _(v0.4.3+)_
+
+Check if a robot deviated from its planned path during a specific trace:
+
+```sql
+PATH DEVIATION FOR TRACE 'trace-002'
+```
+
+Or over a time window for a robot:
+
+```sql
+PATH DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+```
+
+Select a specific plan (0 = first occurrence, -1 = latest, default = -1):
+
+```sql
+PATH DEVIATION PLAN 0 FOR ROBOT 'robot_sim_001' SINCE 6 hours ago
+```
+
+Returns lateral deviation in metres per waypoint plus summary stats.
+
+### Joint trajectory tracking _(v0.4.3+)_
+
+Compare planned vs. actual joint positions to detect mechanical issues or controller errors:
+
+```sql
+JOINT DEVIATION FOR TRACE 'trace-002'
+```
+
+Or across a time window:
+
+```sql
+JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 1 hour ago
+```
+
+Returns per-joint `position_error_rad` and summary statistics.
+
+### Browse robot joint map _(v0.4.3+)_
+
+Inspect the URDF-derived joint map registered for a robot model:
+
+```sql
+SHOW JOINTS FOR ROBOT 'robot_sim_001'
+```
+
+Returns `joint_name`, `joint_index`, `joint_type`, `lower_limit`, `upper_limit`.
 
 ---
 
@@ -364,6 +416,43 @@ Count unique action names without a full distinct scan (DuckDB uses HLL; Postgre
 ```sql
 SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces SINCE 1 hour ago
 ```
+
+---
+
+## Geospatial filtering _(v0.4.3+)_
+
+### Filter by GPS proximity (Haversine)
+
+Find odom messages where the robot was within 500 m of a GPS coordinate:
+
+```sql
+FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago
+```
+
+Uses inline Haversine SQL (great-circle distance) extracting `position.latitude` / `position.longitude` from the `fields` JSONB column.
+
+### Filter by local frame proximity (Euclidean)
+
+Find odom messages within 2 m of a local coordinate using Euclidean distance:
+
+```sql
+FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago
+```
+
+Extracts `pose.pose.position.x` / `pose.pose.position.y` from `fields`.
+
+### Monitoring joint positions during failures
+
+Use array-indexed field access to read individual joint positions from `/joint_states` messages:
+
+```sql
+FROM joint_states
+WHERE fields['position[0]'] > 1.5
+FOR ROBOT 'arm_01'
+SINCE 1 hour ago
+```
+
+`fields['position[0]']` compiles to `"fields"->'position'->>0` on PostgreSQL/DuckDB.
 
 ---
 
