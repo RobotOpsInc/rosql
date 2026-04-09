@@ -65,8 +65,14 @@ fn topic_rate_compiles_to_subquery() {
     assert!(sql.contains("ros2.topic.message_rate"), "got: {sql}");
     assert!(sql.contains("AVG"), "got: {sql}");
     // Uses the registry-resolved column name, not the ROSQL alias.
-    assert!(sql.contains(r#""value""#), "expected resolved column 'value', got: {sql}");
-    assert!(!sql.contains("metric_value"), "should not contain raw alias 'metric_value', got: {sql}");
+    assert!(
+        sql.contains(r#""value""#),
+        "expected resolved column 'value', got: {sql}"
+    );
+    assert!(
+        !sql.contains("metric_value"),
+        "should not contain raw alias 'metric_value', got: {sql}"
+    );
 }
 
 #[test]
@@ -79,7 +85,10 @@ fn topic_rate_with_topic_arg() {
     // Topic filter uses JSON extraction from the attributes column, not a bare column.
     assert!(sql.contains("attributes"), "got: {sql}");
     assert!(sql.contains("topic"), "got: {sql}");
-    assert!(!sql.contains("topic_name"), "should not use bare topic_name column, got: {sql}");
+    assert!(
+        !sql.contains("topic_name"),
+        "should not use bare topic_name column, got: {sql}"
+    );
     assert!(sql.contains("/cmd_vel"), "got: {sql}");
 }
 
@@ -94,7 +103,10 @@ fn action_success_rate_no_arg() {
     assert!(sql.contains("COUNT"), "got: {sql}");
     assert!(sql.contains("NULLIF"), "got: {sql}");
     // Uses JSON extraction, not a bare column name.
-    assert!(sql.contains("span_attributes"), "expected span_attributes JSON access, got: {sql}");
+    assert!(
+        sql.contains("span_attributes"),
+        "expected span_attributes JSON access, got: {sql}"
+    );
     assert!(sql.contains("ros.action.status"), "got: {sql}");
 }
 
@@ -107,8 +119,14 @@ fn action_success_rate_with_arg() {
     assert!(sql.contains("navigate_to_pose"), "got: {sql}");
     assert!(sql.contains("succeeded"), "got: {sql}");
     // action_name filter also uses JSON extraction.
-    assert!(sql.contains("ros.action.name"), "expected ros.action.name JSON key, got: {sql}");
-    assert!(sql.contains("span_attributes"), "expected span_attributes JSON access, got: {sql}");
+    assert!(
+        sql.contains("ros.action.name"),
+        "expected ros.action.name JSON key, got: {sql}"
+    );
+    assert!(
+        sql.contains("span_attributes"),
+        "expected span_attributes JSON access, got: {sql}"
+    );
 }
 
 #[test]
@@ -1021,16 +1039,27 @@ fn anomaly_no_facet_emits_structured_warning() {
     assert_eq!(cr.warnings.len(), 1);
     let w = &cr.warnings[0];
     assert_eq!(w.code, "ANOMALY_NO_FACET");
-    assert!(w.message.contains("ANOMALY without FACET"), "got: {}", w.message);
+    assert!(
+        w.message.contains("ANOMALY without FACET"),
+        "got: {}",
+        w.message
+    );
     assert!(w.suggestion.is_some(), "expected suggestion");
     let suggestion = w.suggestion.as_deref().unwrap();
-    assert!(suggestion.contains("FACET"), "suggestion should mention FACET: {suggestion}");
+    assert!(
+        suggestion.contains("FACET"),
+        "suggestion should mention FACET: {suggestion}"
+    );
 }
 
 #[test]
 fn anomaly_with_facet_has_no_warnings() {
     let cr = compile_result("ANOMALY(duration) COMPARED TO last week FACET robot_id");
-    assert!(cr.warnings.is_empty(), "expected no warnings, got: {:?}", cr.warnings);
+    assert!(
+        cr.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        cr.warnings
+    );
 }
 
 #[test]
@@ -1065,6 +1094,12 @@ fn execution_error_no_raw_driver_text() {
     };
     // The display should not include the raw compiled_sql
     let display = err.to_string();
-    assert!(!display.contains("SELECT"), "raw SQL should not appear in display: {display}");
-    assert!(display.contains("DuckDB"), "data source should appear: {display}");
+    assert!(
+        !display.contains("SELECT"),
+        "raw SQL should not appear in display: {display}"
+    );
+    assert!(
+        display.contains("DuckDB"),
+        "data source should appear: {display}"
+    );
 }

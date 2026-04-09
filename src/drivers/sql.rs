@@ -552,7 +552,9 @@ fn execute_duckdb(
         .collect();
 
     // Execute the real query.
-    let mut stmt = conn.prepare(sql).map_err(|e| duckdb_execution_error(e, sql))?;
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| duckdb_execution_error(e, sql))?;
     let rows_iter = stmt
         .query_map([], |row| {
             Ok((0..col_count)
