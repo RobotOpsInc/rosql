@@ -108,7 +108,7 @@ enum Schema {
 }
 
 impl Schema {
-    fn to_profile(&self) -> rosql::drivers::otel_registry::SchemaProfile {
+    fn to_profile(self) -> rosql::drivers::otel_registry::SchemaProfile {
         match self {
             Schema::OtelPostgres => rosql::drivers::otel_registry::SchemaProfile::OtelPostgres,
             Schema::OtelClickhouse => rosql::drivers::otel_registry::SchemaProfile::OtelClickhouse,
@@ -132,7 +132,7 @@ enum Backend {
 }
 
 impl Backend {
-    fn to_dialect(&self) -> Result<rosql::drivers::dialect::SqlDialect, String> {
+    fn to_dialect(self) -> Result<rosql::drivers::dialect::SqlDialect, String> {
         match self {
             Backend::Postgres => Ok(rosql::drivers::dialect::SqlDialect::PostgreSQL),
             Backend::Mysql => Ok(rosql::drivers::dialect::SqlDialect::MySQL),
