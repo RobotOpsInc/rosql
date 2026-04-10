@@ -40,7 +40,7 @@ const ARCH_DIAGRAM = `  ROS2 System
        │
        │  OTLP gRPC
        ▼
-  Datastore (PostgreSQL, MySQL, DuckDB …)
+  Datastore (PostgreSQL, MySQL, Parquet/S3 …)
        │
        │  OTel standard schema
        ▼
@@ -54,7 +54,7 @@ type DriverStatus = 'available' | 'coming-soon' | 'planned';
 const DRIVERS: { name: string; flag: string; status: DriverStatus; version?: string; issue?: string }[] = [
   { name: 'PostgreSQL / TimescaleDB', flag: 'postgres', status: 'available', version: 'v0.1' },
   { name: 'MySQL / MariaDB', flag: 'mysql', status: 'available', version: 'v0.1' },
-  { name: 'DuckDB (embedded)', flag: 'duckdb', status: 'available', version: 'v0.3' },
+  { name: 'Parquet (local / S3) via DuckDB', flag: 'duckdb', status: 'available', version: 'v0.4.5' },
   { name: 'AWS Athena', flag: 'athena', status: 'planned', issue: '9' },
   { name: 'Google BigQuery', flag: 'bigquery', status: 'planned', issue: '10' },
 ];
@@ -168,7 +168,7 @@ export default function Home(): ReactNode {
               <div className="unified-flow-node unified-flow-node--db">
                 <Database size={26} strokeWidth={1.5} className="unified-flow-icon" />
                 <span className="unified-flow-label">Robot Telemetry</span>
-                <span className="unified-flow-sub">PostgreSQL · MySQL · DuckDB</span>
+                <span className="unified-flow-sub">PostgreSQL · MySQL · Parquet (S3/local)</span>
               </div>
 
               <ArrowRight size={20} className="unified-flow-arrow" />
@@ -305,17 +305,19 @@ export default function Home(): ReactNode {
           <div className="container">
             <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>Quick start</h2>
             <p style={{ textAlign: 'center', color: 'var(--ifm-color-emphasis-600)', marginBottom: '2rem', fontSize: '0.9rem' }}>
-              Requires the{' '}
-              <a href="https://rust-lang.org/tools/install/">Rust toolchain</a>.
+              Linux x86_64 / arm64 · macOS Apple Silicon
             </p>
             <div style={{ maxWidth: 720, margin: '0 auto' }}>
-              <CodeBlock language="bash" title="Install the CLI">
-                {`cargo install rosql --features server,postgres`}
+              <CodeBlock language="bash" title="Install (Linux x86_64 / arm64 · macOS Apple Silicon)">
+                {`curl -fsSL https://rosql.org/install.sh | sh`}
               </CodeBlock>
+              <p style={{ textAlign: 'center', color: 'var(--ifm-color-emphasis-600)', fontSize: '0.85rem', margin: '0.25rem 0 1.5rem' }}>
+                Windows · Intel Mac · building from source → <Link to="/docs/quickstart">Full quickstart</Link>
+              </p>
               <CodeBlock language="bash" title="Run your first query">
                 {`rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \\
-  --backend postgres \\
-  --url postgresql://user:pass@localhost:5432/telemetry`}
+  --backend parquet \\
+  --url <your-telemetry-dir>  # see quickstart for S3, PostgreSQL, and all options`}
               </CodeBlock>
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: '1.5rem', flexWrap: 'wrap' }}>

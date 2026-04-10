@@ -63,15 +63,22 @@ jobs:
             runner: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install protoc
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get install -y protobuf-compiler
 
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
       - name: Build
-        run: cargo build --release --features server --bin rosql
+        run: cargo build --release --features server,duckdb --bin rosql
 
       - name: Install cargo-about
         run: cargo install cargo-about --locked

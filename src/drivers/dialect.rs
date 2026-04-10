@@ -13,18 +13,22 @@ pub enum SqlDialect {
 
 impl SqlDialect {
     /// Detect the SQL dialect from a connection string URL scheme.
+    ///
+    /// Supported schemes: `postgres://`, `postgresql://`, `mysql://`, `mariadb://`.
+    ///
+    /// Note: the Parquet backend (`--backend parquet`) does not use URL detection —
+    /// it sets `SqlDialect::DuckDB` directly via `SqlBackend::from_parquet()`.
     pub fn from_url(url: &str) -> Result<Self, ROSQLError> {
         if url.starts_with("postgres://") || url.starts_with("postgresql://") {
             Ok(SqlDialect::PostgreSQL)
         } else if url.starts_with("mysql://") || url.starts_with("mariadb://") {
             Ok(SqlDialect::MySQL)
-        } else if url.starts_with("duckdb://") || url.starts_with("md:") {
-            Ok(SqlDialect::DuckDB)
         } else {
             Err(ROSQLError::DriverError {
                 message: format!(
                     "unsupported connection string scheme: '{url}'. \
-                     Expected postgres://, mysql://, or duckdb://"
+                     Expected postgres:// or mysql://. \
+                     For Parquet files use --backend parquet --url <path>."
                 ),
             })
         }
@@ -288,6 +292,26 @@ mod tests {
     #[test]
     fn detect_unsupported() {
         assert!(SqlDialect::from_url("oracle://localhost/db").is_err());
+    }
+
+    #[test]
+    fn duckdb_url_no_longer_recognized() {
+        // duckdb:// URLs are no longer supported via from_url(). Users should
+        // use --backend parquet --url <path> instead.
+        let err = SqlDialect::from_url("duckdb://").unwrap_err();
+        assert!(
+            err.to_string().contains("parquet"),
+            "error should mention parquet: {err}"
+        );
+    }
+
+    #[test]
+    fn motherduck_url_no_longer_recognized() {
+        let err = SqlDialect::from_url("md:my_db").unwrap_err();
+        assert!(
+            err.to_string().contains("parquet"),
+            "error should mention parquet: {err}"
+        );
     }
 
     #[test]

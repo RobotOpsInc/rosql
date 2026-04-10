@@ -123,8 +123,9 @@ enum Backend {
     Postgres,
     /// MySQL / MariaDB
     Mysql,
-    /// DuckDB (embedded)
-    Duckdb,
+    /// Parquet files (local path or s3://) powered by DuckDB.
+    /// Use --url to point at a directory containing traces/, logs/, etc.
+    Parquet,
     /// AWS Athena (coming soon)
     Athena,
     /// Google BigQuery (coming soon)
@@ -136,7 +137,7 @@ impl Backend {
         match self {
             Backend::Postgres => Ok(rosql::drivers::dialect::SqlDialect::PostgreSQL),
             Backend::Mysql => Ok(rosql::drivers::dialect::SqlDialect::MySQL),
-            Backend::Duckdb => Ok(rosql::drivers::dialect::SqlDialect::DuckDB),
+            Backend::Parquet => Ok(rosql::drivers::dialect::SqlDialect::DuckDB),
             Backend::Athena => Err("Athena backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/9".into()),
             Backend::Bigquery => Err("BigQuery backend is not yet supported. See https://github.com/RobotOpsInc/rosql/issues/10".into()),
         }
@@ -251,13 +252,11 @@ async fn cmd_query(query: &str, backend: Backend, _schema: Schema, url: &str) {
     {
         use rosql::drivers::ROSQLBackend;
 
-        let dialect = match backend.to_dialect() {
-            Ok(d) => d,
-            Err(msg) => {
-                eprintln!("Error: {msg}");
-                std::process::exit(1);
-            }
-        };
+        // Validate backend is supported (errors out on Athena/BigQuery).
+        if let Err(msg) = backend.to_dialect() {
+            eprintln!("Error: {msg}");
+            std::process::exit(1);
+        }
 
         let ast = match rosql::parse(query) {
             Ok(ast) => ast,
@@ -267,12 +266,22 @@ async fn cmd_query(query: &str, backend: Backend, _schema: Schema, url: &str) {
             }
         };
 
-        let sql_backend = match rosql::drivers::sql::SqlBackend::new(url).await {
-            Ok(b) => b,
-            Err(err) => {
-                eprintln!("Connection error: {err}");
-                std::process::exit(1);
-            }
+        let sql_backend = match backend {
+            #[cfg(feature = "duckdb")]
+            Backend::Parquet => match rosql::drivers::sql::SqlBackend::from_parquet(url).await {
+                Ok(b) => b,
+                Err(err) => {
+                    eprintln!("Parquet backend error: {err}");
+                    std::process::exit(1);
+                }
+            },
+            _ => match rosql::drivers::sql::SqlBackend::new(url).await {
+                Ok(b) => b,
+                Err(err) => {
+                    eprintln!("Connection error: {err}");
+                    std::process::exit(1);
+                }
+            },
         };
 
         let opts = rosql::ExecOptions::default();
@@ -299,7 +308,7 @@ async fn cmd_query(query: &str, backend: Backend, _schema: Schema, url: &str) {
              Rebuild with one of:\n\
              cargo build --features server,postgres --bin rosql\n\
              cargo build --features server,mysql --bin rosql\n\
-             cargo build --features server,duckdb --bin rosql"
+             cargo build --features server,duckdb --bin rosql  # for --backend parquet"
         );
         std::process::exit(1);
     }

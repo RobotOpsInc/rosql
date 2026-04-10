@@ -2,48 +2,89 @@
 title: Quickstart
 description: Install ROSQL and run your first robotics telemetry query in under 5 minutes
 sidebar_position: 1
-keywords: [rosql, quickstart, install, ros2, cli, query, robotics]
+keywords: [rosql, quickstart, install, ros2, cli, query, robotics, parquet]
 ---
 
 # Quickstart
 
 Get ROSQL running against your ROS2 telemetry data in under 5 minutes.
 
-## Prerequisites
-
-- **ROS2 telemetry data** in an [OTel-compatible database](./schema-reference) (PostgreSQL recommended)
-- **Rust** (stable, 1.80+) — [rustup.rs](https://rustup.rs)
-
 ## Install the CLI
 
+### One-liner (Linux x86_64 / arm64, macOS Apple Silicon)
+
 ```bash
+curl -fsSL https://rosql.org/install.sh | sh
+```
+
+Pre-built binaries include the Parquet backend out of the box. Once installed, `rosql` will be in `~/.local/bin/`.
+
+### Build from source (all platforms)
+
+```bash
+# Parquet backend + CLI (recommended — works without an external database)
+cargo install rosql --features server,duckdb
+
+# PostgreSQL + CLI
 cargo install rosql --features server,postgres
+
+# Multiple backends
+cargo install rosql --features server,duckdb,postgres
 ```
 
-This builds the `rosql` binary with the PostgreSQL driver and gRPC server. Replace `postgres` with `mysql` for MySQL/MariaDB.
+:::note Windows / Intel Mac
+Pre-built binaries are not available for Windows or Intel Macs. Use `cargo install` above.
+:::
 
-## Your first query
+## Your first query — local Parquet files
 
-```sql
-FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
-```
-
-Run it against your database:
+No database server required. Point ROSQL at a directory of Parquet files from the [demo-agent](https://github.com/RobotOpsInc/rmw_robotops/tree/development/demo-agent) or any OTel exporter:
 
 ```bash
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
-  --backend postgres \
-  --url postgresql://user:pass@localhost:5432/telemetry
+  --backend parquet \
+  --url ./telemetry/robotops_demo_agent/20260403-141530/
 ```
 
 ```json
 {
   "columns": ["timestamp", "trace_id", "span_id", "span_name_col", "service_name", "duration", "status_code"],
   "rows": [
-    ["2025-03-25T14:32:11.012Z", "a3f1c9d2...", "f0e1d2c3...", "navigate_to_pose", "bt_navigator", 1423187000, "ERROR"]
+    ["2026-04-03T14:32:11.012Z", "a3f1c9d2...", "f0e1d2c3...", "navigate_to_pose", "bt_navigator", 1423187000, "ERROR"]
   ],
   "metadata": { "rows_returned": 1, "elapsed_ms": 12 }
 }
+```
+
+The `--url` directory must follow the demo-agent output layout:
+
+```
+<url>/
+  traces/          *.parquet  →  otel_traces
+  logs/            *.parquet  →  otel_logs
+  metrics/         *.parquet  →  otel_metrics
+  topic_messages/  *.parquet  →  topic_messages
+  mcap_metadata/   *.parquet  →  mcap_metadata
+```
+
+### Query from S3
+
+```bash
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend parquet \
+  --url s3://my-bucket/robot-01/robotops_demo_agent/20260403-141530/
+```
+
+Set standard AWS environment variables for credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`). See [Driver Support →](./drivers) for the full credential reference.
+
+## Your first query — PostgreSQL
+
+If you have an OTel-compatible PostgreSQL database:
+
+```bash
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend postgres \
+  --url postgresql://user:pass@localhost:5432/telemetry
 ```
 
 ## Cross-signal correlation
@@ -72,8 +113,8 @@ DURING(
   AND fields['percentage'] < 15
 )
 SINCE 6 hours ago" \
-  --backend postgres \
-  --url postgresql://user:pass@localhost:5432/telemetry
+  --backend parquet \
+  --url ./telemetry/robotops_demo_agent/20260403-141530/
 ```
 
 ## Message causality
@@ -88,10 +129,10 @@ This walks `parent_span_id → span_id` recursively and returns all spans in the
 
 ## Compile to SQL
 
-Inspect what ROSQL generates (no DB needed):
+Inspect what ROSQL generates (no DB or `--url` needed):
 
 ```bash
-rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
+rosql compile "FROM traces WHERE duration > 500 ms" --backend parquet
 ```
 
 Output:
@@ -109,11 +150,16 @@ cargo add rosql
 ```
 
 ```rust
-use rosql::{parse, drivers::{SqlBackend, ExecOptions}};
+use rosql::{parse, drivers::{sql::SqlBackend, ExecOptions}};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let backend = SqlBackend::new("postgresql://user:pass@localhost/telemetry").await?;
+    // Parquet backend — local or S3
+    let backend = SqlBackend::from_parquet("./telemetry/robotops_demo_agent/20260403-141530/").await?;
+
+    // Or PostgreSQL
+    // let backend = SqlBackend::new("postgresql://user:pass@localhost/telemetry").await?;
+
     let query = parse("
         SELECT trace_id, span_name_col, service_name, duration, status_code
         FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
@@ -137,16 +183,16 @@ cd rosql
 # Library only (default)
 cargo build --release
 
-# CLI binary
-cargo build --release --features server --bin rosql
+# CLI with Parquet backend (--backend parquet)
+cargo build --release --features server,duckdb --bin rosql
 
-# CLI with PostgreSQL query execution
+# CLI with PostgreSQL
 cargo build --release --features server,postgres --bin rosql
 ```
 
 ## Next steps
 
-- [Driver support →](./drivers) — configure your database backend
+- [Driver Support →](./drivers) — Parquet backend, S3 credentials, PostgreSQL, MySQL
 - [CLI reference →](./cli) — all commands and flags
 - [Cookbook →](./cookbook) — more example queries
 - [Schema reference →](./schema-reference) — required table structure
