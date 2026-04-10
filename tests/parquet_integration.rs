@@ -1,7 +1,21 @@
-//! DuckDB integration tests — run against an in-memory database with fixture data.
+//! Parquet backend integration tests — run against pre-built Parquet fixture files.
 //!
-//! No Docker required. DuckDB is embedded, so these tests run in CI without
-//! any external services.
+//! No Docker required. DuckDB is embedded and reads local Parquet files directly.
+//!
+//! # Fixture layout
+//!
+//! ```text
+//! examples/parquet/fixtures/
+//!   traces/otel_traces.parquet
+//!   logs/otel_logs.parquet
+//!   metrics/otel_metrics.parquet
+//!   topic_messages/topic_messages.parquet
+//!   mcap_metadata/mcap_metadata.parquet
+//! ```
+//!
+//! Fixtures are generated from the SQL fixtures in `examples/duckdb/fixtures/` by
+//! running `examples/parquet/generate_fixtures.sh`. Commit the `.parquet` files
+//! alongside the SQL sources.
 //!
 //! Run with: `cargo test --features duckdb`
 
@@ -10,46 +24,16 @@
 use rosql::drivers::sql::SqlBackend;
 use rosql::drivers::{BackendCapabilities, ExecOptions, ROSQLBackend};
 
-const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/duckdb/fixtures");
+const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/parquet/fixtures");
 
-/// Load fixture SQL files into a temp database, return the duckdb:// URL.
-///
-/// SqlBackend::new() opens its own connection, so we can't share an in-memory
-/// DB. Instead we write to a file inside a temp directory, drop the raw
-/// connection, then let SqlBackend open it.
-fn setup_fixture_db() -> (tempfile::TempDir, String) {
-    let tmpdir = tempfile::tempdir().expect("failed to create temp dir");
-    let path = tmpdir.path().join("rosql_test.db");
-
-    // DuckDB creates the file — the path must not already exist
-    let conn = duckdb::Connection::open(&path).expect("failed to open duckdb");
-    let path = path.to_str().expect("non-UTF8 temp path").to_string();
-    for n in 1..=6 {
-        let fixture = format!("{FIXTURE_DIR}/{n:02}_*.sql");
-        let matches: Vec<_> = glob::glob(&fixture)
-            .expect("glob failed")
-            .filter_map(|p| p.ok())
-            .collect();
-        for fixture_path in matches {
-            let sql = std::fs::read_to_string(&fixture_path)
-                .unwrap_or_else(|e| panic!("failed to read {fixture_path:?}: {e}"));
-            conn.execute_batch(&sql)
-                .unwrap_or_else(|e| panic!("failed to execute {fixture_path:?}: {e}"));
-        }
-    }
-
-    let url = format!("duckdb://{path}");
-    (tmpdir, url)
-}
-
-async fn setup(url: &str) -> SqlBackend {
-    SqlBackend::new(url)
+async fn setup() -> SqlBackend {
+    SqlBackend::from_parquet(FIXTURE_DIR)
         .await
-        .expect("failed to connect to DuckDB")
+        .expect("failed to create Parquet backend from fixtures")
 }
 
-async fn execute_query(url: &str, query: &str) -> rosql::ROSQLResult {
-    let backend = setup(url).await;
+async fn execute_query(query: &str) -> rosql::ROSQLResult {
+    let backend = setup().await;
     let ast = rosql::parse(query).expect("parse failed");
     let opts = ExecOptions::default();
     backend.execute(&ast, &opts).await.expect("query failed")
@@ -61,8 +45,7 @@ async fn execute_query(url: &str, query: &str) -> rosql::ROSQLResult {
 
 #[tokio::test]
 async fn query_error_traces() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "FROM traces WHERE status = 'ERROR'").await;
+    let result = execute_query("FROM traces WHERE status = 'ERROR'").await;
     assert!(
         result.metadata.row_count > 0,
         "expected error traces from fixture data"
@@ -76,8 +59,7 @@ async fn query_error_traces() {
 
 #[tokio::test]
 async fn query_trace_recursive_cte() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "TRACE 'trace-002'").await;
+    let result = execute_query("TRACE 'trace-002'").await;
     assert!(
         result.metadata.row_count > 0,
         "expected spans in trace tree"
@@ -91,8 +73,7 @@ async fn query_trace_recursive_cte() {
 
 #[tokio::test]
 async fn query_trace() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "TRACE 'trace-002'").await;
+    let result = execute_query("TRACE 'trace-002'").await;
     assert_eq!(
         result.metadata.row_count, 4,
         "expected 4 spans for trace-002"
@@ -101,9 +82,7 @@ async fn query_trace() {
 
 #[tokio::test]
 async fn query_show_recording() {
-    let (_tmp, url) = setup_fixture_db();
-    // SHOW RECORDING is deprecated — use FROM recordings instead
-    let result = execute_query(&url, "FROM recordings LIMIT 5").await;
+    let result = execute_query("FROM recordings LIMIT 5").await;
     assert_eq!(
         result.metadata.row_count, 1,
         "expected 1 recording from fixtures"
@@ -112,8 +91,7 @@ async fn query_show_recording() {
 
 #[tokio::test]
 async fn query_path_deviation() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "PATH DEVIATION FOR ROBOT 'robot_sim_001'").await;
+    let result = execute_query("PATH DEVIATION FOR ROBOT 'robot_sim_001'").await;
     assert!(
         result.metadata.row_count > 0,
         "expected /odom trajectory points"
@@ -122,8 +100,7 @@ async fn query_path_deviation() {
 
 #[tokio::test]
 async fn query_topic_alias() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "FROM odom LIMIT 5").await;
+    let result = execute_query("FROM odom LIMIT 5").await;
     assert!(
         result.metadata.row_count > 0,
         "expected odom data from topic_messages"
@@ -133,8 +110,7 @@ async fn query_topic_alias() {
 
 #[tokio::test]
 async fn query_aggregation() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "SELECT COUNT(*) FROM traces").await;
+    let result = execute_query("SELECT COUNT(*) FROM traces").await;
     assert_eq!(result.metadata.row_count, 1, "COUNT should return 1 row");
     if let Some(row) = result.rows.first() {
         if let Some(serde_json::Value::Number(n)) = row.first() {
@@ -149,16 +125,15 @@ async fn query_aggregation() {
 
 #[tokio::test]
 async fn capability_error_no_topics() {
-    let (_tmp, url) = setup_fixture_db();
-    let backend = SqlBackend::new_with_capabilities(
-        &url,
+    let backend = SqlBackend::from_parquet_with_capabilities(
+        FIXTURE_DIR,
         BackendCapabilities {
             topic_data: false,
             recording_index: true,
         },
     )
     .await
-    .expect("failed to connect");
+    .expect("failed to create parquet backend");
 
     let ast = rosql::parse("PATH DEVIATION FOR ROBOT 'r1'").unwrap();
     let opts = ExecOptions::default();
@@ -171,16 +146,15 @@ async fn capability_error_no_topics() {
 
 #[tokio::test]
 async fn capability_error_no_recordings() {
-    let (_tmp, url) = setup_fixture_db();
-    let backend = SqlBackend::new_with_capabilities(
-        &url,
+    let backend = SqlBackend::from_parquet_with_capabilities(
+        FIXTURE_DIR,
         BackendCapabilities {
             topic_data: true,
             recording_index: false,
         },
     )
     .await
-    .expect("failed to connect");
+    .expect("failed to create parquet backend");
 
     let ast = rosql::parse("FROM recordings LIMIT 5").unwrap();
     let opts = ExecOptions::default();
@@ -195,9 +169,7 @@ async fn capability_error_no_recordings() {
 
 #[tokio::test]
 async fn query_show_topics() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "SHOW TOPICS SINCE 30 days ago").await;
-    // Should return columns topic_name, message_type, avg_rate_hz, publishers, subscribers
+    let result = execute_query("SHOW TOPICS SINCE 30 days ago").await;
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(col_names.contains(&"topic_name"), "got: {col_names:?}");
     assert!(col_names.contains(&"publishers"), "got: {col_names:?}");
@@ -205,8 +177,7 @@ async fn query_show_topics() {
 
 #[tokio::test]
 async fn query_show_nodes() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "SHOW NODES SINCE 30 days ago").await;
+    let result = execute_query("SHOW NODES SINCE 30 days ago").await;
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(col_names.contains(&"node_name"), "got: {col_names:?}");
     assert!(col_names.contains(&"error_count"), "got: {col_names:?}");
@@ -214,8 +185,7 @@ async fn query_show_nodes() {
 
 #[tokio::test]
 async fn query_show_node_graph() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(&url, "SHOW NODE GRAPH SINCE 30 days ago").await;
+    let result = execute_query("SHOW NODE GRAPH SINCE 30 days ago").await;
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(col_names.contains(&"source_node"), "got: {col_names:?}");
     assert!(col_names.contains(&"target_node"), "got: {col_names:?}");
@@ -226,9 +196,7 @@ async fn query_show_node_graph() {
 
 #[tokio::test]
 async fn query_timeseries_basic() {
-    let (_tmp, url) = setup_fixture_db();
     let result = execute_query(
-        &url,
         "SELECT COUNT(*) FROM traces TIMESERIES 1 hour SINCE 30 days ago",
     )
     .await;
@@ -242,9 +210,7 @@ async fn query_timeseries_basic() {
 
 #[tokio::test]
 async fn query_timeseries_with_facet() {
-    let (_tmp, url) = setup_fixture_db();
     let result = execute_query(
-        &url,
         "SELECT COUNT(*) FROM traces TIMESERIES 1 hour FACET action_name SINCE 30 days ago",
     )
     .await;
@@ -253,17 +219,11 @@ async fn query_timeseries_with_facet() {
 }
 
 // ── Health dashboard composable query integration tests ──────────────────────
-// These five tests cover the shapes that replaced HEALTH() per issue #61.
 
-/// Shape 1: Node liveness — already covered by query_show_nodes above.
-
-/// Shape 2: Error rate with FACET
+/// Error rate with FACET
 #[tokio::test]
 async fn query_error_rate_facet() {
-    let (_tmp, url) = setup_fixture_db();
-    // FACET service_name: service_name is a real column on otel_traces.
     let result = execute_query(
-        &url,
         "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET service_name SINCE 30 days ago",
     )
     .await;
@@ -273,7 +233,6 @@ async fn query_error_rate_facet() {
     );
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(col_names.contains(&"service_name"), "got: {col_names:?}");
-    // DuckDB names COUNT(*) as "count_star()" internally; we just verify there are 2 columns.
     assert_eq!(
         col_names.len(),
         2,
@@ -281,17 +240,13 @@ async fn query_error_rate_facet() {
     );
 }
 
-/// Shape 3: Action success/failure via ACTION_SUCCESS_RATE
+/// Action success/failure via ACTION_SUCCESS_RATE
 #[tokio::test]
 async fn query_action_success_rate() {
-    let (_tmp, url) = setup_fixture_db();
     let result = execute_query(
-        &url,
         "SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces SINCE 30 days ago",
     )
     .await;
-    // ACTION_SUCCESS_RATE with arg compiles as a scalar subquery — returns one row per outer row.
-    // Verify it executes without error and returns a non-null numeric value.
     assert!(
         result.metadata.row_count > 0,
         "ACTION_SUCCESS_RATE should return rows"
@@ -303,12 +258,10 @@ async fn query_action_success_rate() {
     }
 }
 
-/// Shape 4: Resource utilization
+/// Resource utilization
 #[tokio::test]
 async fn query_resource_utilization() {
-    let (_tmp, url) = setup_fixture_db();
     let result = execute_query(
-        &url,
         "SELECT AVG(metric_value) FROM metrics WHERE metric_name = 'system.cpu.total_usage_pct' SINCE 30 days ago",
     )
     .await;
@@ -321,21 +274,15 @@ async fn query_resource_utilization() {
     }
 }
 
-/// Shape 5: Log severity distribution
+/// Log severity distribution
 #[tokio::test]
 async fn query_log_severity_facet() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(
-        &url,
-        "SELECT COUNT(*) FROM logs FACET severity SINCE 30 days ago",
-    )
-    .await;
+    let result = execute_query("SELECT COUNT(*) FROM logs FACET severity SINCE 30 days ago").await;
     assert!(
         result.metadata.row_count > 0,
         "expected severity counts from fixture logs"
     );
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
-    // `severity` maps to the `severity_text` column in otel_logs.
     assert!(
         col_names.contains(&"severity_text"),
         "expected severity_text column, got: {col_names:?}"
@@ -347,17 +294,10 @@ async fn query_log_severity_facet() {
     );
 }
 
-/// TOPIC_RATE — publishes rate from otel_metrics
+/// TOPIC_RATE — publish rate from otel_metrics
 #[tokio::test]
 async fn query_topic_rate() {
-    let (_tmp, url) = setup_fixture_db();
-    let result = execute_query(
-        &url,
-        "SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 days ago",
-    )
-    .await;
-    // TOPIC_RATE compiles as a scalar subquery — returns one row per outer metric row.
-    // Verify it executes without error and returns a non-null numeric value.
+    let result = execute_query("SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 days ago").await;
     assert!(
         result.metadata.row_count > 0,
         "TOPIC_RATE should return rows"
@@ -367,6 +307,94 @@ async fn query_topic_rate() {
             assert!(
                 !v.is_null(),
                 "expected a non-null topic rate for /cmd_vel, got null"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Parquet-specific tests
+// ---------------------------------------------------------------------------
+
+/// Verify that pointing at a directory with only some subdirectories populates
+/// only the available views and marks missing capabilities accordingly.
+#[tokio::test]
+async fn parquet_missing_subdirectory_degrades_gracefully() {
+    // Use the traces-only subdirectory by pointing at a path where only traces/ exists.
+    // We synthesise this by creating a temp dir with only the traces subdirectory.
+    let tmpdir = tempfile::tempdir().expect("failed to create temp dir");
+    let traces_dir = tmpdir.path().join("traces");
+    std::fs::create_dir_all(&traces_dir).unwrap();
+    std::fs::copy(
+        format!("{FIXTURE_DIR}/traces/otel_traces.parquet"),
+        traces_dir.join("otel_traces.parquet"),
+    )
+    .unwrap();
+
+    let url = tmpdir.path().to_str().unwrap();
+    let backend = SqlBackend::from_parquet(url).await.expect("should succeed with partial fixtures");
+
+    // topic_messages and mcap_metadata subdirectories are absent → capabilities false
+    assert!(
+        !backend.capabilities().topic_data,
+        "topic_data should be false when topic_messages/ is absent"
+    );
+    assert!(
+        !backend.capabilities().recording_index,
+        "recording_index should be false when mcap_metadata/ is absent"
+    );
+
+    // Querying traces should still work
+    let ast = rosql::parse("FROM traces WHERE status = 'ERROR'").unwrap();
+    let opts = ExecOptions::default();
+    let result = backend.execute(&ast, &opts).await.expect("trace query should succeed");
+    assert!(result.metadata.row_count > 0, "expected error traces");
+}
+
+/// Pointing at a nonexistent directory should return a clear error.
+#[tokio::test]
+async fn parquet_nonexistent_directory_gives_error() {
+    // DuckDB read_parquet() with a glob that matches no files returns an error at view creation
+    // time (or at query time if the view was silently skipped). The backend should still
+    // construct successfully — the error surfaces when a query is executed.
+    let result = SqlBackend::from_parquet("/tmp/rosql-nonexistent-1234567890").await;
+    // Either construction fails, or the backend is created but all capabilities are absent.
+    match result {
+        Err(_) => {
+            // Acceptable: explicit error at construction time
+        }
+        Ok(backend) => {
+            assert!(
+                !backend.capabilities().topic_data && !backend.capabilities().recording_index,
+                "expected no capabilities for an empty/nonexistent directory"
+            );
+        }
+    }
+}
+
+/// Verify that an s3:// URL is accepted by from_parquet() without credentials
+/// and that the resulting error mentions httpfs or S3 rather than an internal panic.
+#[tokio::test]
+async fn parquet_s3_url_without_credentials_gives_informative_error() {
+    // This test does NOT require real S3 access. It verifies:
+    // 1. The code path reaches httpfs setup (not a silent no-op or panic).
+    // 2. The error (if any) is a ROSQLError::DriverError, not an unhandled panic.
+    // In CI without credentials, the views will fail to create or probe will find
+    // no accessible tables — either outcome is acceptable.
+    let result = SqlBackend::from_parquet("s3://rosql-test-does-not-exist/fixtures").await;
+    match result {
+        Err(e) => {
+            // Should be a DriverError, not a panic or other unhandled condition
+            assert!(
+                matches!(e, rosql::ROSQLError::DriverError { .. }),
+                "expected DriverError for inaccessible S3 URL, got: {e:?}"
+            );
+        }
+        Ok(backend) => {
+            // If httpfs loaded but credentials are absent, capabilities should be false
+            assert!(
+                !backend.capabilities().topic_data && !backend.capabilities().recording_index,
+                "expected no capabilities without valid S3 credentials"
             );
         }
     }

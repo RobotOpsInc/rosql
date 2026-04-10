@@ -1,62 +1,62 @@
-# ROSQL × DuckDB Example
+# ROSQL × DuckDB SQL Fixtures
 
-Run ROSQL queries against a DuckDB embedded database. No Docker or external server required — DuckDB runs in-process.
+This directory contains DuckDB-compatible SQL fixture files used to populate integration test databases and to generate the Parquet fixtures used by `--backend parquet`.
 
-## Quick start
+## Fixture files
+
+| File | Content |
+|------|---------|
+| `01_schema.sql` | Table DDL (`otel_traces`, `otel_logs`, `otel_metrics`, `topic_messages`, `mcap_metadata`) |
+| `02_traces.sql` | 3 navigation actions for `robot_sim_001` (success, abort, timeout) |
+| `03_logs.sql` | `/rosout` log entries for each navigation action |
+| `04_metrics.sql` | Topic rates and system resource metrics |
+| `05_topic_messages.sql` | `/plan`, `/odom`, and `/battery_state` topic messages |
+| `06_mcap_metadata.sql` | One MCAP recording session |
+
+## Schema notes
+
+These fixtures use DuckDB-compatible column types:
+- `JSONB` → `JSON` (DuckDB does not have a JSONB type)
+- `TEXT[]` → `VARCHAR[]`
+
+See [`01_schema.sql`](fixtures/01_schema.sql) for the full DDL.
+
+## Using the Parquet backend
+
+The recommended way to query these fixtures is via the Parquet backend, using the pre-built Parquet files in `examples/parquet/fixtures/`:
 
 ```bash
-# Build with DuckDB support
+# Build with Parquet support
 cargo build --features server,duckdb --bin rosql
 
-# Create the example database from fixtures
-duckdb examples/duckdb/rosql_examples.db < examples/duckdb/fixtures/01_schema.sql
-duckdb examples/duckdb/rosql_examples.db < examples/duckdb/fixtures/02_traces.sql
-duckdb examples/duckdb/rosql_examples.db < examples/duckdb/fixtures/03_logs.sql
-duckdb examples/duckdb/rosql_examples.db < examples/duckdb/fixtures/04_metrics.sql
-duckdb examples/duckdb/rosql_examples.db < examples/duckdb/fixtures/05_topic_messages.sql
-duckdb examples/duckdb/rosql_examples.db < examples/duckdb/fixtures/06_mcap_metadata.sql
-
-# Run example queries
+# Query the Parquet fixtures
 cargo run --features server,duckdb --bin rosql -- query \
   "FROM traces WHERE status = 'ERROR'" \
-  --backend duckdb --url duckdb:///$(pwd)/examples/duckdb/rosql_examples.db
+  --backend parquet --url ./examples/parquet/fixtures/
 
 cargo run --features server,duckdb --bin rosql -- query \
-  "MESSAGE JOURNEY FOR TRACE 'trace-002'" \
-  --backend duckdb --url duckdb:///$(pwd)/examples/duckdb/rosql_examples.db
+  "TRACE 'trace-002'" \
+  --backend parquet --url ./examples/parquet/fixtures/
 
 cargo run --features server,duckdb --bin rosql -- query \
-  "HEALTH()" \
-  --backend duckdb --url duckdb:///$(pwd)/examples/duckdb/rosql_examples.db
+  "SHOW TOPICS SINCE 30 days ago" \
+  --backend parquet --url ./examples/parquet/fixtures/
 ```
 
-## Connection strings
-
-| Format | Description |
-|--------|-------------|
-| `duckdb://` | In-memory database (data lost on disconnect) |
-| `duckdb:///path/to/file.db` | Persistent file-based database |
-| `duckdb:///path/to/file.duckdb` | Same — DuckDB accepts any extension |
+See [`examples/parquet/`](../parquet/) for more details and to regenerate Parquet files from these SQL sources.
 
 ## Compile ROSQL → DuckDB SQL
 
-The `compile` subcommand shows the SQL ROSQL generates for DuckDB:
+The `compile` subcommand shows the SQL ROSQL generates for DuckDB (no `--url` needed):
 
 ```bash
 cargo run --features server --bin rosql -- compile \
   "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
-  --backend duckdb
+  --backend parquet
 ```
 
-Output includes `NOW()::TIMESTAMP` for interval arithmetic, which is DuckDB's required form.
-
-## Schema
-
-The fixtures use the standard OTel tables with DuckDB-compatible types:
-- `JSONB` → `JSON` (DuckDB does not have a JSONB type)
-- `TEXT[]` → `VARCHAR[]`
-
-See [`fixtures/01_schema.sql`](fixtures/01_schema.sql) for the complete DDL.
+The output uses DuckDB-specific functions: `NOW()::TIMESTAMP` for interval arithmetic,
+`approx_count_distinct()`, `approx_quantile()`, `time_bucket()`, etc.
 
 ## Running integration tests
 
@@ -64,4 +64,4 @@ See [`fixtures/01_schema.sql`](fixtures/01_schema.sql) for the complete DDL.
 cargo test --features duckdb
 ```
 
-The DuckDB integration tests run without Docker — they use an in-memory database loaded from the fixture files.
+The Parquet integration tests run without Docker — they read the pre-built Parquet fixtures directly.

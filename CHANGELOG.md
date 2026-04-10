@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-04-10
+
+### Added
+
+- **`--backend parquet`** — new CLI backend that queries Parquet telemetry files (local path or `s3://` URI) using an embedded in-memory DuckDB instance. Replaces the old `--backend duckdb --url duckdb://...` interface.
+- **`SqlBackend::from_parquet(url)`** — new public constructor that opens an in-memory DuckDB instance, creates views over `read_parquet()` globs in the expected directory layout (`traces/`, `logs/`, `metrics/`, `topic_messages/`, `mcap_metadata/`), and runs capability probing.
+- **S3 support** — when `--url s3://...` is used, the DuckDB `httpfs` extension is loaded automatically and credentials are read from standard AWS environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_ENDPOINT_URL`, `AWS_PROFILE`).
+- **Parquet fixture files** — pre-built Parquet fixtures in `examples/parquet/fixtures/` (generated from the SQL fixtures in `examples/duckdb/fixtures/`) for local development and integration testing.
+- **Parquet integration tests** — `tests/parquet_integration.rs` replaces `tests/duckdb_integration.rs` with 22 tests covering all query types, capability errors, and Parquet-specific scenarios (missing subdirectories, nonexistent paths, S3 URL detection).
+- **Install script** — `install.sh` provides a one-liner setup (`curl -fsSL https://rosql.org/install.sh | sh`) for Linux x86_64, Linux arm64, and macOS Apple Silicon.
+- **macOS arm64 release builds** — pre-built binaries now include `aarch64-apple-darwin` (Apple Silicon). Release binaries now built with `--features server,duckdb` so `--backend parquet` works out of the box.
+
+### Changed
+
+- **`Backend::Duckdb` → `Backend::Parquet`** — the CLI enum variant for DuckDB-backed queries is now named `parquet`. The old `--backend duckdb` is no longer valid; use `--backend parquet --url <path>`.
+- **`SqlDialect::from_url()` no longer recognises `duckdb://` or `md:`** — the dialect is set directly when `Backend::Parquet` is selected. Passing a `duckdb://` URL to `SqlBackend::new()` now returns a helpful error directing users to `--backend parquet`.
+- **`connect()` no longer has a DuckDB branch** — DuckDB connections are created exclusively via `SqlBackend::from_parquet()`. `SqlBackend::new()` only handles `postgres://` and `mysql://` URLs.
+- **Release workflow** now builds with `--features server,duckdb` and includes macOS arm64 in the binary matrix.
+
+### Removed
+
+- `tests/duckdb_integration.rs` — replaced by `tests/parquet_integration.rs`
+- `duckdb://` URL detection from `SqlDialect::from_url()`
+
 ## [0.4.4] - 2026-04-09
 
 ### Added

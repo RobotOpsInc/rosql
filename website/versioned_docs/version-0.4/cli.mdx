@@ -7,9 +7,21 @@ keywords: [rosql, cli, command line, parse, compile, query, validate, serve]
 
 # CLI Reference
 
-The `rosql` CLI requires the `server` feature flag:
+The `rosql` CLI requires the `server` feature flag.
+
+**One-liner install (Linux x86_64 / arm64 · macOS Apple Silicon):**
 
 ```bash
+curl -fsSL https://rosql.org/install.sh | sh
+```
+
+**Build from source (all platforms):**
+
+```bash
+# With Parquet backend (--backend parquet)
+cargo install rosql --features server,duckdb
+
+# With PostgreSQL backend
 cargo install rosql --features server,postgres
 ```
 

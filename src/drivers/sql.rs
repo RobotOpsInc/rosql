@@ -3,6 +3,24 @@
 //! Uses native drivers for each database rather than AnyPool, to get full
 //! type support. DuckDB uses its own synchronous crate (not sqlx).
 //! Feature-gated behind `--features postgres`, `mysql`, or `duckdb`.
+//!
+//! # Parquet backend
+//!
+//! When `--backend parquet` is selected, use [`SqlBackend::from_parquet`] instead
+//! of [`SqlBackend::new`]. This opens an in-memory DuckDB instance and creates
+//! views over `read_parquet()` globs in the expected directory layout:
+//!
+//! ```text
+//! <url>/
+//!   traces/          *.parquet  → otel_traces view
+//!   logs/            *.parquet  → otel_logs view
+//!   metrics/         *.parquet  → otel_metrics view
+//!   topic_messages/  *.parquet  → topic_messages view
+//!   mcap_metadata/   *.parquet  → mcap_metadata view
+//! ```
+//!
+//! S3 URLs (`s3://...`) automatically load the DuckDB `httpfs` extension and
+//! configure credentials from standard AWS environment variables.
 
 use async_trait::async_trait;
 use std::time::Instant;
@@ -15,8 +33,8 @@ use super::dialect::SqlDialect;
 use super::field_registry::FieldRegistry;
 use super::otel_registry::default_otel_registry;
 use super::{
-    BackendCapabilities, ColumnMeta, EnrichmentMeta, ExecOptions, FormatHint, ROSQLBackend,
-    ROSQLResult, ResultMetadata, VisualizationConfig,
+    BackendCapabilities, ColumnMeta, EnrichmentMeta, ExecOptions, ROSQLBackend, ROSQLResult,
+    ResultMetadata,
 };
 
 #[cfg(any(feature = "postgres", feature = "mysql"))]
@@ -76,6 +94,150 @@ impl SqlBackend {
             schema,
             capabilities,
             dialect,
+        })
+    }
+
+    /// Open an in-memory DuckDB instance that reads Parquet files from a directory.
+    ///
+    /// `url` is either a local path (e.g., `/data/export` or `./telemetry/`) or an
+    /// S3 URI (`s3://bucket/prefix`). The directory must follow the demo-agent
+    /// output layout:
+    ///
+    /// ```text
+    /// <url>/
+    ///   traces/          *.parquet  → otel_traces view
+    ///   logs/            *.parquet  → otel_logs view
+    ///   metrics/         *.parquet  → otel_metrics view
+    ///   topic_messages/  *.parquet  → topic_messages view
+    ///   mcap_metadata/   *.parquet  → mcap_metadata view
+    /// ```
+    ///
+    /// Views are created silently even if a subdirectory is absent — the capability
+    /// probing step will then report those tables as unavailable.
+    ///
+    /// ## S3 credentials
+    ///
+    /// When `url` starts with `s3://`, the DuckDB `httpfs` extension is loaded and
+    /// credentials are read from the following environment variables:
+    ///
+    /// | Variable | Description |
+    /// |---|---|
+    /// | `AWS_ACCESS_KEY_ID` | Static access key |
+    /// | `AWS_SECRET_ACCESS_KEY` | Static secret key |
+    /// | `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS region (e.g. `us-east-1`) |
+    /// | `AWS_PROFILE` | Named credentials profile |
+    /// | `AWS_ENDPOINT_URL` | Override for S3-compatible storage (MinIO, Ceph) |
+    #[cfg(feature = "duckdb")]
+    pub async fn from_parquet(url: &str) -> Result<Self, ROSQLError> {
+        let url = url.to_string();
+        tokio::task::spawn_blocking(move || {
+            Self::from_parquet_sync(&url)
+        })
+        .await
+        .map_err(|e| ROSQLError::DriverError {
+            message: format!("parquet backend task failed: {e}"),
+        })?
+    }
+
+    /// Create a Parquet backend with explicit capability overrides (used in tests).
+    #[cfg(feature = "duckdb")]
+    pub async fn from_parquet_with_capabilities(
+        url: &str,
+        capabilities: BackendCapabilities,
+    ) -> Result<Self, ROSQLError> {
+        let url = url.to_string();
+        tokio::task::spawn_blocking(move || {
+            Self::from_parquet_sync_inner(&url, None, Some(capabilities))
+        })
+        .await
+        .map_err(|e| ROSQLError::DriverError {
+            message: format!("parquet backend task failed: {e}"),
+        })?
+    }
+
+    #[cfg(feature = "duckdb")]
+    fn from_parquet_sync(url: &str) -> Result<Self, ROSQLError> {
+        Self::from_parquet_sync_inner(url, None, None)
+    }
+
+    #[cfg(feature = "duckdb")]
+    fn from_parquet_sync_inner(
+        url: &str,
+        _reserved: Option<()>,
+        explicit_capabilities: Option<BackendCapabilities>,
+    ) -> Result<Self, ROSQLError> {
+        use std::env;
+
+        let conn = duckdb::Connection::open_in_memory().map_err(|e| ROSQLError::DriverError {
+            message: format!("failed to open in-memory DuckDB: {e}"),
+        })?;
+
+        // Normalise: strip trailing slash so glob paths are consistent.
+        let base = url.trim_end_matches('/');
+
+        // For S3 URLs, load the httpfs extension and configure AWS credentials.
+        if base.starts_with("s3://") {
+            conn.execute_batch("INSTALL httpfs; LOAD httpfs;")
+                .map_err(|e| ROSQLError::DriverError {
+                    message: format!("failed to load DuckDB httpfs extension: {e}"),
+                })?;
+
+            // Configure credentials from standard AWS environment variables.
+            // We set each individually so unset variables are simply skipped.
+            let cred_vars: &[(&str, &str)] = &[
+                ("AWS_ACCESS_KEY_ID",     "s3_access_key_id"),
+                ("AWS_SECRET_ACCESS_KEY", "s3_secret_access_key"),
+                ("AWS_ENDPOINT_URL",      "s3_endpoint"),
+                ("AWS_PROFILE",           "s3_profile"),
+            ];
+            for (env_var, duckdb_key) in cred_vars {
+                if let Ok(val) = env::var(env_var) {
+                    let sql = format!("SET {duckdb_key}='{val}'");
+                    let _ = conn.execute_batch(&sql); // best-effort
+                }
+            }
+
+            // Region: prefer AWS_REGION, fall back to AWS_DEFAULT_REGION.
+            let region = env::var("AWS_REGION")
+                .or_else(|_| env::var("AWS_DEFAULT_REGION"))
+                .unwrap_or_default();
+            if !region.is_empty() {
+                let _ = conn.execute_batch(&format!("SET s3_region='{region}'"));
+            }
+        }
+
+        // Table → subdirectory mapping following the demo-agent output layout.
+        let view_mappings: &[(&str, &str)] = &[
+            ("otel_traces",    "traces"),
+            ("otel_logs",      "logs"),
+            ("otel_metrics",   "metrics"),
+            ("topic_messages", "topic_messages"),
+            ("mcap_metadata",  "mcap_metadata"),
+        ];
+
+        for (view_name, subdir) in view_mappings {
+            let glob_path = format!("{base}/{subdir}/**/*.parquet");
+            let sql = format!(
+                "CREATE VIEW IF NOT EXISTS {view_name} AS SELECT * FROM read_parquet('{glob_path}')"
+            );
+            // Silently skip views whose subdirectory has no matching files —
+            // probe_capabilities will report them as unavailable.
+            let _ = conn.execute_batch(&sql);
+        }
+
+        let pool = Pool::DuckDb(Arc::new(Mutex::new(conn)));
+
+        let capabilities = if let Some(caps) = explicit_capabilities {
+            caps
+        } else {
+            probe_capabilities_sync(&pool)
+        };
+
+        Ok(Self {
+            pool,
+            schema: default_otel_registry(),
+            capabilities,
+            dialect: SqlDialect::DuckDB,
         })
     }
 }
@@ -677,7 +839,7 @@ fn classify_db_error(raw: &str) -> (String, Option<String>) {
 // Connection + capability probing
 // ---------------------------------------------------------------------------
 
-async fn connect(url: &str, dialect: &SqlDialect) -> Result<Pool, ROSQLError> {
+async fn connect(_url: &str, dialect: &SqlDialect) -> Result<Pool, ROSQLError> {
     match dialect {
         #[cfg(feature = "postgres")]
         SqlDialect::PostgreSQL => {
@@ -698,16 +860,6 @@ async fn connect(url: &str, dialect: &SqlDialect) -> Result<Pool, ROSQLError> {
                     })?;
             Ok(Pool::MySql(pool))
         }
-        #[cfg(feature = "duckdb")]
-        SqlDialect::DuckDB => {
-            // duckdb:// → in-memory; duckdb:///path/to/file.db → file-based
-            let path = url.strip_prefix("duckdb://").unwrap_or(":memory:");
-            let path = if path.is_empty() { ":memory:" } else { path };
-            let conn = duckdb::Connection::open(path).map_err(|e| ROSQLError::DriverError {
-                message: format!("failed to open DuckDB: {e}"),
-            })?;
-            Ok(Pool::DuckDb(Arc::new(Mutex::new(conn))))
-        }
         #[allow(unreachable_patterns)]
         _ => Err(ROSQLError::DriverError {
             message: format!(
@@ -725,6 +877,28 @@ async fn probe_capabilities(pool: &Pool) -> BackendCapabilities {
     BackendCapabilities {
         topic_data,
         recording_index,
+    }
+}
+
+/// Synchronous capability probing used within spawn_blocking contexts (e.g. from_parquet).
+#[cfg(feature = "duckdb")]
+fn probe_capabilities_sync(pool: &Pool) -> BackendCapabilities {
+    BackendCapabilities {
+        topic_data: probe_table_sync(pool, "topic_messages"),
+        recording_index: probe_table_sync(pool, "mcap_metadata"),
+    }
+}
+
+#[cfg(feature = "duckdb")]
+fn probe_table_sync(pool: &Pool, table: &str) -> bool {
+    let sql = format!("SELECT 1 FROM {table} LIMIT 0");
+    match pool {
+        Pool::DuckDb(conn) => {
+            let guard = conn.lock().expect("duckdb mutex poisoned");
+            guard.prepare(&sql).is_ok()
+        }
+        #[allow(unreachable_patterns)]
+        _ => false,
     }
 }
 
