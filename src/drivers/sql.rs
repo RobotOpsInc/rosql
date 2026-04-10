@@ -130,13 +130,11 @@ impl SqlBackend {
     #[cfg(feature = "duckdb")]
     pub async fn from_parquet(url: &str) -> Result<Self, ROSQLError> {
         let url = url.to_string();
-        tokio::task::spawn_blocking(move || {
-            Self::from_parquet_sync(&url)
-        })
-        .await
-        .map_err(|e| ROSQLError::DriverError {
-            message: format!("parquet backend task failed: {e}"),
-        })?
+        tokio::task::spawn_blocking(move || Self::from_parquet_sync(&url))
+            .await
+            .map_err(|e| ROSQLError::DriverError {
+                message: format!("parquet backend task failed: {e}"),
+            })?
     }
 
     /// Create a Parquet backend with explicit capability overrides (used in tests).
@@ -185,10 +183,10 @@ impl SqlBackend {
             // Configure credentials from standard AWS environment variables.
             // We set each individually so unset variables are simply skipped.
             let cred_vars: &[(&str, &str)] = &[
-                ("AWS_ACCESS_KEY_ID",     "s3_access_key_id"),
+                ("AWS_ACCESS_KEY_ID", "s3_access_key_id"),
                 ("AWS_SECRET_ACCESS_KEY", "s3_secret_access_key"),
-                ("AWS_ENDPOINT_URL",      "s3_endpoint"),
-                ("AWS_PROFILE",           "s3_profile"),
+                ("AWS_ENDPOINT_URL", "s3_endpoint"),
+                ("AWS_PROFILE", "s3_profile"),
             ];
             for (env_var, duckdb_key) in cred_vars {
                 if let Ok(val) = env::var(env_var) {
@@ -208,11 +206,11 @@ impl SqlBackend {
 
         // Table → subdirectory mapping following the demo-agent output layout.
         let view_mappings: &[(&str, &str)] = &[
-            ("otel_traces",    "traces"),
-            ("otel_logs",      "logs"),
-            ("otel_metrics",   "metrics"),
+            ("otel_traces", "traces"),
+            ("otel_logs", "logs"),
+            ("otel_metrics", "metrics"),
             ("topic_messages", "topic_messages"),
-            ("mcap_metadata",  "mcap_metadata"),
+            ("mcap_metadata", "mcap_metadata"),
         ];
 
         for (view_name, subdir) in view_mappings {
@@ -839,7 +837,7 @@ fn classify_db_error(raw: &str) -> (String, Option<String>) {
 // Connection + capability probing
 // ---------------------------------------------------------------------------
 
-async fn connect(_url: &str, dialect: &SqlDialect) -> Result<Pool, ROSQLError> {
+async fn connect(url: &str, dialect: &SqlDialect) -> Result<Pool, ROSQLError> {
     match dialect {
         #[cfg(feature = "postgres")]
         SqlDialect::PostgreSQL => {

@@ -268,24 +268,20 @@ async fn cmd_query(query: &str, backend: Backend, _schema: Schema, url: &str) {
 
         let sql_backend = match backend {
             #[cfg(feature = "duckdb")]
-            Backend::Parquet => {
-                match rosql::drivers::sql::SqlBackend::from_parquet(url).await {
-                    Ok(b) => b,
-                    Err(err) => {
-                        eprintln!("Parquet backend error: {err}");
-                        std::process::exit(1);
-                    }
+            Backend::Parquet => match rosql::drivers::sql::SqlBackend::from_parquet(url).await {
+                Ok(b) => b,
+                Err(err) => {
+                    eprintln!("Parquet backend error: {err}");
+                    std::process::exit(1);
                 }
-            }
-            _ => {
-                match rosql::drivers::sql::SqlBackend::new(url).await {
-                    Ok(b) => b,
-                    Err(err) => {
-                        eprintln!("Connection error: {err}");
-                        std::process::exit(1);
-                    }
+            },
+            _ => match rosql::drivers::sql::SqlBackend::new(url).await {
+                Ok(b) => b,
+                Err(err) => {
+                    eprintln!("Connection error: {err}");
+                    std::process::exit(1);
                 }
-            }
+            },
         };
 
         let opts = rosql::ExecOptions::default();

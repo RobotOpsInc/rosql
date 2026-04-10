@@ -299,13 +299,19 @@ mod tests {
         // duckdb:// URLs are no longer supported via from_url(). Users should
         // use --backend parquet --url <path> instead.
         let err = SqlDialect::from_url("duckdb://").unwrap_err();
-        assert!(err.to_string().contains("parquet"), "error should mention parquet: {err}");
+        assert!(
+            err.to_string().contains("parquet"),
+            "error should mention parquet: {err}"
+        );
     }
 
     #[test]
     fn motherduck_url_no_longer_recognized() {
         let err = SqlDialect::from_url("md:my_db").unwrap_err();
-        assert!(err.to_string().contains("parquet"), "error should mention parquet: {err}");
+        assert!(
+            err.to_string().contains("parquet"),
+            "error should mention parquet: {err}"
+        );
     }
 
     #[test]

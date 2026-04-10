@@ -196,10 +196,8 @@ async fn query_show_node_graph() {
 
 #[tokio::test]
 async fn query_timeseries_basic() {
-    let result = execute_query(
-        "SELECT COUNT(*) FROM traces TIMESERIES 1 hour SINCE 30 days ago",
-    )
-    .await;
+    let result =
+        execute_query("SELECT COUNT(*) FROM traces TIMESERIES 1 hour SINCE 30 days ago").await;
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(col_names.contains(&"time_bucket"), "got: {col_names:?}");
     assert!(
@@ -297,7 +295,8 @@ async fn query_log_severity_facet() {
 /// TOPIC_RATE — publish rate from otel_metrics
 #[tokio::test]
 async fn query_topic_rate() {
-    let result = execute_query("SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 days ago").await;
+    let result =
+        execute_query("SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 days ago").await;
     assert!(
         result.metadata.row_count > 0,
         "TOPIC_RATE should return rows"
@@ -332,7 +331,9 @@ async fn parquet_missing_subdirectory_degrades_gracefully() {
     .unwrap();
 
     let url = tmpdir.path().to_str().unwrap();
-    let backend = SqlBackend::from_parquet(url).await.expect("should succeed with partial fixtures");
+    let backend = SqlBackend::from_parquet(url)
+        .await
+        .expect("should succeed with partial fixtures");
 
     // topic_messages and mcap_metadata subdirectories are absent → capabilities false
     assert!(
@@ -347,7 +348,10 @@ async fn parquet_missing_subdirectory_degrades_gracefully() {
     // Querying traces should still work
     let ast = rosql::parse("FROM traces WHERE status = 'ERROR'").unwrap();
     let opts = ExecOptions::default();
-    let result = backend.execute(&ast, &opts).await.expect("trace query should succeed");
+    let result = backend
+        .execute(&ast, &opts)
+        .await
+        .expect("trace query should succeed");
     assert!(result.metadata.row_count > 0, "expected error traces");
 }
 
