@@ -163,6 +163,12 @@ const config: Config = {
       ],
       copyright: `<span style="opacity:0.6">Licensed under Apache 2.0.</span><br>Copyright © ${new Date().getFullYear()} Robot Ops, Inc.`,
     },
+    algolia: {
+      appId: 'BLRB7LR8ZX',
+      apiKey: '71bcf104dcb7767e7f38986714f0756c',
+      indexName: 'rosql',
+      contextualSearch: true,
+    },
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
