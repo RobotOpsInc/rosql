@@ -13,6 +13,23 @@ ROSQL is designed for **humans** — specifically robotics engineers who know SQ
 - **Every user-facing surface is a design surface.** CLI flags, error messages, docs, and example queries are all part of the language's UX.
 - **Documentation should be intuitive and elegantly communicated.** A user should never encounter a discrepancy between what the docs say and what the code does.
 
+## Before Every Push
+
+Always run these before committing Rust changes — CI enforces both and failures are the most common cause of red builds:
+
+```sh
+cargo fmt            # auto-formats in place; never use --check here, just fix it
+cargo clippy -- -D warnings   # must be clean; fix warnings, don't suppress them
+```
+
+Or run both via:
+
+```sh
+just check           # build + test + clippy + fmt --check + buf-lint
+```
+
+`cargo fmt` is the most frequent CI failure. It reformats long `assert!` messages, chained method calls, and multi-line strings in ways that aren't obvious. Always run it after writing tests.
+
 ## Quick Reference
 
 ```sh
