@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] - 2026-04-11
+
+### Added
+
+- **Algolia DocSearch** — full-text search now available across all docs on rosql.org
+- **Syntax page** — new documentation page covering ROSQL grammar, query forms, clause composition, operators, time expressions, physical units, and case sensitivity rules
+- **DURING test coverage** — parse snapshot tests and compile tests for the `DURING(FROM ...)` standalone compound form; parser gap for `FROM ... DURING(...)` documented and tracked in GH#74
+- **CLAUDE.md** — project conventions file encoding the integrity chain, documentation sync checklist, driver conformance rules, and common pitfalls for AI-assisted development
+
+### Changed
+
+- **Quickstart** — install section redesigned as three tabs (Pre-built binary · cargo install · Build from source); duplicate "Building from source" section removed
+- **REPL** — removed secondary Validate button; fixed light-mode output contrast (dark terminal background now consistent across themes)
+- **Docs aligned with v0.4 code** — corrected all stale examples and references accumulated across v0.4.0–v0.4.5: `MESSAGE JOURNEY` → `TRACE 'id'` in README, homepage, FAQ, examples page, REPL, and quickstart; metric field names updated to canonical OTel names (`rx_rate_hz` → `message_rate`, etc.); resource attribute key corrected to `robot.id`
+- **command-reference** (v0.4) — added SHOW TOPICS, SHOW NODES, SHOW NODE GRAPH, TIMESERIES, ENRICH WITH, FORMAT, BETWEEN, STDDEV; added `system_logs`, `diagnostics`, `tf`, `heartbeats`, `events` data sources
+- **schema-reference** (v0.4 + docs) — complete redesign with backend-specific tabs (PostgreSQL · ClickHouse · Parquet) for all DDL sections; added ClickHouse PascalCase DDL (`DateTime64(9)`, `Map(String, String)`, `MergeTree()`); added Parquet directory layout, glob patterns, and required column tables for each logical table; added two-tab field mapping sections (otel-postgres vs otel-clickhouse) showing exact column name differences; removed standalone Schema profiles section (now embedded in tabs); added full 29-entry metric field alias table from `otel_registry`; added `tf_states`, `robot_heartbeats`, `system_logs`, `ros2_events` table schemas
+- **wasm.mdx** (v0.4) — corrected TypeScript return types for `parse()` and `validate()`; added `compile()` API documentation
+- **cli.mdx** (v0.4) — added `parquet` to `--backend` options; removed undocumented gRPC `Compile` method
+
+### Removed
+
+- **Orphaned test snapshots** — deleted `parse_compound__snapshot_message_journey`, `__snapshot_message_paths`, and `__snapshot_message_path_from_to` (syntax removed in v0.4.1)
+
 ## [0.4.5] - 2026-04-10
 
 ### Added

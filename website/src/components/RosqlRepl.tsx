@@ -8,7 +8,7 @@ const EXAMPLE_QUERIES = [
   },
   {
     label: 'Message causality chain',
-    query: "MESSAGE JOURNEY FOR TRACE 'trace-002'",
+    query: "TRACE 'trace-002'",
   },
   {
     label: 'Error rate by robot',
@@ -207,22 +207,7 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
     }
   }, [query, initDb]);
 
-  const handleValidate = useCallback(() => {
-    if (!rosqlRef.current) return;
-    try {
-      const result = normalize(rosqlRef.current.validate(query)) as { valid: boolean; errors: { message: string }[] };
-      if (result.valid) {
-        setOutput({ kind: 'success', text: '✓ Query is valid' });
-      } else {
-        const msgs = result.errors.map((e) => e.message).join('\n');
-        setOutput({ kind: 'error', text: msgs });
-      }
-    } catch (err) {
-      setOutput({ kind: 'error', text: String(err) });
-    }
-  }, [query]);
-
-  const isRunning = output.kind === 'loading';
+const isRunning = output.kind === 'loading';
   const compiledSql = output.kind === 'success' || output.kind === 'error' ? output.sql : undefined;
 
   const outputText = (() => {
@@ -249,14 +234,11 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
         >
           {isRunning ? '…' : 'Run'}
         </button>
-        <button onClick={handleValidate} disabled={!rosqlReady || isRunning}>
-          Validate
-        </button>
       </div>
       <div className="rosql-repl-panes">
         <div className="rosql-repl-editor" ref={editorRef} />
-        <div className="rosql-repl-output">
-          <pre className={output.kind === 'error' ? 'error' : output.kind === 'success' ? 'success' : ''}>
+        <div className="rosql-repl-output" style={{ background: '#0F0F0F' }}>
+          <pre style={{ color: output.kind === 'success' ? '#6EE7B7' : output.kind === 'error' ? '#FCA5A5' : '#9CA3AF', background: 'transparent' }}>
             {outputText}
           </pre>
           {compiledSql && (

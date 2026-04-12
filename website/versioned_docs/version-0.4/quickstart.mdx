@@ -5,23 +5,26 @@ sidebar_position: 1
 keywords: [rosql, quickstart, install, ros2, cli, query, robotics, parquet]
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Quickstart
 
 Get ROSQL running against your ROS2 telemetry data in under 5 minutes.
 
 ## Install the CLI
 
-### One-liner (Linux x86_64 / arm64 · macOS Apple Silicon)
+<Tabs>
+  <TabItem value="prebuilt" label="Pre-built binary" default>
 
 ```bash
 curl -fsSL https://rosql.org/install.sh | sh
 ```
 
-Pre-built binaries include the Parquet backend out of the box. Once installed, `rosql` will be in `~/.local/bin/`.
+Linux x86_64, Linux arm64, and macOS Apple Silicon. Installs to `~/.local/bin/` with the Parquet backend included.
 
-### Build from source
-
-Windows, Intel Mac, or if you prefer to compile yourself:
+  </TabItem>
+  <TabItem value="cargo" label="cargo install">
 
 ```bash
 # Parquet backend + CLI (recommended — no external database required)
@@ -29,7 +32,29 @@ cargo install rosql --features server,duckdb
 
 # PostgreSQL + CLI
 cargo install rosql --features server,postgres
+
+# Both backends
+cargo install rosql --features server,duckdb,postgres
 ```
+
+Windows, Intel Mac, and all other platforms. Requires Rust stable — [rustup.rs](https://rustup.rs).
+
+  </TabItem>
+  <TabItem value="source" label="Build from source">
+
+```bash
+git clone https://github.com/RobotOpsInc/rosql
+cd rosql
+
+# CLI with Parquet backend
+cargo build --release --features server,duckdb --bin rosql
+
+# CLI with PostgreSQL
+cargo build --release --features server,postgres --bin rosql
+```
+
+  </TabItem>
+</Tabs>
 
 ## Get telemetry data
 
@@ -111,10 +136,10 @@ SINCE 6 hours ago" \
 Trace the full causality chain from any span ID:
 
 ```sql
-MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
+TRACE 'a3f1c9d2e8b04f7a'
 ```
 
-This walks `parent_span_id → span_id` recursively and returns all spans in the causality chain — something plain SQL has no primitive for.
+This walks `parent_span_id → span_id` recursively via a CTE and returns all spans in the causality chain — something plain SQL has no primitive for.
 
 ## Compile to SQL
 
@@ -161,19 +186,6 @@ async fn main() -> anyhow::Result<()> {
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }
-```
-
-## Building from source
-
-```bash
-git clone https://github.com/RobotOpsInc/rosql
-cd rosql
-
-# CLI with Parquet backend
-cargo build --release --features server,duckdb --bin rosql
-
-# CLI with PostgreSQL
-cargo build --release --features server,postgres --bin rosql
 ```
 
 ## Next steps

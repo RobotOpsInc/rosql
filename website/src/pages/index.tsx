@@ -224,7 +224,7 @@ export default function Home(): ReactNode {
               <div className="benefit-card">
                 <Share2 size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
                 <h3>Causality graphs</h3>
-                <p><code>MESSAGE JOURNEY</code> walks the <code>parent_span_id</code> chain recursively — see exactly how a message propagated through your robot's nodes.</p>
+                <p><code>TRACE 'id'</code> walks the <code>parent_span_id</code> chain recursively — see exactly how a message propagated through your robot's nodes.</p>
               </div>
             </div>
           </div>

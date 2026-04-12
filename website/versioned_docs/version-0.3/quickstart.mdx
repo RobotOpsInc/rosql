@@ -5,6 +5,9 @@ sidebar_position: 1
 keywords: [rosql, quickstart, install, ros2, cli, query, robotics]
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Quickstart
 
 Get ROSQL running against your ROS2 telemetry data in under 5 minutes.
@@ -16,11 +19,33 @@ Get ROSQL running against your ROS2 telemetry data in under 5 minutes.
 
 ## Install the CLI
 
+<Tabs>
+  <TabItem value="cargo" label="cargo install" default>
+
 ```bash
+# PostgreSQL + CLI
 cargo install rosql --features server,postgres
+
+# MySQL/MariaDB + CLI
+cargo install rosql --features server,mysql
 ```
 
-This builds the `rosql` binary with the PostgreSQL driver and gRPC server. Replace `postgres` with `mysql` for MySQL/MariaDB.
+  </TabItem>
+  <TabItem value="source" label="Build from source">
+
+```bash
+git clone https://github.com/RobotOpsInc/rosql
+cd rosql
+
+# CLI binary
+cargo build --release --features server --bin rosql
+
+# CLI with PostgreSQL
+cargo build --release --features server,postgres --bin rosql
+```
+
+  </TabItem>
+</Tabs>
 
 ## Your first query
 
@@ -126,22 +151,6 @@ async fn main() -> anyhow::Result<()> {
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }
-```
-
-## Building from source
-
-```bash
-git clone https://github.com/RobotOpsInc/rosql
-cd rosql
-
-# Library only (default)
-cargo build --release
-
-# CLI binary
-cargo build --release --features server --bin rosql
-
-# CLI with PostgreSQL query execution
-cargo build --release --features server,postgres --bin rosql
 ```
 
 ## Next steps

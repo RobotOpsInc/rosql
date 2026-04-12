@@ -14,8 +14,7 @@ export default function Playground(): ReactNode {
           <p style={{ fontSize: '1rem', color: 'var(--ifm-color-emphasis-700)', marginBottom: '1.5rem' }}>
             Parse and validate ROSQL queries in the browser using the{' '}
             <a href="/docs/wasm"><code>@robotops/rosql</code></a> WASM package.
-            Select an example or write your own query, then click <strong>Parse</strong> to see the AST
-            or <strong>Validate</strong> to check for syntax errors.
+            Select an example or write your own query, then click <strong>Run</strong> to execute it against sample data.
           </p>
           <p style={{ fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-600)', marginBottom: '2rem', fontStyle: 'italic' }}>
             Note: this playground parses queries only — it does not connect to a database. To execute queries

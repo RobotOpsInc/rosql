@@ -1,0 +1,311 @@
+---
+title: Syntax
+description: ROSQL grammar reference — query forms, clause composition, expressions, operators, units, and quoting rules
+sidebar_position: 6
+keywords: [rosql, syntax, grammar, query, pipeline, operators, units, expressions, clauses]
+---
+
+# Syntax
+
+This page describes the grammar rules for composing ROSQL queries. For individual clause details, see [Command Reference](./command-reference). For practical recipes, see [Cookbook](./cookbook).
+
+---
+
+## Query forms
+
+ROSQL has three top-level query shapes:
+
+### Standard form
+
+SQL-like. Clauses can appear in any order (the parser is order-independent).
+
+```sql
+SELECT AVG(duration) FROM traces
+WHERE status = 'ERROR'
+SINCE 1 hour ago
+FACET robot_id
+ORDER BY avg_dur DESC
+LIMIT 10
+```
+
+### Pipeline form
+
+Pipe-separated stages, processed left-to-right. `FROM` must be the first stage. Each stage is introduced by its keyword.
+
+```sql
+FROM traces
+| WHERE status = 'ERROR'
+| SELECT AVG(duration)
+| SINCE 1 hour ago
+| FACET robot_id
+| ORDER BY avg_dur DESC
+| LIMIT 10
+```
+
+Standard and pipeline forms produce identical results — they are two ways to write the same query.
+
+### Compound form
+
+Self-contained commands with fixed structure. These are ROSQL-specific and do not follow the SELECT/FROM pattern.
+
+```sql
+TRACE 'a3f1c9d2'
+HEALTH() FOR ROBOT 'robot_42'
+SHOW SPAN SUMMARY SINCE 1 hour ago
+```
+
+---
+
+## Clause composition
+
+Every clause is optional except `FROM` in standard/pipeline form. Clauses compose freely — multiple `FOR` clauses AND together.
+
+| Clause | Required? | Standard | Pipeline | Notes |
+|---|---|---|---|---|
+| `FROM` | Yes | ✓ | First stage | Data source |
+| `SELECT` | No | ✓ | ✓ | Default: all fields |
+| `WHERE` | No | ✓ | ✓ | Row filter; stacks in pipeline |
+| `FOR` | No | ✓ | ✓ | Scope (robot/fleet/version/env/session); composable |
+| `SINCE` / `BETWEEN` | No | ✓ | ✓ | Time range |
+| `USING` | No | ✓ | ✓ | Clock basis (ROS_TIME / WALL_TIME) |
+| `FACET` | No | ✓ | ✓ | Group by dimension |
+| `ORDER BY` | No | ✓ | ✓ | Sort |
+| `LIMIT` / `OFFSET` | No | ✓ | ✓ | Pagination |
+| `TIMESERIES` | No | ✓ | ✓ | Time-bucketed aggregation |
+| `COMPARE TO` | No | ✓ | ✓ | Baseline comparison |
+| `DURING()` | No | ✓ | ✓ | Temporal correlation subquery |
+| `FORMAT` | No | ✓ | ✓ | Override output format |
+
+---
+
+## Data sources
+
+| Source | Underlying table | Notes |
+|---|---|---|
+| `traces` | `otel_traces` | |
+| `logs` | `otel_logs` | |
+| `metrics` | `otel_metrics` | |
+| `topics` | `topic_messages` | |
+| `recordings` | `mcap_metadata` | |
+| `odom` | `topic_messages` | alias — filters `topic_name = '/odom'` |
+| `joint_states` | `topic_messages` | alias — filters `topic_name = '/joint_states'` |
+| `battery` | `topic_messages` | alias — filters `topic_name = '/battery_state'` |
+| `cmd_vel` | `topic_messages` | alias — filters `topic_name = '/cmd_vel'` |
+| `imu` | `topic_messages` | alias — filters `topic_name = '/imu/data'` |
+
+Custom topic aliases can also be defined in your [schema profile](./schema-reference#topic-aliases).
+
+---
+
+## Expressions
+
+Expressions appear in `SELECT` lists, `WHERE` conditions, and aggregation arguments.
+
+| Kind | Syntax | Example |
+|---|---|---|
+| Bare field | identifier | `duration`, `status`, `robot_id` |
+| Dotted path | `a.b` | `ros.node` |
+| Map / JSON access | `field['key']` | `fields['http.method']` |
+| Array-indexed | `field['name[n]']` | `fields['position[0]']` |
+| Integer literal | bare number | `100`, `-3` |
+| Float literal | decimal | `3.14`, `-0.5` |
+| String literal | single-quoted | `'ERROR'`, `'/navigate_to_pose'` |
+| Boolean | keyword | `TRUE`, `FALSE` |
+| Null | keyword | `NULL` |
+| Unit value | number + unit suffix | `500 ms`, `2 m`, `45 deg` |
+| Arithmetic | `a + b`, `a - b`, `a * b`, `a / b` | `duration / 1000000` |
+| Aggregation call | `FN(expr)` | `AVG(duration)`, `COUNT(*)` |
+| Alias | `expr AS name` | `AVG(duration) AS avg_dur` |
+
+Unit values are automatically normalized to SI base units at parse time (e.g., `500 ms` becomes `500000000` nanoseconds internally). See [Physical units](#physical-units).
+
+---
+
+## Operators and precedence
+
+### Comparison
+
+`=` `!=` `<` `>` `<=` `>=`
+
+### Logical
+
+Evaluated in this order (highest to lowest precedence):
+
+1. `NOT`
+2. `AND`
+3. `OR`
+
+Use parentheses to override:
+
+```sql
+-- AND binds tighter than OR, so these are equivalent:
+WHERE a = 1 AND b = 2 OR c = 3
+WHERE (a = 1 AND b = 2) OR c = 3
+
+-- Use parens to change grouping:
+WHERE a = 1 AND (b = 2 OR c = 3)
+```
+
+### Special predicates
+
+| Operator | Example |
+|---|---|
+| `IN (...)` | `WHERE status IN ('ERROR', 'TIMEOUT')` |
+| `LIKE '...'` | `WHERE action_name LIKE '/nav%'` |
+| `BETWEEN ... AND ...` | `WHERE duration BETWEEN 100 ms AND 2 s` |
+| `IS NULL` | `WHERE parent_span_id IS NULL` |
+| `IS NOT NULL` | `WHERE error_message IS NOT NULL` |
+
+### Arithmetic
+
+`+`, `-`, `*`, `/` are all evaluated at the same precedence level, left-to-right. Use parentheses to enforce order.
+
+---
+
+## Quoting rules
+
+| Use | Quote style | Example |
+|---|---|---|
+| String values | Single quotes `'...'` | `'robot_42'`, `'ERROR'` |
+| Identifiers (fields, sources) | No quotes | `duration`, `traces` |
+
+ROSQL does not support double quotes or backticks. String literals cannot contain embedded single quotes.
+
+---
+
+## Time expressions
+
+Time expressions are used with `SINCE`, `BETWEEN`, and lifecycle anchors.
+
+### Relative
+
+```sql
+SINCE 30 minutes ago
+SINCE 1 hour ago
+SINCE 7 days ago
+SINCE yesterday
+```
+
+Supported units: `nanoseconds`, `microseconds`, `milliseconds`, `seconds`, `minutes`, `hours`, `days`, `weeks` and their SI abbreviations (`ns`, `us`, `ms`, `s`, `min`, `h`).
+
+### Absolute (ISO 8601)
+
+```sql
+SINCE '2026-03-25T00:00:00Z'
+BETWEEN '2026-03-01T00:00:00Z' AND '2026-04-01T00:00:00Z'
+```
+
+### Unix epoch
+
+Bare integers are auto-detected by digit count: 10 digits = seconds, 13 = milliseconds, 19 = nanoseconds.
+
+### Lifecycle anchors
+
+```sql
+SINCE last deployment
+SINCE last robot restart
+SINCE last action failure
+SINCE last topic drop
+SINCE last diagnostic warning
+```
+
+### Time basis
+
+Append `USING ROS_TIME` or `USING WALL_TIME` to select which clock to use. Default is wall time.
+
+```sql
+FROM topics WHERE topic_name = '/odom' SINCE 1 hour ago USING ROS_TIME
+```
+
+---
+
+## Physical units
+
+A numeric literal followed by a unit suffix is a *unit value*. The parser normalizes it to the SI base unit at parse time — the stored value is always in SI, so comparisons work across unit systems.
+
+```sql
+WHERE duration > 500 ms    -- parsed as: duration > 500000000 (nanoseconds)
+WHERE distance < 2 km      -- parsed as: distance < 2000 (meters)
+WHERE angle < 45 deg       -- parsed as: angle < 0.785398 (radians)
+```
+
+Supported unit categories:
+
+| Category | Units | SI base |
+|---|---|---|
+| Time | `ns` `us` `ms` `s` `min` `h` `days` | `s` |
+| Distance | `mm` `cm` `m` `km` `in` `ft` `mi` `nmi` | `m` |
+| Velocity | `mm/s` `cm/s` `m/s` `km/h` `mph` `knots` | `m/s` |
+| Angle | `deg` `rad` `mrad` `°` | `rad` |
+| Angular velocity | `rad/s` `deg/s` `rpm` | `rad/s` |
+| Frequency | `Hz` `kHz` | `Hz` |
+| Electrical | `mV` `V` `kV` `mA` `A` `mW` `W` `kW` | `V` / `A` / `W` |
+| Temperature | `°C` `°F` `K` | `K` |
+| Memory | `B` `KB` `MB` `GB` | `B` |
+| Bandwidth | `B/s` `KB/s` `MB/s` `GB/s` | `B/s` |
+| Pressure | `Pa` `kPa` `MPa` `bar` `psi` | `Pa` |
+| Force / Torque | `N` `kN` `Nm` `lb-ft` | `N` / `Nm` |
+| Geographic | `lat` `lon` `lng` | (dimensionless) |
+
+---
+
+## Pipeline equivalence
+
+Standard and pipeline forms compile to the same AST. Use whichever reads more naturally for your use case.
+
+```sql
+-- Standard form
+SELECT AVG(duration) AS avg_dur FROM traces
+WHERE status = 'ERROR'
+FOR ROBOT 'scout_1'
+SINCE 1 hour ago
+FACET action_name
+ORDER BY avg_dur DESC
+LIMIT 5
+
+-- Pipeline form (identical result)
+FROM traces
+| WHERE status = 'ERROR'
+| FOR ROBOT 'scout_1'
+| SINCE 1 hour ago
+| SELECT AVG(duration) AS avg_dur
+| FACET action_name
+| ORDER BY avg_dur DESC
+| LIMIT 5
+```
+
+---
+
+## Comments
+
+Single-line comments only. Use `--` through the end of the line. Block comments are not supported.
+
+```sql
+-- Find slow navigation actions in the last hour
+FROM traces
+WHERE action_name = '/navigate_to_pose'  -- ROS2 Nav2 action
+  AND duration > 2 s
+SINCE 1 hour ago
+```
+
+---
+
+## Case sensitivity
+
+| Element | Case-sensitive? |
+|---|---|
+| Keywords (`SELECT`, `FROM`, `WHERE`, …) | No |
+| Data source names (`traces`, `logs`, …) | No |
+| String values (`'ERROR'`, `'robot_1'`, …) | Yes |
+| Field names (`duration`, `robot_id`, …) | Yes |
+
+---
+
+## Read-only language
+
+ROSQL is strictly read-only. Mutation keywords are rejected at parse time:
+
+| Keyword | Error |
+|---|---|
+| `INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE` | `MutationRejected` |
+| `ALERT`, `DEFINE`, `SLO`, `WHEN` | `ReservedSyntax` (planned features) |

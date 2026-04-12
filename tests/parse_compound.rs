@@ -36,6 +36,29 @@ fn message_path_removed() {
     );
 }
 
+// ── DURING ──────────────────────────────────────────────────────────────────
+// DURING is a compound clause. Standalone `DURING(FROM ...)` is fully supported.
+// The combined form `FROM traces WHERE ... DURING(...)` is not yet wired in the
+// standard-query parser — the DURING portion is silently dropped there.
+
+#[test]
+fn snapshot_during_basic() {
+    let ast = parse(
+        "DURING(FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15) \
+         SINCE 6 hours ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_during_with_since_in_subquery() {
+    let ast =
+        parse("DURING(FROM metrics WHERE metric_name = 'system.cpu.utilization' SINCE 1 hour ago)")
+            .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
 // ── Active compound clauses ──────────────────────────────────────────────────
 
 #[test]

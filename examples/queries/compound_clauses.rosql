@@ -7,6 +7,21 @@
 FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 
 -- ============================================================================
+-- DURING — cross-signal temporal correlation
+-- Returns otel_traces rows whose timestamp falls within windows where the
+-- subquery matched. No JOINs required.
+-- Standalone compound form: DURING(FROM source WHERE ...) [SINCE ...]
+-- ============================================================================
+DURING(
+  FROM topics WHERE topic_name = '/battery_state'
+  AND fields['percentage'] < 15
+) SINCE 6 hours ago
+
+-- DURING with metrics subquery
+DURING(FROM metrics WHERE metric_name = 'system.cpu.utilization' AND metric_value > 90)
+SINCE 1 hour ago
+
+-- ============================================================================
 -- TRACE — recursive span tree walk for the full causality chain
 -- Follows ParentSpanId links to show how a message propagated through nodes.
 -- ============================================================================
