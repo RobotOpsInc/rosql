@@ -53,10 +53,9 @@ fn snapshot_during_basic() {
 
 #[test]
 fn snapshot_during_with_since_in_subquery() {
-    let ast = parse(
-        "DURING(FROM metrics WHERE metric_name = 'system.cpu.utilization' SINCE 1 hour ago)",
-    )
-    .unwrap();
+    let ast =
+        parse("DURING(FROM metrics WHERE metric_name = 'system.cpu.utilization' SINCE 1 hour ago)")
+            .unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
 

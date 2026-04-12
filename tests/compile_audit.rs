@@ -767,9 +767,18 @@ fn during_compiles_to_exists_subquery_postgres() {
         SqlDialect::PostgreSQL,
     );
     // DURING should produce a EXISTS subquery against the inner data source
-    assert!(sql.contains("topic_messages"), "expected topic_messages in DURING subquery, got: {sql}");
-    assert!(sql.contains("otel_traces"), "expected outer otel_traces, got: {sql}");
-    assert!(sql.contains("battery_state"), "expected topic filter, got: {sql}");
+    assert!(
+        sql.contains("topic_messages"),
+        "expected topic_messages in DURING subquery, got: {sql}"
+    );
+    assert!(
+        sql.contains("otel_traces"),
+        "expected outer otel_traces, got: {sql}"
+    );
+    assert!(
+        sql.contains("battery_state"),
+        "expected topic filter, got: {sql}"
+    );
 }
 
 #[test]
@@ -778,8 +787,14 @@ fn during_compiles_to_exists_subquery_duckdb() {
         "DURING(FROM metrics WHERE metric_name = 'system.cpu.utilization')",
         SqlDialect::DuckDB,
     );
-    assert!(sql.contains("otel_metrics"), "expected otel_metrics in DURING subquery, got: {sql}");
-    assert!(sql.contains("otel_traces"), "expected outer otel_traces, got: {sql}");
+    assert!(
+        sql.contains("otel_metrics"),
+        "expected otel_metrics in DURING subquery, got: {sql}"
+    );
+    assert!(
+        sql.contains("otel_traces"),
+        "expected outer otel_traces, got: {sql}"
+    );
 }
 
 // ── TIMESERIES ───────────────────────────────────────────────────────────────
