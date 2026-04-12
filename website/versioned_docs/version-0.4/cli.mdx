@@ -55,7 +55,7 @@ LIMIT 100
 ```
 
 Flags:
-- `--backend` — target SQL dialect: `postgres`, `mysql` (required)
+- `--backend` — target SQL dialect: `postgres`, `mysql`, `parquet` (required)
 - `--schema` — column naming profile: `otel-postgres` (default), `otel-clickhouse`
 
 ---
@@ -71,8 +71,8 @@ rosql query "FROM traces WHERE status = 'ERROR'" \
 ```
 
 Flags:
-- `--backend` — driver: `postgres`, `mysql` (required)
-- `--url` — database connection string (required)
+- `--backend` — driver: `postgres`, `mysql`, `parquet` (required)
+- `--url` — database connection string or local/S3 path (required)
 - `--schema` — column naming profile
 
 ---
@@ -130,7 +130,6 @@ rosql serve --socket /run/rosql/rosql.sock
 
 The server exposes the `ParserService` proto interface (defined in `proto/rosql/v1/`). It accepts:
 - `Parse` — parse a query
-- `Compile` — compile to SQL
 - `Validate` — validate syntax
 - `GetCompletions` — get autocomplete suggestions
 

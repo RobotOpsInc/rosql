@@ -8,7 +8,7 @@ const EXAMPLE_QUERIES = [
   },
   {
     label: 'Message causality chain',
-    query: "MESSAGE JOURNEY FOR TRACE 'trace-002'",
+    query: "TRACE 'trace-002'",
   },
   {
     label: 'Error rate by robot',

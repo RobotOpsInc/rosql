@@ -90,10 +90,10 @@ SINCE 6 hours ago
 
 > `duration` is stored as nanoseconds (`BIGINT`). 1423187000 ns ≈ 1.42 s.
 
-Or trace the full message causality chain from a single span — something SQL has no primitive for. `MESSAGE JOURNEY` walks `parent_span_id → span_id` recursively and returns all columns from `otel_traces`:
+Or trace the full message causality chain from a single span — something SQL has no primitive for. `TRACE 'id'` walks `parent_span_id → span_id` recursively and returns all columns from `otel_traces`:
 
 ```sql
-MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
+TRACE 'a3f1c9d2e8b04f7a'
 ```
 
 ```json
@@ -134,7 +134,7 @@ rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
 rosql compile "FROM traces WHERE duration > 500 ms" --backend parquet
 
 # Trace a message causality chain
-rosql query "MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'" \
+rosql query "TRACE 'a3f1c9d2e8b04f7a'" \
   --backend postgres --url postgresql://user:pass@localhost:5432/telemetry
 ```
 

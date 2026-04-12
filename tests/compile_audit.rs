@@ -753,6 +753,35 @@ fn show_topics_not_limit_exempt() {
     assert!(!applied, "SHOW TOPICS should be limit-exempt");
 }
 
+// ── DURING ───────────────────────────────────────────────────────────────────
+// Note: DURING is parsed as a standalone compound clause. The form
+// `FROM traces WHERE ... DURING(...)` is not yet supported by the parser —
+// the DURING clause is silently dropped and the query compiles as a plain
+// standard query. Tests below use standalone DURING where the compiler is active.
+
+#[test]
+fn during_compiles_to_exists_subquery_postgres() {
+    let sql = compile_sql(
+        "DURING(FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15) \
+         SINCE 6 hours ago",
+        SqlDialect::PostgreSQL,
+    );
+    // DURING should produce a EXISTS subquery against the inner data source
+    assert!(sql.contains("topic_messages"), "expected topic_messages in DURING subquery, got: {sql}");
+    assert!(sql.contains("otel_traces"), "expected outer otel_traces, got: {sql}");
+    assert!(sql.contains("battery_state"), "expected topic filter, got: {sql}");
+}
+
+#[test]
+fn during_compiles_to_exists_subquery_duckdb() {
+    let sql = compile_sql(
+        "DURING(FROM metrics WHERE metric_name = 'system.cpu.utilization')",
+        SqlDialect::DuckDB,
+    );
+    assert!(sql.contains("otel_metrics"), "expected otel_metrics in DURING subquery, got: {sql}");
+    assert!(sql.contains("otel_traces"), "expected outer otel_traces, got: {sql}");
+}
+
 // ── TIMESERIES ───────────────────────────────────────────────────────────────
 
 #[test]

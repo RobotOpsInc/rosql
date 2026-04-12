@@ -1,0 +1,42 @@
+---
+source: tests/parse_compound.rs
+assertion_line: 51
+expression: ast
+---
+Compound:
+  clause:
+    During:
+      inner_source: Topics
+      inner_conditions:
+        And:
+          - Comparison:
+              left:
+                Field: topic_name
+              op: Eq
+              right:
+                Literal:
+                  String: /battery_state
+          - Comparison:
+              left:
+                FieldAccess:
+                  base: fields
+                  key: percentage
+              op: Lt
+              right:
+                Literal:
+                  Integer: 15
+      inner_time_range: ~
+  scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 6
+        unit: hours
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

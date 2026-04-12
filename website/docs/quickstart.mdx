@@ -122,7 +122,7 @@ SINCE 6 hours ago" \
 Trace the full causality chain from any span ID:
 
 ```sql
-MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
+TRACE 'a3f1c9d2e8b04f7a'
 ```
 
 This walks `parent_span_id → span_id` recursively and returns all spans in the causality chain — something plain SQL has no primitive for.

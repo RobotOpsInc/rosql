@@ -29,7 +29,7 @@ const FAQS: FaqItem[] = [
       <>
         No — ROSQL <em>compiles to SQL</em> and other database languages. When you write a ROSQL query, the library parses it and generates
         the equivalent query for your target database. ROSQL adds robotics semantics on top of SQL: duration
-        units, <code>DURING()</code> cross-signal correlation, <code>MESSAGE JOURNEY</code> causality traversal,
+        units, <code>DURING()</code> cross-signal correlation, <code>TRACE 'id'</code> causality traversal,
         <code>TOPIC_RATE()</code>, <code>ACTION_SUCCESS_RATE()</code>, <code>MOVING_AVG()</code>, and more. You can use <code>rosql compile</code> to
         see exactly what SQL a ROSQL query generates.
       </>
@@ -52,7 +52,7 @@ const FAQS: FaqItem[] = [
             from the <a href="/docs/schema-reference">Schema Reference</a>.
           </li>
         </ul>
-        The <code>MESSAGE JOURNEY</code> feature additionally requires that your instrumentation sets
+        The <code>TRACE 'id'</code> command additionally requires that your instrumentation sets
         the publish span's <code>SpanId</code> as the <code>ParentSpanId</code> of the subscribe span.
       </>
     ),

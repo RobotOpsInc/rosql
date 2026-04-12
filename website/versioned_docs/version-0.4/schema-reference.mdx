@@ -41,12 +41,12 @@ These resource attributes are set at the SDK/bridge level and enable `FOR` claus
 
 | Attribute | Type | Example | Used by ROSQL for |
 |-----------|------|---------|-------------------|
-| `robot_id` | string | `robot_42` | `FOR ROBOT` scoping |
+| `robot.id` | string | `robot_42` | `FOR ROBOT` scoping |
 | `service.version` | string | `v1.2.3` | `FOR VERSION` scoping |
 | `deployment.environment` | string | `production` | `FOR ENVIRONMENT` scoping |
 | `ros.session.id` | string | `sess_abc123` | `FOR SESSION` scoping |
 
-### ParentSpanId convention for TRACE
+### ParentSpanId convention for `TRACE`
 
 The publish span's `SpanId` must be set as the `ParentSpanId` of the corresponding subscribe span. This creates the causal chain that `TRACE` traverses recursively via a CTE.
 
@@ -64,11 +64,35 @@ Implementing this correctly requires middleware-level instrumentation — it can
 
 | Metric name | Unit | Description |
 |-------------|------|-------------|
-| `ros2.topic.rx_rate_hz` | Hz | Topic receive rate |
-| `ros2.topic.rx_bandwidth_bps` | B/s | Topic bandwidth |
-| `ros2.topic.last_message_age_ms` | ms | Age of last received message |
-| `system.cpu.total_usage_pct` | % | Total CPU usage |
-| `system.memory.usage_pct` | % | Memory usage |
+| `ros2.topic.message_rate` | Hz | Topic publish rate |
+| `ros2.topic.bandwidth` | B/s | Topic bandwidth |
+| `ros2.topic.messages_received` | — | Messages received by subscribers |
+| `ros2.topic.messages_captured` | — | Messages captured (e.g. by recorder) |
+| `ros2.topic.messages_filtered` | — | Messages filtered/dropped |
+| `ros2.action_servers.count` | — | Active action server count |
+| `ros2.services.count` | — | Active service count |
+| `ros2.action.queued_goals` | — | Queued action goals |
+| `ros2.action.active_goals` | — | Active action goals |
+| `ros2.action.completion_rate` | Hz | Action completion rate |
+| `system.cpu.utilization` | % | Total CPU utilization |
+| `system.memory.utilization` | % | Memory utilization |
+| `system.memory.usage` | B | Memory usage in bytes |
+| `system.filesystem.utilization` | % | Disk utilization |
+| `system.filesystem.usage` | B | Disk usage in bytes |
+| `system.disk.io` | B/s | Disk I/O throughput |
+| `system.disk.operations` | ops/s | Disk IOPS |
+| `system.network.io` | B/s | Network I/O throughput |
+| `system.network.packets` | packets/s | Network packet rate |
+| `system.network.latency` | ms | Network latency |
+| `system.network.jitter` | ms | Network jitter |
+| `system.network.packet_loss` | % | Packet loss rate |
+| `system.temperature` | °C | System temperature |
+| `system.battery.charge` | % | Battery state of charge |
+| `system.battery.voltage` | V | Battery voltage |
+| `system.battery.current` | A | Battery current draw |
+| `system.battery.temperature` | °C | Battery temperature |
+| `process.cpu.utilization` | % | Per-process CPU utilization |
+| `process.memory.usage` | B | Per-process memory usage |
 
 ---
 
@@ -196,6 +220,20 @@ Used by: `SHOW JOINTS`, `JOINT DEVIATION`
 
 ---
 
+### Additional tables (optional)
+
+These tables power the additional data sources. If absent, ROSQL returns a `DataSourceUnavailable` error.
+
+| ROSQL source | Table | Description |
+|---|---|---|
+| `FROM tf` | `tf_states` | ROS2 TF transform data |
+| `FROM heartbeats` | `robot_heartbeats` | Robot heartbeat / liveness data |
+| `FROM system_logs` | `system_logs` | System-level log events (OS/kernel) |
+| `FROM diagnostics` | `otel_metrics` | ROS2 diagnostic messages (maps to metrics) |
+| `FROM events` | `ros2_events` | ROS2 lifecycle and state machine events |
+
+---
+
 ## ROSQL field mappings
 
 ### From `otel_traces`
@@ -213,7 +251,7 @@ Used by: `SHOW JOINTS`, `JOINT DEVIATION`
 | `action_name` | `span_attributes->>'ros.action.name'` | — |
 | `action_status` | `span_attributes->>'ros.action.status'` | — |
 | `topic` | `span_attributes->>'ros.topic'` | — |
-| `robot_id` | `resource_attributes->>'robot_id'` | — |
+| `robot_id` | `resource_attributes->>'robot.id'` | — |
 | `version` | `resource_attributes->>'service.version'` | — |
 | `environment` | `resource_attributes->>'deployment.environment'` | — |
 | `session_id` | `resource_attributes->>'ros.session.id'` | — |
@@ -224,10 +262,35 @@ Used by: `SHOW JOINTS`, `JOINT DEVIATION`
 |-------------|------------|-------------|
 | `metric_name` | `metric_name` | — |
 | `metric_value` | `value` | varies |
-| `publish_rate` | `value` WHERE `metric_name = 'ros2.topic.rx_rate_hz'` | Hz |
-| `bandwidth` | `value` WHERE `metric_name = 'ros2.topic.rx_bandwidth_bps'` | B/s |
-| `cpu_usage` | `value` WHERE `metric_name = 'system.cpu.total_usage_pct'` | % |
-| `memory_usage` | `value` WHERE `metric_name = 'system.memory.usage_pct'` | % |
+| `publish_rate` | `value` WHERE `metric_name = 'ros2.topic.message_rate'` | Hz |
+| `bandwidth` | `value` WHERE `metric_name = 'ros2.topic.bandwidth'` | B/s |
+| `messages_received` | `value` WHERE `metric_name = 'ros2.topic.messages_received'` | — |
+| `messages_captured` | `value` WHERE `metric_name = 'ros2.topic.messages_captured'` | — |
+| `messages_filtered` | `value` WHERE `metric_name = 'ros2.topic.messages_filtered'` | — |
+| `action_servers_count` | `value` WHERE `metric_name = 'ros2.action_servers.count'` | — |
+| `services_count` | `value` WHERE `metric_name = 'ros2.services.count'` | — |
+| `queued_goals` | `value` WHERE `metric_name = 'ros2.action.queued_goals'` | — |
+| `active_goals` | `value` WHERE `metric_name = 'ros2.action.active_goals'` | — |
+| `completion_rate` | `value` WHERE `metric_name = 'ros2.action.completion_rate'` | Hz |
+| `cpu_usage` | `value` WHERE `metric_name = 'system.cpu.utilization'` | % |
+| `memory_usage` | `value` WHERE `metric_name = 'system.memory.utilization'` | % |
+| `memory_bytes` | `value` WHERE `metric_name = 'system.memory.usage'` | B |
+| `disk_usage` | `value` WHERE `metric_name = 'system.filesystem.utilization'` | % |
+| `disk_bytes` | `value` WHERE `metric_name = 'system.filesystem.usage'` | B |
+| `disk_io` | `value` WHERE `metric_name = 'system.disk.io'` | B/s |
+| `disk_iops` | `value` WHERE `metric_name = 'system.disk.operations'` | ops/s |
+| `network_io` | `value` WHERE `metric_name = 'system.network.io'` | B/s |
+| `network_packets` | `value` WHERE `metric_name = 'system.network.packets'` | packets/s |
+| `network_latency` | `value` WHERE `metric_name = 'system.network.latency'` | ms |
+| `network_jitter` | `value` WHERE `metric_name = 'system.network.jitter'` | ms |
+| `packet_loss` | `value` WHERE `metric_name = 'system.network.packet_loss'` | % |
+| `temperature` | `value` WHERE `metric_name = 'system.temperature'` | °C |
+| `battery_charge` | `value` WHERE `metric_name = 'system.battery.charge'` | % |
+| `battery_voltage` | `value` WHERE `metric_name = 'system.battery.voltage'` | V |
+| `battery_current` | `value` WHERE `metric_name = 'system.battery.current'` | A |
+| `battery_temperature` | `value` WHERE `metric_name = 'system.battery.temperature'` | °C |
+| `process_cpu` | `value` WHERE `metric_name = 'process.cpu.utilization'` | % |
+| `process_memory` | `value` WHERE `metric_name = 'process.memory.usage'` | B |
 
 ### From `otel_logs`
 

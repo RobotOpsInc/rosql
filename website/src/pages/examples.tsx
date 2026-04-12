@@ -33,15 +33,15 @@ SINCE 6 hours ago`,
   {
     title: 'Trace the full message causality chain',
     description:
-      'MESSAGE JOURNEY walks parent_span_id → span_id recursively and returns every span in the causality tree. This reveals exactly which nodes were involved and in what order — something plain SQL has no primitive for.',
-    query: "MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'",
+      'TRACE walks parent_span_id → span_id recursively and returns every span in the causality tree. This reveals exactly which nodes were involved and in what order — something plain SQL has no primitive for.',
+    query: "TRACE 'a3f1c9d2e8b04f7a'",
     note: 'Requires ParentSpanId to be set correctly in your OTel instrumentation. See Schema Reference for details.',
   },
   {
     title: 'Find all message paths for a topic',
     description:
-      'MESSAGE PATHS reveals which nodes published and subscribed to a given topic. Useful for understanding your robot\'s communication graph.',
-    query: "MESSAGE PATHS FOR TOPIC '/cmd_vel'",
+      'MESSAGE FLOW reveals which nodes published and subscribed to a given topic. Useful for understanding your robot\'s communication graph.',
+    query: "MESSAGE FLOW FROM TOPIC '/cmd_vel'",
   },
   {
     title: 'Error rate by robot (health dashboard)',
