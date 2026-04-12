@@ -5,36 +5,56 @@ sidebar_position: 1
 keywords: [rosql, quickstart, install, ros2, cli, query, robotics, parquet]
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Quickstart
 
 Get ROSQL running against your ROS2 telemetry data in under 5 minutes.
 
 ## Install the CLI
 
-### One-liner (Linux x86_64 / arm64, macOS Apple Silicon)
+<Tabs>
+  <TabItem value="prebuilt" label="Pre-built binary" default>
 
 ```bash
 curl -fsSL https://rosql.org/install.sh | sh
 ```
 
-Pre-built binaries include the Parquet backend out of the box. Once installed, `rosql` will be in `~/.local/bin/`.
+Linux x86_64, Linux arm64, and macOS Apple Silicon. Installs to `~/.local/bin/` with the Parquet backend included.
 
-### Build from source (all platforms)
+  </TabItem>
+  <TabItem value="cargo" label="cargo install">
 
 ```bash
-# Parquet backend + CLI (recommended — works without an external database)
+# Parquet backend + CLI (recommended — no external database required)
 cargo install rosql --features server,duckdb
 
 # PostgreSQL + CLI
 cargo install rosql --features server,postgres
 
-# Multiple backends
+# Both backends
 cargo install rosql --features server,duckdb,postgres
 ```
 
-:::note Windows / Intel Mac
-Pre-built binaries are not available for Windows or Intel Macs. Use `cargo install` above.
-:::
+Windows, Intel Mac, and all other platforms. Requires Rust stable — [rustup.rs](https://rustup.rs).
+
+  </TabItem>
+  <TabItem value="source" label="Build from source">
+
+```bash
+git clone https://github.com/RobotOpsInc/rosql
+cd rosql
+
+# CLI with Parquet backend
+cargo build --release --features server,duckdb --bin rosql
+
+# CLI with PostgreSQL
+cargo build --release --features server,postgres --bin rosql
+```
+
+  </TabItem>
+</Tabs>
 
 ## Your first query — local Parquet files
 
@@ -172,22 +192,6 @@ async fn main() -> anyhow::Result<()> {
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }
-```
-
-## Building from source
-
-```bash
-git clone https://github.com/RobotOpsInc/rosql
-cd rosql
-
-# Library only (default)
-cargo build --release
-
-# CLI with Parquet backend (--backend parquet)
-cargo build --release --features server,duckdb --bin rosql
-
-# CLI with PostgreSQL
-cargo build --release --features server,postgres --bin rosql
 ```
 
 ## Next steps
