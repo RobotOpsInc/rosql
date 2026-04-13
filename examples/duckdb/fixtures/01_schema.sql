@@ -1,6 +1,8 @@
 -- ROSQL example schema — DuckDB-compatible version of the OTel tables.
 -- Adapted from examples/postgres/fixtures/01_schema.sql
 -- Changes: JSONB → JSON, TEXT[] → VARCHAR[]
+-- v2: added trace_id to topic_messages (for PATH DEVIATION FOR TRACE),
+--     added ros2_events table (for SHOW DEPLOYMENTS and node lifecycle events)
 
 CREATE TABLE IF NOT EXISTS otel_traces (
     timestamp           TIMESTAMPTZ NOT NULL,
@@ -33,13 +35,15 @@ CREATE TABLE IF NOT EXISTS otel_metrics (
     metric_name  TEXT NOT NULL,
     value        DOUBLE PRECISION NOT NULL,
     attributes   JSON NOT NULL DEFAULT '{}',
-    service_name TEXT NOT NULL DEFAULT ''
+    service_name TEXT NOT NULL DEFAULT '',
+    resource_attributes JSON NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS topic_messages (
     robot_id     TEXT NOT NULL,
     topic_name   TEXT NOT NULL,
     timestamp    TIMESTAMPTZ NOT NULL,
+    trace_id     TEXT NOT NULL DEFAULT '',
     fields       JSON NOT NULL DEFAULT '{}',
     message_type TEXT NOT NULL DEFAULT ''
 );
@@ -51,4 +55,13 @@ CREATE TABLE IF NOT EXISTS mcap_metadata (
     end_time   TIMESTAMPTZ NOT NULL,
     s3_key     TEXT NOT NULL,
     topics     VARCHAR[] NOT NULL DEFAULT []
+);
+
+CREATE TABLE IF NOT EXISTS ros2_events (
+    timestamp    TIMESTAMPTZ NOT NULL,
+    robot_id     TEXT NOT NULL,
+    event_type   TEXT NOT NULL,
+    node_name    TEXT NOT NULL DEFAULT '',
+    version      TEXT NOT NULL DEFAULT '',
+    payload      JSON NOT NULL DEFAULT '{}'
 );

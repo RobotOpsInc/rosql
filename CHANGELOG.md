@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **REPL v2: rich visualizations** — the REPL now renders 11 visualization types (Gantt, StackedLineChart, LineChart, BarChart, HorizontalBars, DirectedGraph, NodeGraph, ScalarCards, LogTable, RecordingList, DataTable) automatically based on the `format_hint` returned by the ROSQL compiler. A Visual / Raw JSON toggle lets users inspect raw results.
+- **3-robot AMR fleet fixture dataset** — 8 SQL fixture files (`01_schema.sql` through `08_baseline.sql`) replace the single-robot placeholder. The dataset covers 3 robots × 3 missions each, a realistic firmware-regression failure scenario (`trace-amr02-m3` with a costmap timeout), and a historical baseline for anomaly detection.
+- **9 narrative showcase queries** — the REPL now ships with 9 queries that follow a complete diagnostic investigation: trace the failure → find the root cause → check CPU blast radius → inspect node topology → compare to last week's baseline.
+- **"About this dataset" docs page** (`/docs/repl-dataset`) — describes the fleet, investigation story, table inventory, and timestamp design.
+- **Homepage v0.4 updates** — two new "Why ROSQL?" benefit cards (unit-aware filtering, visual format hints); output format cards updated to FormatHint-specific (Gantt traces, time-series charts, topology graphs, colored tables); TIMESERIES + FACET demo section; unit-aware sensor filtering callout; REPL subtitle and below-REPL link updated.
+- **Fixture consistency tests** (`tests/fixture_consistency.rs`) — 13 tests verifying cross-table referential integrity, temporal ordering, and data requirements for each showcase query.
+- **Showcase query tests** (`tests/showcase_queries.rs`) — 9 tests verifying compile + format hint for all showcase queries; 5 also execute against the DuckDB fixture dataset.
+- **Format hint coverage** in `tests/compile_audit.rs` — `showcase_format_hints` test asserts correct `FormatHint` for all 9 showcase queries.
+
 ## [0.4.6] - 2026-04-11
 
 ### Added

@@ -1127,6 +1127,80 @@ fn execution_error_display_includes_data_source() {
     assert!(msg.contains("Table not found"), "got: {msg}");
 }
 
+// ── Showcase query format hints ──────────────────────────────────────────────
+
+#[test]
+fn showcase_format_hints() {
+    // All 9 showcase queries must compile and return the expected format hint.
+
+    // Query 1: Trace a failed mission
+    assert_eq!(
+        format_hint("TRACE 'trace-amr02-m3'"),
+        FormatHint::Gantt,
+        "query 1 (trace)"
+    );
+
+    // Query 2: Enrich trace with logs (still a Gantt)
+    assert_eq!(
+        format_hint("TRACE 'trace-amr02-m3'\nENRICH WITH logs LIMIT 5"),
+        FormatHint::Gantt,
+        "query 2 (enrich with logs)"
+    );
+
+    // Query 3: Fleet CPU over time — TIMESERIES + FACET → StackedLineChart
+    assert_eq!(
+        format_hint(
+            "SELECT cpu_usage FROM metrics\nTIMESERIES 2 min FACET robot_id\nSINCE 45 min ago"
+        ),
+        FormatHint::StackedLineChart,
+        "query 3 (timeseries facet)"
+    );
+
+    // Query 4: Message flow → DirectedGraph
+    assert_eq!(
+        format_hint("MESSAGE FLOW FROM TOPIC '/scan'\nFOR ROBOT 'robot-amr-02'"),
+        FormatHint::DirectedGraph,
+        "query 4 (message flow)"
+    );
+
+    // Query 5: Slowest spans → HorizontalBars
+    assert_eq!(
+        format_hint("SHOW SPAN SUMMARY\nFOR ROBOT 'robot-amr-02'\nSINCE 90 min ago"),
+        FormatHint::HorizontalBars,
+        "query 5 (span summary)"
+    );
+
+    // Query 6: Path deviation → LineChart
+    assert_eq!(
+        format_hint("PATH DEVIATION\nFOR TRACE 'trace-amr02-m3'"),
+        FormatHint::LineChart,
+        "query 6 (path deviation)"
+    );
+
+    // Query 7: Anomaly detection → Table (with color_field for highlighting)
+    assert_eq!(
+        format_hint("ANOMALY(duration)\nCOMPARED TO last week\nFACET robot_id"),
+        FormatHint::Table,
+        "query 7 (anomaly)"
+    );
+
+    // Query 8: Battery below threshold → Table
+    assert_eq!(
+        format_hint(
+            "FROM topics\nWHERE topic_name = '/battery_state'\n  AND fields['voltage'] < 11.5 V\nFOR ROBOT 'robot-amr-02'\nSINCE 2 h ago"
+        ),
+        FormatHint::Table,
+        "query 8 (battery filter)"
+    );
+
+    // Query 9: ROS2 node topology → NodeGraph
+    assert_eq!(
+        format_hint("SHOW NODE GRAPH\nFOR ROBOT 'robot-amr-02'"),
+        FormatHint::NodeGraph,
+        "query 9 (node graph)"
+    );
+}
+
 #[test]
 fn execution_error_no_raw_driver_text() {
     // Verify the error type exists and doesn't accidentally embed raw DB output.
