@@ -3,6 +3,25 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import type { VisualizationConfig } from './visualizations/types';
 import { ResultRenderer } from './visualizations/ResultRenderer';
 
+// Maps ENRICH WITH source names to DuckDB table and join column.
+const ENRICH_TABLE_MAP: Record<string, { table: string; join_column: string }> = {
+  logs:   { table: '"otel_logs"',           join_column: 'trace_id' },
+  topics: { table: '"otel_topic_messages"', join_column: 'trace_id' },
+};
+
+function parseEnrichments(queryText: string): Array<{ table: string; join_column: string; limit: number }> {
+  const results: Array<{ table: string; join_column: string; limit: number }> = [];
+  const re = /ENRICH\s+WITH\s+(\w+)(?:\s+LIMIT\s+(\d+))?/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(queryText)) !== null) {
+    const source = match[1].toLowerCase();
+    const limit = parseInt(match[2] ?? '10', 10);
+    const info = ENRICH_TABLE_MAP[source];
+    if (info) results.push({ ...info, limit });
+  }
+  return results;
+}
+
 const EXAMPLE_QUERIES = [
   {
     label: 'Trace a failed mission',
@@ -209,6 +228,7 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
       error?: { message: string };
       format_hint?: string;
       visualization?: VisualizationConfig;
+      enrichments?: Array<{ table: string; join_column: string; limit: number }>;
     };
     if (!compileResult.ok) {
       setOutput({ kind: 'error', text: `Compile error: ${compileResult.error?.message ?? 'unknown'}` });
@@ -218,20 +238,46 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
     const formatHint = compileResult.format_hint ?? 'Table';
     const visualization = compileResult.visualization ?? undefined;
 
+    // Parse ENRICH WITH clauses directly from the query string — does not depend
+    // on the WASM compile result so it works regardless of WASM version.
+    const enrichments = parseEnrichments(query);
+
     // Ensure DuckDB is ready
     const ready = await initDb();
     if (!ready || !dbRef.current) return;
 
     setOutput({ kind: 'loading', message: 'Running query…' });
     try {
-      const rawRows = await dbRef.current.query(sql);
-      const rows = rawRows.map((r) =>
+      const normalize_row = (r: Record<string, unknown>) =>
         Object.fromEntries(
-          Object.entries(r as Record<string, unknown>).map(([k, v]) => [k, typeof v === 'bigint' ? Number(v) : v])
-        )
-      ) as Record<string, unknown>[];
-      const rawJson = JSON.stringify(rows, null, 2);
-      setOutput({ kind: 'success', rows, rawJson, sql, formatHint, visualization });
+          Object.entries(r).map(([k, v]) => [k, typeof v === 'bigint' ? Number(v) : v])
+        ) as Record<string, unknown>;
+
+      const rawRows = await dbRef.current.query(sql);
+      const rows = rawRows.map((r) => normalize_row(r as Record<string, unknown>));
+
+      // Phase 2: run enrichment queries and append their rows
+      let allRows = rows;
+      const enrichSqls: string[] = [];
+      for (const e of enrichments) {
+        const joinValues = [...new Set(rows.map((r) => r[e.join_column]).filter((v) => v != null))];
+        if (joinValues.length > 0) {
+          const inList = joinValues.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
+          const enrichSql = `SELECT * FROM ${e.table} WHERE "${e.join_column}" IN (${inList}) LIMIT ${e.limit * joinValues.length}`;
+          enrichSqls.push(enrichSql);
+          console.log('[ROSQL] enrichment query:', enrichSql);
+          const enrichRaw = await dbRef.current.query(enrichSql);
+          const enrichRows = enrichRaw.map((r) => normalize_row(r as Record<string, unknown>));
+          console.log('[ROSQL] enrichment rows:', enrichRows.length);
+          allRows = [...allRows, ...enrichRows];
+        }
+      }
+
+      const displaySql = enrichSqls.length > 0
+        ? `${sql}\n\n-- ENRICH WITH\n${enrichSqls.join('\n')}`
+        : sql;
+      const rawJson = JSON.stringify(allRows, null, 2);
+      setOutput({ kind: 'success', rows: allRows, rawJson, sql: displaySql, formatHint, visualization });
     } catch (err) {
       setOutput({ kind: 'error', text: String(err), sql });
     }

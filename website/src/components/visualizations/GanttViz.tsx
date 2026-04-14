@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { VizProps } from './types';
 import { formatDuration } from './utils';
+import { LogTableViz } from './LogTableViz';
 
 const ROW_HEIGHT = 32;
 const LABEL_WIDTH = 220;
@@ -74,6 +75,15 @@ function buildTree(rows: Record<string, unknown>[]): SpanRow[] {
   return result;
 }
 
+// Returns true if any later span in the DFS order shares depth `d` before a shallower span closes the scope.
+function hasMoreSiblingsAt(spans: SpanRow[], i: number, d: number): boolean {
+  for (let j = i + 1; j < spans.length; j++) {
+    if (spans[j].depth < d) return false;
+    if (spans[j].depth === d) return true;
+  }
+  return false;
+}
+
 export function GanttViz({ rows }: VizProps) {
   const [tooltip, setTooltip] = useState<{ span: SpanRow; x: number; y: number } | null>(null);
 
@@ -99,16 +109,41 @@ export function GanttViz({ rows }: VizProps) {
     return totalNs > 0 ? (ns / totalNs) * chartWidth : 0;
   }
 
-  // Map span_id → logs for badges
-  const logsBySpan = new Map<string, LogRow[]>();
-  for (const log of logRows) {
-    const sid = log.span_id ?? '';
-    if (!logsBySpan.has(sid)) logsBySpan.set(sid, []);
-    logsBySpan.get(sid)!.push(log);
-  }
-
   return (
     <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 320, position: 'relative' }}>
+      {/* Legend */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 6,
+          flexWrap: 'wrap',
+          fontFamily: 'var(--ifm-font-family-monospace)',
+          fontSize: 10,
+          color: '#9CA3AF',
+        }}
+      >
+        {([
+          { color: '#EF4444', label: 'ERROR span' },
+          { color: '#6EE7B7', label: 'OK span' },
+        ] as const).map(({ color, label }) => (
+          <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span
+              style={{
+                display: 'inline-block',
+                width: 10,
+                height: 10,
+                borderRadius: 2,
+                background: color,
+                flexShrink: 0,
+              }}
+            />
+            {label}
+          </span>
+        ))}
+      </div>
+
       <svg
         width={LABEL_WIDTH + chartWidth + 80}
         height={svgHeight}
@@ -123,22 +158,53 @@ export function GanttViz({ rows }: VizProps) {
           const isError = span.status_code === 'ERROR';
           const barColor = isError ? '#EF4444' : '#6EE7B7';
           const barAlpha = isError ? 1 : 0.85;
-          const logs = logsBySpan.get(span.span_id) ?? [];
+
+          // Build tree connector lines for this row
+          const connectors: React.ReactNode[] = [];
+          for (let d = 1; d <= span.depth; d++) {
+            const trunkX = PADDING + (d - 1) * 14 + 7;
+            const midY = y + ROW_HEIGHT / 2;
+            const isElbow = d === span.depth;
+            const hasSiblings = hasMoreSiblingsAt(spans, i, d);
+
+            if (isElbow) {
+              // Vertical from top of row to mid (the stem of the L)
+              connectors.push(
+                <line key={`v-${d}`} x1={trunkX} y1={y} x2={trunkX} y2={midY} stroke="#4B5563" strokeWidth={1} />
+              );
+              // Continue vertical past mid if this span has siblings below
+              if (hasSiblings) {
+                connectors.push(
+                  <line key={`vc-${d}`} x1={trunkX} y1={midY} x2={trunkX} y2={y + ROW_HEIGHT} stroke="#4B5563" strokeWidth={1} />
+                );
+              }
+              // Horizontal arm of the L
+              connectors.push(
+                <line key={`h-${d}`} x1={trunkX} y1={midY} x2={trunkX + 7} y2={midY} stroke="#4B5563" strokeWidth={1} />
+              );
+            } else {
+              // Continuation trunk for an ancestor that still has descendants below
+              if (hasSiblings) {
+                connectors.push(
+                  <line key={`v-${d}`} x1={trunkX} y1={y} x2={trunkX} y2={y + ROW_HEIGHT} stroke="#4B5563" strokeWidth={1} />
+                );
+              }
+            }
+          }
 
           return (
             <g key={span.span_id}>
-              {/* Row background on hover handled by opacity */}
+              {connectors}
               {/* Label */}
               <text
-                x={LABEL_WIDTH - 8 - span.depth * 14}
+                x={PADDING + span.depth * 14 + 12}
                 y={y + ROW_HEIGHT / 2 + 1}
-                textAnchor="end"
+                textAnchor="start"
                 fill="#9CA3AF"
                 fontSize={10}
                 fontFamily="var(--ifm-font-family-monospace)"
                 style={{ pointerEvents: 'none' }}
               >
-                {span.depth > 0 && '└ '}
                 {span.span_name_col.split('/').pop() ?? span.span_name_col}
               </text>
               {/* Bar */}
@@ -166,23 +232,6 @@ export function GanttViz({ rows }: VizProps) {
                   {formatDuration(span.duration)}
                 </text>
               )}
-              {/* Log badges */}
-              {logs.map((log, li) => {
-                const severity = String(log.severity_text ?? 'INFO').toUpperCase();
-                const badgeColor = severity === 'ERROR' ? '#EF4444' : severity === 'WARN' ? '#F59E0B' : '#3B82F6';
-                return (
-                  <circle
-                    key={li}
-                    cx={barX + 4 + li * 10}
-                    cy={y + 6}
-                    r={4}
-                    fill={badgeColor}
-                    stroke="#0F0F0F"
-                    strokeWidth={1}
-                    title={log.body}
-                  />
-                );
-              })}
               {/* Divider line */}
               <line
                 x1={0}
@@ -221,6 +270,25 @@ export function GanttViz({ rows }: VizProps) {
           </g>
         ))}
       </svg>
+
+      {/* Log table */}
+      {logRows.length > 0 && (
+        <div style={{ marginTop: 12, borderTop: '1px solid #1F2937', paddingTop: 8 }}>
+          <div
+            style={{
+              fontSize: 10,
+              color: '#4B5563',
+              fontFamily: 'var(--ifm-font-family-monospace)',
+              marginBottom: 6,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            Logs
+          </div>
+          <LogTableViz rows={logRows as unknown as Record<string, unknown>[]} />
+        </div>
+      )}
 
       {/* Tooltip */}
       {tooltip && (
