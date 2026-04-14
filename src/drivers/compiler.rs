@@ -1290,6 +1290,9 @@ impl<'a> CompileCtx<'a> {
     /// Like `compile_selections` but wraps bare `Field` references in `AVG()`.
     /// Used when GROUP BY is present (TIMESERIES and/or FACET) and the selection
     /// is not already an aggregation — a bare column is invalid in that context.
+    ///
+    /// Aggregations that are not already aliased get an auto-derived alias so that
+    /// DuckDB does not fall back to internal names like `count_star()`.
     fn compile_selections_grouped(
         &self,
         sels: &[Selection],
@@ -1301,6 +1304,15 @@ impl<'a> CompileCtx<'a> {
                 Selection::Field(name) => {
                     let col = self.resolve_column(name, table)?;
                     format!("AVG({col}) AS {name}")
+                }
+                // Aliased selections already have an explicit alias — compile as-is.
+                Selection::Aliased { .. } => self.compile_selection(sel, table)?,
+                // Aggregations without an explicit alias get an auto-derived one so
+                // backends (especially DuckDB) don't emit internal names like count_star().
+                Selection::Aggregation(agg) => {
+                    let compiled = self.compile_aggregation(agg, table)?;
+                    let alias = derive_agg_alias(agg);
+                    format!("{compiled} AS {alias}")
                 }
                 _ => self.compile_selection(sel, table)?,
             };
@@ -1817,6 +1829,42 @@ impl<'a> CompileCtx<'a> {
 // ---------------------------------------------------------------------------
 // Free functions
 // ---------------------------------------------------------------------------
+
+/// Derive a clean SQL alias for an aggregation call.
+///
+/// Without an explicit alias, DuckDB uses the internal call expression as the
+/// column name (e.g. `count_star()`, `avg("duration")`). This function maps
+/// each aggregation function to a short, user-readable alias.
+fn derive_agg_alias(agg: &AggregationCall) -> String {
+    let fn_name = match agg.function {
+        AggregationFn::Count => "count",
+        AggregationFn::Sum => "sum",
+        AggregationFn::Avg => "avg",
+        AggregationFn::Min => "min",
+        AggregationFn::Max => "max",
+        AggregationFn::Stddev => "stddev",
+        AggregationFn::Percentile => "percentile",
+        AggregationFn::Rate => "rate",
+        AggregationFn::Delta => "delta",
+        AggregationFn::Derivative => "derivative",
+        AggregationFn::MovingAvg => "moving_avg",
+        AggregationFn::TopicRate => "topic_rate",
+        AggregationFn::NodeStatus => "node_status",
+        AggregationFn::Expected => "expected",
+        AggregationFn::ActionSuccessRate => "success_rate",
+        AggregationFn::Uptime => "uptime",
+        AggregationFn::ApproxCountDistinct => "approx_count_distinct",
+        AggregationFn::ApproxPercentile => "approx_percentile",
+    };
+    // If the first arg is a real field name (not the COUNT(*) wildcard), append it
+    // for clarity: avg_duration, sum_value, etc.
+    if let Some(Expr::Field(field)) = agg.args.first() {
+        if field != "*" {
+            return format!("{fn_name}_{field}");
+        }
+    }
+    fn_name.to_string()
+}
 
 fn compile_literal(lit: &Literal) -> String {
     match lit {
