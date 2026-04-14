@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import type { VizProps } from './types';
+import { SvgTooltip } from './SvgTooltip';
+import type { SvgTooltipProps } from './SvgTooltip';
+
+type Tooltip = Omit<SvgTooltipProps, 'svgWidth'>;
 
 interface GraphNode {
   id: string;
@@ -71,6 +75,7 @@ function simpleForce(nodes: GraphNode[], edges: GraphEdge[], iters = 120): Graph
 export function NodeGraphViz({ rows }: VizProps) {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
+  const [tooltip, setTooltip] = useState<Tooltip | null>(null);
 
   useEffect(() => {
     if (rows.length === 0) return;
@@ -117,7 +122,7 @@ export function NodeGraphViz({ rows }: VizProps) {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <svg width={WIDTH} height={HEIGHT} style={{ display: 'block' }}>
+      <svg width={WIDTH} height={HEIGHT} style={{ display: 'block' }} onMouseLeave={() => setTooltip(null)}>
         <defs>
           <marker id="ng-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
             <path d="M0,0 L0,6 L7,3 z" fill="#60A5FA" />
@@ -157,7 +162,12 @@ export function NodeGraphViz({ rows }: VizProps) {
           const stroke = isTopic ? '#60A5FA' : '#6EE7B7';
           const shortName = n.id.split('/').pop() ?? n.id;
           return (
-            <g key={n.id}>
+            <g
+              key={n.id}
+              style={{ cursor: 'default' }}
+              onMouseEnter={() => setTooltip({ text: n.id, cx: n.x, cy: n.y - r - 6 })}
+              onMouseLeave={() => setTooltip(null)}
+            >
               {isTopic ? (
                 <rect
                   x={n.x - r}
@@ -194,6 +204,9 @@ export function NodeGraphViz({ rows }: VizProps) {
           <rect x={2} y={22} width={12} height={8} rx={2} fill="#1E3A5F" stroke="#60A5FA" strokeWidth={1.5} />
           <text x={17} y={30} fill="#6B7280" fontSize={8} fontFamily="var(--ifm-font-family-monospace)">topic</text>
         </g>
+
+        {/* Tooltip — rendered last so it appears on top of everything */}
+        {tooltip && <SvgTooltip {...tooltip} svgWidth={WIDTH} />}
       </svg>
     </div>
   );

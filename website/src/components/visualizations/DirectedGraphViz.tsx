@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { VizProps } from './types';
+import { SvgTooltip } from './SvgTooltip';
+import type { SvgTooltipProps } from './SvgTooltip';
 
 interface Node {
   id: string;
@@ -15,11 +17,7 @@ interface Edge {
   label: string;
 }
 
-interface Tooltip {
-  text: string;
-  cx: number;
-  cy: number;
-}
+type Tooltip = Omit<SvgTooltipProps, 'svgWidth'>;
 
 const WIDTH = 560;
 const HEIGHT = 260;
@@ -73,41 +71,6 @@ function forceLayout(nodes: Node[], edges: Edge[], iterations = 80): Node[] {
   return ns;
 }
 
-function SvgTooltip({ text, cx, cy }: Tooltip) {
-  const CHAR_W = 6.5;
-  const PADDING = 8;
-  const BOX_H = 20;
-  const boxW = Math.min(text.length * CHAR_W + PADDING * 2, WIDTH - 8);
-  // Keep tooltip inside SVG bounds horizontally
-  const clampedCx = Math.max(boxW / 2 + 4, Math.min(WIDTH - boxW / 2 - 4, cx));
-  // Keep tooltip above element but inside SVG bounds vertically
-  const clampedCy = Math.max(BOX_H + 4, cy);
-  return (
-    <g pointerEvents="none">
-      <rect
-        x={clampedCx - boxW / 2}
-        y={clampedCy - BOX_H}
-        width={boxW}
-        height={BOX_H}
-        rx={4}
-        fill="#111827"
-        stroke="#4B5563"
-        strokeWidth={1}
-      />
-      <text
-        x={clampedCx}
-        y={clampedCy - BOX_H / 2 + 1}
-        textAnchor="middle"
-        dominantBaseline="middle"
-        fill="#F9FAFB"
-        fontSize={10}
-        fontFamily="var(--ifm-font-family-monospace)"
-      >
-        {text}
-      </text>
-    </g>
-  );
-}
 
 export function DirectedGraphViz({ rows }: VizProps) {
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -251,7 +214,7 @@ export function DirectedGraphViz({ rows }: VizProps) {
         })}
 
         {/* Tooltip — rendered last so it appears on top of everything */}
-        {tooltip && <SvgTooltip {...tooltip} />}
+        {tooltip && <SvgTooltip {...tooltip} svgWidth={WIDTH} />}
       </svg>
     </div>
   );
