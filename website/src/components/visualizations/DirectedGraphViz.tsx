@@ -15,6 +15,12 @@ interface Edge {
   label: string;
 }
 
+interface Tooltip {
+  text: string;
+  cx: number;
+  cy: number;
+}
+
 const WIDTH = 560;
 const HEIGHT = 260;
 const NODE_R = 20;
@@ -67,9 +73,46 @@ function forceLayout(nodes: Node[], edges: Edge[], iterations = 80): Node[] {
   return ns;
 }
 
+function SvgTooltip({ text, cx, cy }: Tooltip) {
+  const CHAR_W = 6.5;
+  const PADDING = 8;
+  const BOX_H = 20;
+  const boxW = Math.min(text.length * CHAR_W + PADDING * 2, WIDTH - 8);
+  // Keep tooltip inside SVG bounds horizontally
+  const clampedCx = Math.max(boxW / 2 + 4, Math.min(WIDTH - boxW / 2 - 4, cx));
+  // Keep tooltip above element but inside SVG bounds vertically
+  const clampedCy = Math.max(BOX_H + 4, cy);
+  return (
+    <g pointerEvents="none">
+      <rect
+        x={clampedCx - boxW / 2}
+        y={clampedCy - BOX_H}
+        width={boxW}
+        height={BOX_H}
+        rx={4}
+        fill="#111827"
+        stroke="#4B5563"
+        strokeWidth={1}
+      />
+      <text
+        x={clampedCx}
+        y={clampedCy - BOX_H / 2 + 1}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fill="#F9FAFB"
+        fontSize={10}
+        fontFamily="var(--ifm-font-family-monospace)"
+      >
+        {text}
+      </text>
+    </g>
+  );
+}
+
 export function DirectedGraphViz({ rows }: VizProps) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
+  const [tooltip, setTooltip] = useState<Tooltip | null>(null);
 
   useEffect(() => {
     if (rows.length === 0) return;
@@ -77,11 +120,12 @@ export function DirectedGraphViz({ rows }: VizProps) {
     const nodeIds = new Set<string>();
     const edgeList: Edge[] = [];
 
-    // Each row: source_node, topic/label, target_node (or span hierarchy)
+    // Each row must have source_node and target_node to form an edge.
+    // The compiler outputs these explicitly; rows without them are skipped.
     for (const row of rows) {
-      const src = String(row['source_node'] ?? row['span_name_col'] ?? row['service_name'] ?? '');
-      const tgt = String(row['target_node'] ?? row['parent_span_id'] ?? '');
-      const label = String(row['topic'] ?? row['span_name_col'] ?? '');
+      const src = row['source_node'] != null ? String(row['source_node']) : '';
+      const tgt = row['target_node'] != null ? String(row['target_node']) : '';
+      const label = row['topic'] != null ? String(row['topic']) : '';
       if (src) nodeIds.add(src);
       if (tgt) nodeIds.add(tgt);
       if (src && tgt) edgeList.push({ source: src, target: tgt, label });
@@ -125,7 +169,12 @@ export function DirectedGraphViz({ rows }: VizProps) {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <svg width={WIDTH} height={HEIGHT} style={{ display: 'block' }}>
+      <svg
+        width={WIDTH}
+        height={HEIGHT}
+        style={{ display: 'block' }}
+        onMouseLeave={() => setTooltip(null)}
+      >
         <defs>
           <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
             <path d="M0,0 L0,6 L8,3 z" fill="#6EE7B7" />
@@ -150,7 +199,16 @@ export function DirectedGraphViz({ rows }: VizProps) {
                 markerEnd="url(#arrow)"
               />
               {edge.label && (
-                <text x={mx} y={my - 4} textAnchor="middle" fill="#6B7280" fontSize={9} fontFamily="var(--ifm-font-family-monospace)">
+                <text
+                  x={mx} y={my - 4}
+                  textAnchor="middle"
+                  fill="#6B7280"
+                  fontSize={9}
+                  fontFamily="var(--ifm-font-family-monospace)"
+                  style={{ cursor: 'default' }}
+                  onMouseEnter={() => setTooltip({ text: edge.label, cx: mx, cy: my - 12 })}
+                  onMouseLeave={() => setTooltip(null)}
+                >
                   {edge.label}
                 </text>
               )}
@@ -161,9 +219,22 @@ export function DirectedGraphViz({ rows }: VizProps) {
         {/* Nodes */}
         {nodes.map((node) => {
           const shortName = node.id.split('/').pop() ?? node.id;
+          const isAbbreviated = shortName.length > 12 || node.id !== shortName;
           return (
-            <g key={node.id}>
-              <circle cx={node.x} cy={node.y} r={NODE_R} fill="#1F2937" stroke="#6EE7B7" strokeWidth={1.5} />
+            <g
+              key={node.id}
+              style={{ cursor: isAbbreviated ? 'default' : undefined }}
+              onMouseEnter={() =>
+                setTooltip({ text: node.id, cx: node.x, cy: node.y - NODE_R - 6 })
+              }
+              onMouseLeave={() => setTooltip(null)}
+            >
+              <circle
+                cx={node.x} cy={node.y} r={NODE_R}
+                fill="#1F2937"
+                stroke="#6EE7B7"
+                strokeWidth={1.5}
+              />
               <text
                 x={node.x}
                 y={node.y + 1}
@@ -178,6 +249,9 @@ export function DirectedGraphViz({ rows }: VizProps) {
             </g>
           );
         })}
+
+        {/* Tooltip — rendered last so it appears on top of everything */}
+        {tooltip && <SvgTooltip {...tooltip} />}
       </svg>
     </div>
   );

@@ -669,16 +669,23 @@ impl<'a> CompileCtx<'a> {
             seed_where.push_str(&format!(" AND {}", self.compile_time_range(tr, "")?));
         }
 
-        // Terminal filter for TO NODE / TO TOPIC
-        let terminal_filter = match to_target {
+        // Project the three columns the DirectedGraph viz expects.
+        // Use json_access_text so DuckDB returns VARCHAR, not JSON.
+        let pub_node = self
+            .dialect
+            .json_access_text(span_attrs_col, "ros.publisher_node");
+        let sub_node = self
+            .dialect
+            .json_access_text(span_attrs_col, "ros.subscriber_node");
+        let topic_text = self.dialect.json_access_text(span_attrs_col, "ros.topic");
+
+        // Terminal filter — translated to use the outer projected aliases.
+        let terminal_where = match to_target {
             None => String::new(),
             Some(FlowTarget::Node(node)) => {
-                let node_attr = self.dialect.json_access(span_attrs_col, "ros.node");
-                format!(" WHERE {node_attr} = '{node}'")
+                format!(" AND (source_node = '{node}' OR target_node = '{node}')")
             }
-            Some(FlowTarget::Topic(topic)) => {
-                format!(" WHERE {topic_attr} = '{topic}'")
-            }
+            Some(FlowTarget::Topic(topic)) => format!(" AND topic = '{topic}'"),
         };
 
         let mut sql = format!(
@@ -687,7 +694,13 @@ impl<'a> CompileCtx<'a> {
              UNION ALL \
              SELECT t.* FROM {tbl} t \
              JOIN msg_flow f ON t.{psid} = f.{sid}\
-             ) SELECT * FROM msg_flow{terminal_filter}"
+             ) SELECT DISTINCT \
+             {pub_node} AS source_node, \
+             {sub_node} AS target_node, \
+             {topic_text} AS topic \
+             FROM msg_flow \
+             WHERE {pub_node} IS NOT NULL AND {pub_node} != '' \
+               AND {sub_node} IS NOT NULL AND {sub_node} != ''{terminal_where}"
         );
         sql.push_str(&self.compile_compound_suffix(cq)?);
         Ok(sql)
