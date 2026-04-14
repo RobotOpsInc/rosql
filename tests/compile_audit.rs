@@ -823,6 +823,20 @@ fn timeseries_compiles_postgres() {
 }
 
 #[test]
+fn timeseries_bare_field_wrapped_in_avg_duckdb() {
+    // A bare field selection (not an aggregation) in a TIMESERIES+FACET query must be
+    // auto-wrapped in AVG() so the generated SQL is valid under GROUP BY.
+    // Regression: previously emitted bare "value" causing DuckDB binder error.
+    let sql = compile_sql(
+        "SELECT cpu_usage FROM metrics TIMESERIES 2 min FACET robot_id SINCE 45 min ago",
+        SqlDialect::DuckDB,
+    );
+    assert!(sql.contains("AVG("), "bare field not wrapped in AVG: {sql}");
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+    assert!(sql.contains("time_bucket"), "got: {sql}");
+}
+
+#[test]
 fn timeseries_composes_with_facet_duckdb() {
     let sql = compile_sql(
         "SELECT AVG(duration) FROM traces TIMESERIES 1 min FACET action_name SINCE 1 hour ago",

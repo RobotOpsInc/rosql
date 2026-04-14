@@ -51,6 +51,14 @@ export function StackedLineChartViz({ rows, visualization }: VizProps) {
           tick={{ fill: '#9CA3AF', fontSize: 10 }}
           axisLine={{ stroke: '#374151' }}
           tickLine={false}
+          tickFormatter={(v: string) => {
+            const n = Number(v);
+            // DuckDB returns TIMESTAMPTZ as epoch milliseconds; format as HH:MM
+            if (!isNaN(n) && n > 1e10) {
+              return new Date(n).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+            return v;
+          }}
         />
         <YAxis
           tick={{ fill: '#9CA3AF', fontSize: 10 }}

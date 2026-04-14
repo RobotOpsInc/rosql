@@ -330,25 +330,35 @@ impl<'a> CompileCtx<'a> {
             let base = if let Some(ref facet) = q.facet {
                 let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
                 let col = self.resolve_column(&facet.dimension, &table)?;
+                // Alias the facet column to its dimension name so the result set
+                // has a predictable column name that matches the series_key hint.
+                let col_expr = format!("{col} AS {}", facet.dimension);
                 if is_star {
-                    format!("{col}, COUNT(*) AS count")
+                    format!("{col_expr}, COUNT(*) AS count")
                 } else {
-                    format!("{col}, {}", self.compile_selections(&q.selections, &table)?)
+                    format!(
+                        "{col_expr}, {}",
+                        self.compile_selections_grouped(&q.selections, &table)?
+                    )
                 }
             } else if matches!(q.selections.as_slice(), [crate::ast::Selection::Star]) {
                 // Default: COUNT(*) for timeseries without explicit aggregation
                 "COUNT(*) AS count".to_string()
             } else {
-                self.compile_selections(&q.selections, &table)?
+                self.compile_selections_grouped(&q.selections, &table)?
             };
             format!("{ts_expr} AS time_bucket, {base}")
         } else if let Some(ref facet) = q.facet {
             let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
             let col = self.resolve_column(&facet.dimension, &table)?;
+            let col_expr = format!("{col} AS {}", facet.dimension);
             if is_star {
-                format!("{col}, COUNT(*) AS count")
+                format!("{col_expr}, COUNT(*) AS count")
             } else {
-                format!("{col}, {}", self.compile_selections(&q.selections, &table)?)
+                format!(
+                    "{col_expr}, {}",
+                    self.compile_selections_grouped(&q.selections, &table)?
+                )
             }
         } else {
             self.compile_selections(&q.selections, &table)?
@@ -1249,6 +1259,28 @@ impl<'a> CompileCtx<'a> {
         let mut cols = Vec::new();
         for sel in sels {
             cols.push(self.compile_selection(sel, table)?);
+        }
+        Ok(cols.join(", "))
+    }
+
+    /// Like `compile_selections` but wraps bare `Field` references in `AVG()`.
+    /// Used when GROUP BY is present (TIMESERIES and/or FACET) and the selection
+    /// is not already an aggregation — a bare column is invalid in that context.
+    fn compile_selections_grouped(
+        &self,
+        sels: &[Selection],
+        table: &str,
+    ) -> Result<String, ROSQLError> {
+        let mut cols = Vec::new();
+        for sel in sels {
+            let s = match sel {
+                Selection::Field(name) => {
+                    let col = self.resolve_column(name, table)?;
+                    format!("AVG({col}) AS {name}")
+                }
+                _ => self.compile_selection(sel, table)?,
+            };
+            cols.push(s);
         }
         Ok(cols.join(", "))
     }
