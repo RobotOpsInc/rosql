@@ -381,7 +381,9 @@ impl<'a> CompileCtx<'a> {
             where_parts.push(format!("topic_name = '{}'", alias.topic_name()));
         }
         if let Some(ref scope) = q.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(
+                self.compile_scope_filters(scope, Self::has_direct_robot_id(&q.data_source)),
+            );
         }
         if !where_parts.is_empty() {
             parts.push(format!("WHERE {}", where_parts.join(" AND ")));
@@ -555,16 +557,25 @@ impl<'a> CompileCtx<'a> {
     }
 
     /// Compile scope filters to a list of WHERE predicates.
-    fn compile_scope_filters(&self, scope: &QueryScope) -> Vec<String> {
+    ///
+    /// `direct_robot_id`: set `true` for tables that store robot identity in a
+    /// plain `robot_id` column (e.g. `topic_messages`, `mcap_metadata`,
+    /// `ros2_events`). Set `false` for OTel tables that use the
+    /// `resource_attributes` JSON column.
+    fn compile_scope_filters(&self, scope: &QueryScope, direct_robot_id: bool) -> Vec<String> {
         let mut parts = Vec::new();
         let res = "resource_attributes";
         if let Some(ref robot) = scope.robot {
             match robot {
                 RobotScope::Single(id) => {
-                    parts.push(format!(
-                        "{} = '{id}'",
-                        self.dialect.json_access(res, "robot.id")
-                    ));
+                    if direct_robot_id {
+                        parts.push(format!("robot_id = '{id}'"));
+                    } else {
+                        parts.push(format!(
+                            "{} = '{id}'",
+                            self.dialect.json_access_text(res, "robot.id")
+                        ));
+                    }
                 }
                 RobotScope::Fleet => {} // no filter — all robots
             }
@@ -572,22 +583,35 @@ impl<'a> CompileCtx<'a> {
         if let Some(ref ver) = scope.version {
             parts.push(format!(
                 "{} = '{ver}'",
-                self.dialect.json_access(res, "service.version")
+                self.dialect.json_access_text(res, "service.version")
             ));
         }
         if let Some(ref env) = scope.environment {
             parts.push(format!(
                 "{} = '{env}'",
-                self.dialect.json_access(res, "deployment.environment")
+                self.dialect.json_access_text(res, "deployment.environment")
             ));
         }
         if let Some(ref sess) = scope.session {
             parts.push(format!(
                 "{} = '{sess}'",
-                self.dialect.json_access(res, "ros.session.id")
+                self.dialect.json_access_text(res, "ros.session.id")
             ));
         }
         parts
+    }
+
+    /// Returns true for data sources whose tables store robot identity in a
+    /// plain `robot_id` column rather than `resource_attributes` JSON.
+    fn has_direct_robot_id(source: &DataSource) -> bool {
+        matches!(
+            source,
+            DataSource::Topics
+                | DataSource::TopicAlias(_)
+                | DataSource::Recordings
+                | DataSource::Events
+                | DataSource::Tf
+        )
     }
 
     /// `TRACE 'trace_id'` — recursive CTE span tree walk.
@@ -600,7 +624,7 @@ impl<'a> CompileCtx<'a> {
         // Seed: root spans for this trace (parent_span_id is empty string or NULL)
         let mut seed_where = format!("{tid} = '{trace_id}' AND ({psid} = '' OR {psid} IS NULL)");
         if let Some(ref scope) = cq.scope {
-            for f in self.compile_scope_filters(scope) {
+            for f in self.compile_scope_filters(scope, false) {
                 seed_where.push_str(&format!(" AND {f}"));
             }
         }
@@ -637,7 +661,7 @@ impl<'a> CompileCtx<'a> {
         // Seed filter: spans on the source topic
         let mut seed_where = format!("{topic_attr} = '{from_topic}'");
         if let Some(ref scope) = cq.scope {
-            for f in self.compile_scope_filters(scope) {
+            for f in self.compile_scope_filters(scope, false) {
                 seed_where.push_str(&format!(" AND {f}"));
             }
         }
@@ -679,7 +703,7 @@ impl<'a> CompileCtx<'a> {
 
         let mut where_parts = Vec::new();
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -708,7 +732,7 @@ impl<'a> CompileCtx<'a> {
 
         let mut where_parts = Vec::new();
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -749,7 +773,7 @@ impl<'a> CompileCtx<'a> {
             where_parts.push(format!("{tid} = '{id}'"));
         }
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -829,7 +853,7 @@ impl<'a> CompileCtx<'a> {
 
         let mut where_parts = vec![format!("{topic_col_text} IS NOT NULL")];
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -871,7 +895,7 @@ impl<'a> CompileCtx<'a> {
 
         let mut where_parts = vec![format!("{node_col_text} IS NOT NULL")];
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -912,7 +936,7 @@ impl<'a> CompileCtx<'a> {
             format!("{topic_text} IS NOT NULL"),
         ];
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -1148,7 +1172,7 @@ impl<'a> CompileCtx<'a> {
         // Scope filters
         let mut scope_parts = Vec::new();
         if let Some(ref scope) = cq.scope {
-            scope_parts.extend(self.compile_scope_filters(scope));
+            scope_parts.extend(self.compile_scope_filters(scope, false));
         }
         let scope_clause = if scope_parts.is_empty() {
             String::new()
@@ -1511,8 +1535,22 @@ impl<'a> CompileCtx<'a> {
     fn compile_condition(&self, cond: &Condition, table: &str) -> Result<String, ROSQLError> {
         match cond {
             Condition::Comparison { left, op, right } => {
-                let l = self.compile_expr(left, table)?;
+                let mut l = self.compile_expr(left, table)?;
                 let r = self.compile_expr_with_field_context(right, left, table)?;
+                // JSON text extraction (`fields['key']`) returns VARCHAR; comparing
+                // it directly to a numeric literal fails in strict-typing backends
+                // (e.g. DuckDB). Add an explicit CAST when the left side is a bracket
+                // field access and the right side is a numeric value.
+                if matches!(left, Expr::FieldAccess { .. })
+                    && matches!(
+                        right,
+                        Expr::UnitValue(_)
+                            | Expr::Literal(Literal::Float(_))
+                            | Expr::Literal(Literal::Integer(_))
+                    )
+                {
+                    l = self.dialect.cast_to_double(&l);
+                }
                 let op_str = match op {
                     ComparisonOp::Eq => "=",
                     ComparisonOp::Neq => "!=",

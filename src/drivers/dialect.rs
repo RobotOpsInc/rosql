@@ -54,6 +54,16 @@ impl SqlDialect {
         }
     }
 
+    /// Cast an expression to a double-precision float.
+    /// Use this when comparing a JSON text extraction to a numeric literal.
+    pub fn cast_to_double(&self, expr: &str) -> String {
+        match self {
+            SqlDialect::PostgreSQL => format!("({expr})::FLOAT"),
+            SqlDialect::DuckDB => format!("CAST({expr} AS DOUBLE)"),
+            SqlDialect::MySQL => format!("CAST({expr} AS DECIMAL(20,6))"),
+        }
+    }
+
     /// Generate a JSON field access that is guaranteed to return a VARCHAR/TEXT value.
     /// Use this when ordering or comparing extracted values, to avoid DuckDB type cast errors
     /// with JSON typed columns.

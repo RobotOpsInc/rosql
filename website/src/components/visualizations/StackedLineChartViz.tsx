@@ -9,8 +9,13 @@ export function StackedLineChartViz({ rows, visualization }: VizProps) {
   }
 
   const xKey = visualization?.x_axis ?? Object.keys(rows[0])[0];
-  const yKey = visualization?.y_axis ?? Object.keys(rows[0])[1];
   const seriesKey = visualization?.series_key ?? Object.keys(rows[0])[2] ?? 'series';
+  // y_axis may be null for pipeline queries — fall back to the first column that is
+  // neither the x-axis nor the series key, so we don't accidentally pick the series
+  // column as the numeric value to plot.
+  const yKey = visualization?.y_axis ??
+    Object.keys(rows[0]).find((k) => k !== xKey && k !== seriesKey) ??
+    Object.keys(rows[0])[1];
 
   // Collect all series names (in order of first appearance)
   const seriesNames = useMemo(() => {

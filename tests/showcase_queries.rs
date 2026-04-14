@@ -102,30 +102,41 @@ fn showcase_02_enrich_with_logs() {
 
 #[test]
 fn showcase_03_fleet_cpu_timeseries() {
-    // Execution skipped: the compiled TIMESERIES SQL includes a non-grouped `value`
-    // column that requires DuckDB's newer implicit functional-dependency inference.
-    // Compilation + format hint are verified here; execution is tested via the WASM REPL.
+    let conn = load_fixtures();
     let (sql, hint) = compile_showcase(
         "SELECT cpu_usage FROM metrics\nTIMESERIES 2 min FACET robot_id\nSINCE 45 min ago",
     );
     assert_eq!(hint, FormatHint::StackedLineChart);
-    assert!(!sql.is_empty(), "expected non-empty compiled SQL");
+    assert!(
+        sql.contains("AVG("),
+        "bare field must be wrapped in AVG(): {sql}"
+    );
+    assert!(
+        sql.contains("time_bucket"),
+        "must include time_bucket: {sql}"
+    );
+    assert!(sql.contains("GROUP BY"), "must have GROUP BY: {sql}");
+    assert!(
+        sql.contains("robot_id"),
+        "facet alias must appear in SELECT: {sql}"
+    );
+    let rows = row_count(&conn, &sql);
+    assert!(rows > 0, "expected cpu_usage timeseries rows, got 0");
 }
 
 // ── Showcase query 4: Message flow: /scan ────────────────────────────────────
 
 #[test]
 fn showcase_04_message_flow_scan() {
-    // Execution skipped: compiled SQL uses `resource_attributes->>'robot.id'` comparison
-    // which triggers a numeric cast error in the bundled DuckDB Rust crate. The query
-    // executes correctly in DuckDB WASM (tested via the REPL).
+    let conn = load_fixtures();
     let (sql, hint) = compile_showcase("MESSAGE FLOW FROM TOPIC '/scan'\nFOR ROBOT 'robot-amr-02'");
     assert_eq!(hint, FormatHint::DirectedGraph);
-    assert!(!sql.is_empty(), "expected non-empty compiled SQL");
     assert!(
         sql.contains("/scan"),
-        "compiled SQL must reference the topic name"
+        "compiled SQL must reference the topic name: {sql}"
     );
+    let rows = row_count(&conn, &sql);
+    assert!(rows > 0, "expected message flow rows for /scan, got 0");
 }
 
 // ── Showcase query 5: Slowest spans ──────────────────────────────────────────
@@ -166,32 +177,30 @@ fn showcase_07_anomaly_detection() {
 
 #[test]
 fn showcase_08_battery_below_threshold() {
-    // Execution skipped: compiled SQL compares `fields->>'voltage'` (VARCHAR) to 11.5
-    // (DECIMAL) without an explicit cast, which requires DuckDB's implicit coercion
-    // available in newer versions. Compilation + format hint are verified here.
+    let conn = load_fixtures();
     let (sql, hint) = compile_showcase(
         "FROM topics\nWHERE topic_name = '/battery_state'\n  AND fields['voltage'] < 11.5 V\nFOR ROBOT 'robot-amr-02'\nSINCE 2 h ago",
     );
     assert_eq!(hint, FormatHint::Table);
-    assert!(!sql.is_empty(), "expected non-empty compiled SQL");
     assert!(
         sql.contains("11.5"),
-        "compiled SQL must include voltage threshold"
+        "compiled SQL must include voltage threshold: {sql}"
     );
+    let rows = row_count(&conn, &sql);
+    assert!(rows > 0, "expected battery readings below 11.5V, got 0");
 }
 
 // ── Showcase query 9: ROS2 node topology ─────────────────────────────────────
 
 #[test]
 fn showcase_09_node_graph() {
-    // Execution skipped: compiled SQL uses `resource_attributes->>'robot.id'` comparison
-    // which triggers a numeric cast error in the bundled DuckDB Rust crate. The query
-    // executes correctly in DuckDB WASM (tested via the REPL).
+    let conn = load_fixtures();
     let (sql, hint) = compile_showcase("SHOW NODE GRAPH\nFOR ROBOT 'robot-amr-02'");
     assert_eq!(hint, FormatHint::NodeGraph);
-    assert!(!sql.is_empty(), "expected non-empty compiled SQL");
     assert!(
         sql.contains("publisher_node") || sql.contains("ros.publisher"),
-        "compiled SQL must query ROS2 publisher/subscriber topology"
+        "compiled SQL must query ROS2 publisher/subscriber topology: {sql}"
     );
+    let rows = row_count(&conn, &sql);
+    assert!(rows > 0, "expected node graph topology rows, got 0");
 }
