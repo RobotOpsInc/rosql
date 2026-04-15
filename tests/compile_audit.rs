@@ -1017,7 +1017,7 @@ fn format_hint_span_summary_viz_has_axes() {
     let cr = compile_result("SHOW SPAN SUMMARY SINCE 1 hour ago");
     let viz = cr.visualization.expect("expected VisualizationConfig");
     assert_eq!(viz.x_axis.as_deref(), Some("span_name"));
-    assert_eq!(viz.y_axis.as_deref(), Some("duration"));
+    assert_eq!(viz.y_axis.as_deref(), Some("avg_duration"));
 }
 
 #[test]

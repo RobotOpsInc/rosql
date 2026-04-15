@@ -743,18 +743,16 @@ impl<'a> CompileCtx<'a> {
         let dur = self.col("duration");
         let _ = self.col("timestamp"); // satisfy field_registry usage; not used in output
 
-        let mut where_parts = Vec::new();
+        // Exclude ros2.graph.* spans — these are graph topology sentinels used by
+        // SHOW NODE GRAPH, not real operation spans with meaningful durations.
+        let mut where_parts = vec![format!("{sn} NOT LIKE 'ros2.graph.%'")];
         if let Some(ref scope) = cq.scope {
             where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
         }
-        let where_clause = if where_parts.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", where_parts.join(" AND "))
-        };
+        let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
 
         Ok(format!(
             "SELECT {sn} AS span_name, COUNT(*) AS count, \
