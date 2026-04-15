@@ -55,10 +55,10 @@ All data is inserted using DuckDB `NOW() - INTERVAL` expressions, evaluated each
 | # | Label | Demonstrates |
 |---|---|---|
 | 1 | Trace a failed mission | Distributed trace Gantt with span hierarchy |
-| 2 | What went wrong? | `ENRICH WITH logs` — cross-signal correlation |
-| 3 | Fleet CPU over time | `TIMESERIES 2 min FACET robot_id` — stacked time-series |
-| 4 | Message flow: /scan | `MESSAGE FLOW FROM TOPIC` — causal span chain |
-| 5 | Slowest spans | `SHOW SPAN SUMMARY` — latency comparison bar chart |
+| 2 | Show logs for a failed trace | `ENRICH WITH logs` — cross-signal correlation |
+| 3 | CPU usage across fleet | `TIMESERIES 2 min FACET robot_id` — stacked time-series |
+| 4 | Message flow for topic: /scan | `MESSAGE FLOW FROM TOPIC` — causal span chain |
+| 5 | Slowest actions/spans | `SHOW SPAN SUMMARY` — latency comparison bar chart |
 | 6 | Path deviation | `PATH DEVIATION` — planned vs actual trajectory |
 | 7 | Which robot regressed? | `ANOMALY COMPARED TO last week` — statistical anomaly detection |
 | 8 | Battery below 11.5V | Unit-aware filter: `fields['voltage'] < 11.5 V` |

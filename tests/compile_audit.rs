@@ -1162,7 +1162,7 @@ fn showcase_format_hints() {
         "query 2 (enrich with logs)"
     );
 
-    // Query 3: Fleet CPU over time — TIMESERIES + FACET → StackedLineChart
+    // Query 3: CPU usage across fleet — TIMESERIES + FACET → StackedLineChart
     assert_eq!(
         format_hint(
             "SELECT cpu_usage FROM metrics\nTIMESERIES 2 min FACET robot_id\nSINCE 45 min ago"
@@ -1178,7 +1178,7 @@ fn showcase_format_hints() {
         "query 4 (message flow)"
     );
 
-    // Query 5: Slowest spans → HorizontalBars
+    // Query 5: Slowest actions/spans → HorizontalBars
     assert_eq!(
         format_hint("SHOW SPAN SUMMARY\nFOR ROBOT 'robot-amr-02'\nSINCE 90 min ago"),
         FormatHint::HorizontalBars,
