@@ -12,6 +12,19 @@ export function LineChartViz({ rows, visualization }: VizProps) {
   const yKey = visualization?.y_axis ?? Object.keys(rows[0])[1];
   const isDeviation = yKey === 'lateral_deviation_m';
 
+  // Detect epoch timestamps — DuckDB can return ms, μs, or ns depending on column type.
+  // Year-2000 in ms ≈ 9.47e11. Any integer above that is almost certainly an epoch timestamp.
+  const EPOCH_2000_MS = 946684800_000; // 9.47e11
+
+  const formatXTick = (v: unknown): string => {
+    if (typeof v === 'number' && v > EPOCH_2000_MS) {
+      // Infer unit by magnitude: ns > 1e17, μs > 1e14, otherwise ms
+      const ms = v > 1e17 ? v / 1_000_000 : v > 1e14 ? v / 1_000 : v;
+      return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    return String(v);
+  };
+
   const data = rows.map((row) => ({
     x: row[xKey],
     y: Number(row[yKey]),
@@ -38,6 +51,7 @@ export function LineChartViz({ rows, visualization }: VizProps) {
           tick={{ fill: '#9CA3AF', fontSize: 10 }}
           axisLine={{ stroke: '#374151' }}
           tickLine={false}
+          tickFormatter={formatXTick}
         />
         <YAxis
           tick={{ fill: '#9CA3AF', fontSize: 10 }}
@@ -49,6 +63,7 @@ export function LineChartViz({ rows, visualization }: VizProps) {
           contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: 6, fontSize: 12 }}
           labelStyle={{ color: '#D1D5DB' }}
           itemStyle={{ color: '#6EE7B7' }}
+          labelFormatter={formatXTick}
           formatter={(v: number) => [formatValue(v), yKey]}
         />
         {isDeviation && (

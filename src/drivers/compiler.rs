@@ -1069,13 +1069,9 @@ impl<'a> CompileCtx<'a> {
                   POWER(a.actual_y::FLOAT - p.y::FLOAT, 2)) AS lateral_deviation_m \
              FROM actual_poses a \
              CROSS JOIN planned_path p\
-             ) SELECT \
-             MAX(lateral_deviation_m) AS max_lateral_deviation_m, \
-             AVG(lateral_deviation_m) AS mean_lateral_deviation_m, \
-             COUNT(*) AS actual_pose_count, \
-             (SELECT COUNT(*) FROM planned_path) AS planned_waypoint_count, \
-             MIN(timestamp) AS start_time, MAX(timestamp) AS end_time \
-             FROM deviations"
+             ) SELECT timestamp, lateral_deviation_m, actual_x, actual_y, planned_x, planned_y \
+             FROM deviations \
+             ORDER BY timestamp"
         ))
     }
 

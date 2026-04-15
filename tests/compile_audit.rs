@@ -335,7 +335,7 @@ fn anomaly_missing_compared_to_is_parse_error() {
 
 #[test]
 fn path_deviation_compiles() {
-    // PATH DEVIATION now compiles to a two-CTE SQL query.
+    // PATH DEVIATION compiles to a three-CTE SQL query returning per-timestamp rows.
     let sql = compile_sql(
         "PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday",
         SqlDialect::PostgreSQL,
@@ -343,6 +343,7 @@ fn path_deviation_compiles() {
     assert!(sql.contains("planned_path"), "got: {sql}");
     assert!(sql.contains("actual_poses"), "got: {sql}");
     assert!(sql.contains("lateral_deviation_m"), "got: {sql}");
+    assert!(sql.contains("ORDER BY timestamp"), "got: {sql}");
 }
 
 #[test]
