@@ -3,6 +3,8 @@ import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import CodeBlock from '@theme/CodeBlock';
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
 import Head from '@docusaurus/Head';
 import { Bot, ChartScatter, Table, Share2, Terminal, Database, BarChart2, ArrowRight, Ruler, BarChart3 } from 'lucide-react';
 import { RosqlRepl } from '@site/src/components/RosqlRepl';
@@ -362,16 +364,36 @@ export default function Home(): ReactNode {
           <div className="container">
             <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>Quick start</h2>
             <p style={{ textAlign: 'center', color: 'var(--ifm-color-emphasis-600)', marginBottom: '2rem', fontSize: '0.9rem' }}>
-              Linux x86_64 / arm64 · macOS Apple Silicon
+              Linux · macOS (Intel &amp; Apple Silicon) · Windows via cargo
             </p>
             <div style={{ maxWidth: 720, margin: '0 auto' }}>
-              <CodeBlock language="bash" title="Install (Linux x86_64 / arm64 · macOS Apple Silicon)">
-                {`curl -fsSL https://rosql.org/install.sh | sh`}
-              </CodeBlock>
-              <p style={{ textAlign: 'center', color: 'var(--ifm-color-emphasis-600)', fontSize: '0.85rem', margin: '0.25rem 0 1.5rem' }}>
-                Windows · Intel Mac · building from source → <Link to="/docs/quickstart">Full quickstart</Link>
-              </p>
-              <CodeBlock language="bash" title="Run your first query">
+              <Tabs>
+                <TabItem value="curl" label="curl | sh" default>
+                  <CodeBlock language="bash">
+                    {`curl -fsSL https://rosql.org/install.sh | sh`}
+                  </CodeBlock>
+                  <p style={{ color: 'var(--ifm-color-emphasis-600)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                    Linux x86_64 / arm64 · macOS Intel &amp; Apple Silicon. Installs to <code>~/.local/bin/</code>.
+                  </p>
+                </TabItem>
+                <TabItem value="brew" label="Homebrew (macOS)">
+                  <CodeBlock language="bash">
+                    {`brew install robotopsinc/tap/rosql`}
+                  </CodeBlock>
+                  <p style={{ color: 'var(--ifm-color-emphasis-600)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                    Intel &amp; Apple Silicon. Supports <code>brew upgrade rosql</code>.
+                  </p>
+                </TabItem>
+                <TabItem value="cargo" label="cargo install">
+                  <CodeBlock language="bash">
+                    {`cargo install rosql --features server,duckdb`}
+                  </CodeBlock>
+                  <p style={{ color: 'var(--ifm-color-emphasis-600)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                    All platforms including Windows. Requires Rust stable — <a href="https://rustup.rs">rustup.rs</a>.
+                  </p>
+                </TabItem>
+              </Tabs>
+              <CodeBlock language="bash" title="Run your first query" style={{ marginTop: '1.5rem' }}>
                 {`rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \\
   --backend parquet \\
   --url <your-telemetry-dir>  # see quickstart for S3, PostgreSQL, and all options`}

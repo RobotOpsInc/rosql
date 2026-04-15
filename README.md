@@ -112,8 +112,10 @@ TRACE 'a3f1c9d2e8b04f7a'
 ### As a CLI
 
 ```sh
-# Install (Linux x86_64 / arm64, macOS Apple Silicon)
+# Install (Linux x86_64 / arm64, macOS Intel & Apple Silicon)
 curl -fsSL https://rosql.org/install.sh | sh
+# Or on macOS via Homebrew (supports brew upgrade)
+brew install robotopsinc/tap/rosql
 
 # Or build from source (all platforms)
 cargo install rosql --features server,duckdb
@@ -353,11 +355,19 @@ See [BENCHMARKS.md](BENCHMARKS.md) for performance data (coming soon — [#35](h
 
 ## Installation
 
-### One-liner (Linux x86_64 / arm64, macOS Apple Silicon)
+### One-liner (Linux x86_64 / arm64, macOS Intel &amp; Apple Silicon)
 
 ```sh
 curl -fsSL https://rosql.org/install.sh | sh
 ```
+
+### Homebrew (macOS)
+
+```sh
+brew install robotopsinc/tap/rosql
+```
+
+Supports `brew upgrade rosql` and `brew uninstall rosql`.
 
 Pre-built binaries include the Parquet backend (`--backend parquet`) and are available for:
 
@@ -366,7 +376,7 @@ Pre-built binaries include the Parquet backend (`--backend parquet`) and are ava
 | Linux | x86_64 | — |
 | Linux | aarch64 | — |
 | macOS | arm64 (Apple Silicon) | — |
-| macOS | x86_64 (Intel) | Build from source (see below) |
+| macOS | x86_64 (Intel) | — |
 | Windows | any | Build from source (see below) |
 
 ### Build from source

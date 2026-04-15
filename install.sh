@@ -11,9 +11,9 @@
 #   Linux  x86_64     (x86_64-unknown-linux-gnu)
 #   Linux  arm64      (aarch64-unknown-linux-gnu)
 #   macOS  arm64      (aarch64-apple-darwin)      — Apple Silicon
+#   macOS  x86_64     (x86_64-apple-darwin)       — Intel Mac
 #
 # Unsupported platforms (build from source):
-#   macOS  x86_64     (Intel Mac)
 #   Windows            (any arch)
 #
 # To build from source on any platform:
@@ -45,11 +45,7 @@ case "$OS" in
   Darwin*)
     case "$ARCH" in
       arm64)    TARGET="aarch64-apple-darwin" ;;
-      x86_64)
-        echo "Error: pre-built binaries are not available for Intel Macs."
-        echo "Build from source: cargo install rosql --features server,duckdb"
-        exit 1
-        ;;
+      x86_64)   TARGET="x86_64-apple-darwin" ;;
       *)
         echo "Error: unsupported macOS architecture: $ARCH"
         echo "Build from source: cargo install rosql --features server,duckdb"

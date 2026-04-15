@@ -15,13 +15,22 @@ Get ROSQL running against your ROS2 telemetry data in under 5 minutes.
 ## Install the CLI
 
 <Tabs>
-  <TabItem value="prebuilt" label="Pre-built binary" default>
+  <TabItem value="prebuilt" label="curl | sh" default>
 
 ```bash
 curl -fsSL https://rosql.org/install.sh | sh
 ```
 
-Linux x86_64, Linux arm64, and macOS Apple Silicon. Installs to `~/.local/bin/` with the Parquet backend included.
+Linux x86_64, Linux arm64, macOS Intel, and macOS Apple Silicon. Installs to `~/.local/bin/` with the Parquet backend included.
+
+  </TabItem>
+  <TabItem value="brew" label="Homebrew (macOS)">
+
+```bash
+brew install robotopsinc/tap/rosql
+```
+
+Intel and Apple Silicon. Supports `brew upgrade rosql` and `brew uninstall rosql`.
 
   </TabItem>
   <TabItem value="cargo" label="cargo install">
@@ -37,7 +46,7 @@ cargo install rosql --features server,postgres
 cargo install rosql --features server,duckdb,postgres
 ```
 
-Windows, Intel Mac, and all other platforms. Requires Rust stable — [rustup.rs](https://rustup.rs).
+All platforms including Windows. Requires Rust stable — [rustup.rs](https://rustup.rs).
 
   </TabItem>
   <TabItem value="source" label="Build from source">
@@ -66,15 +75,15 @@ rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
   --url ./telemetry/robotops_demo_agent/20260403-141530/
 ```
 
-```json
-{
-  "columns": ["timestamp", "trace_id", "span_id", "span_name_col", "service_name", "duration", "status_code"],
-  "rows": [
-    ["2026-04-03T14:32:11.012Z", "a3f1c9d2...", "f0e1d2c3...", "navigate_to_pose", "bt_navigator", 1423187000, "ERROR"]
-  ],
-  "metadata": { "rows_returned": 1, "elapsed_ms": 12 }
-}
 ```
+╭──────────────────────────────┬──────────────────┬──────────────────┬──────────────────────┬───────────────┬────────────┬─────────────╮
+│ timestamp                    │ trace_id         │ span_id          │ span_name_col        │ service_name  │ duration   │ status_code │
+├──────────────────────────────┼──────────────────┼──────────────────┼──────────────────────┼───────────────┼────────────┼─────────────┤
+│ 2026-04-03T14:32:11.012Z     │ a3f1c9d2...      │ f0e1d2c3...      │ navigate_to_pose     │ bt_navigator  │ 1423187000 │ ERROR       │
+╰──────────────────────────────┴──────────────────┴──────────────────┴──────────────────────┴───────────────┴────────────┴─────────────╯
+```
+
+Use `--format json` for programmatic consumption, or `--format csv` for export.
 
 The `--url` directory must follow the demo-agent output layout:
 
