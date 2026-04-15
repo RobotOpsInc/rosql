@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-04-15
+
+### Fixed
+
+- **`WITHIN` proto serialization** — `Condition::Within` (both `GPS` and `Local` center variants) is now fully serialized to protobuf instead of silently falling back to a `IsNotNull` stub. Added `WithinCondition`, `GpsCenter`, and `LocalCenter` messages to `ast.proto` and wired them into `condition_to_proto` in `convert.rs`. Two new unit tests (`convert_within_gps`, `convert_within_local`) cover both variants. Closes #74.
+
 ## [0.4.7] - 2026-04-15
 
 ### Added
