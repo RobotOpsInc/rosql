@@ -4,7 +4,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import CodeBlock from '@theme/CodeBlock';
 import Head from '@docusaurus/Head';
-import { Bot, ChartScatter, Table, Share2, Terminal, Database, Braces, BarChart2, ArrowRight } from 'lucide-react';
+import { Bot, ChartScatter, Table, Share2, Terminal, Database, BarChart2, ArrowRight, Ruler, BarChart3 } from 'lucide-react';
 import { RosqlRepl } from '@site/src/components/RosqlRepl';
 
 const JSON_LD = JSON.stringify({
@@ -30,6 +30,10 @@ DURING(
   AND fields['percentage'] < 15
 )
 SINCE 6 hours ago`;
+
+const TIMESERIES_QUERY = `SELECT cpu_usage FROM metrics
+TIMESERIES 2 min FACET robot_id
+SINCE 45 min ago`;
 
 const ARCH_DIAGRAM = `  ROS2 System
        │
@@ -129,12 +133,12 @@ export default function Home(): ReactNode {
           {/* Level 5: REPL demo */}
           <div style={{ maxWidth: 900, margin: '2rem auto 0', textAlign: 'left' }}>
             <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#6B7280', marginBottom: '0.75rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 500 }}>
-              <span style={{ color: 'var(--ifm-color-primary-lighter)' }}>Try it</span> — pick a query and hit Run
+              <span style={{ color: 'var(--ifm-color-primary-lighter)' }}>Try it</span> — pick a scenario and hit Run
             </p>
             <RosqlRepl compact />
             <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#6B7280', marginTop: '0.75rem' }}>
-              Querying sample ROS2 telemetry data from{' '}
-              <a href="https://github.com/RobotOpsInc/rosql/tree/main/examples/postgres/fixtures" style={{ color: 'var(--ifm-color-primary-lighter)' }}>fixture files</a>
+              Querying a 3-robot warehouse fleet ·{' '}
+              <a href="/docs/repl-dataset" style={{ color: 'var(--ifm-color-primary-lighter)' }}>About this dataset →</a>
             </p>
             <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#4B5563', marginTop: '1rem' }}>
               Available as a library, CLI, gRPC server, and{' '}
@@ -176,10 +180,10 @@ export default function Home(): ReactNode {
               {/* Outputs */}
               <div className="unified-flow-outputs">
                 {([
-                  { Icon: Table,    label: 'Tabular rows',      desc: 'For SQL consumers & data tools' },
-                  { Icon: Braces,   label: 'Structured objects', desc: 'For programmatic processing' },
-                  { Icon: BarChart2,label: 'Chart-ready data',   desc: 'Feed directly into dashboards' },
-                  { Icon: Share2,   label: 'Causality graphs',   desc: 'Trace message propagation' },
+                  { Icon: BarChart3, label: 'Gantt traces',        desc: 'Span hierarchies with error highlighting' },
+                  { Icon: BarChart2, label: 'Time-series charts',  desc: 'Fleet metrics via TIMESERIES + FACET' },
+                  { Icon: Share2,    label: 'Topology graphs',     desc: 'ROS2 node and topic computation graphs' },
+                  { Icon: Table,     label: 'Colored tables',      desc: 'Anomaly results with statistical highlighting' },
                 ] as const).map(({ Icon, label, desc }) => (
                   <div key={label} className="unified-output-card">
                     <Icon size={16} strokeWidth={1.5} className="unified-output-icon" />
@@ -226,6 +230,16 @@ export default function Home(): ReactNode {
                 <h3>Causality graphs</h3>
                 <p><code>TRACE 'id'</code> walks the <code>parent_span_id</code> chain recursively — see exactly how a message propagated through your robot's nodes.</p>
               </div>
+              <div className="benefit-card">
+                <Ruler size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
+                <h3>Unit-aware filtering</h3>
+                <p>Filter sensor data with physical units inline: <code>fields['voltage'] &lt; 11.5 V</code> or <code>fields['latency'] &gt; 500 ms</code>. No manual conversion.</p>
+              </div>
+              <div className="benefit-card">
+                <BarChart3 size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
+                <h3>Visual format hints</h3>
+                <p>Every query returns a <code>format_hint</code> — Gantt, StackedLineChart, NodeGraph, and more — so your UI renders the right visualization automatically.</p>
+              </div>
             </div>
           </div>
         </section>
@@ -244,6 +258,49 @@ export default function Home(): ReactNode {
               <CodeBlock language="sql" title="Cross-signal correlation">
                 {DURING_QUERY}
               </CodeBlock>
+            </div>
+          </div>
+        </section>
+
+        {/* TIMESERIES + FACET demo */}
+        <section style={{ padding: '3rem 0', borderBottom: '1px solid var(--ifm-color-emphasis-200)' }}>
+          <div className="container">
+            <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
+              Fleet-wide time-series, one line
+            </h2>
+            <p style={{ textAlign: 'center', color: 'var(--ifm-color-emphasis-700)', marginBottom: '2rem' }}>
+              Group by any field with <code>FACET</code>. Bucket into intervals with <code>TIMESERIES</code>.
+              Results include a <code>format_hint</code> so your UI renders a stacked chart automatically.
+            </p>
+            <div style={{ maxWidth: 720, margin: '0 auto' }}>
+              <CodeBlock language="sql" title="Multi-robot CPU over time">
+                {TIMESERIES_QUERY}
+              </CodeBlock>
+            </div>
+          </div>
+        </section>
+
+        {/* Unit-aware filtering callout */}
+        <section style={{ padding: '3rem 0', borderBottom: '1px solid var(--ifm-color-emphasis-200)' }}>
+          <div className="container">
+            <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
+              Sensor units — inline, no conversion
+            </h2>
+            <p style={{ textAlign: 'center', color: 'var(--ifm-color-emphasis-700)', marginBottom: '2rem' }}>
+              Write physical quantities directly in queries. ROSQL normalizes them before hitting the database.
+            </p>
+            <div style={{ maxWidth: 720, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+              {[
+                { expr: "fields['voltage'] < 11.5 V",  note: 'Catch battery sag' },
+                { expr: "fields['latency'] > 500 ms",  note: 'Spot slow callbacks' },
+                { expr: "fields['speed'] > 1.5 m/s",   note: 'Flag velocity outliers' },
+                { expr: "fields['distance'] < 0.3 m",  note: 'Proximity alert' },
+              ].map(({ expr, note }) => (
+                <div key={expr} style={{ background: 'var(--ifm-color-emphasis-100)', borderRadius: 8, padding: '1rem', borderLeft: '3px solid var(--ifm-color-primary)' }}>
+                  <code style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.4rem', wordBreak: 'break-all' }}>{expr}</code>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--ifm-color-emphasis-600)' }}>{note}</span>
+                </div>
+              ))}
             </div>
           </div>
         </section>

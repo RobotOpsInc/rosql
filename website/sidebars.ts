@@ -10,6 +10,7 @@ const sidebars: SidebarsConfig = {
     'syntax',
     'schema-reference',
     'command-reference',
+    'repl-dataset',
   ],
 };
 

@@ -238,7 +238,7 @@ fn infer_compound(cq: &crate::ast::CompoundQuery) -> (FormatHint, Option<Visuali
             FormatHint::HorizontalBars,
             Some(VisualizationConfig {
                 x_axis: Some("span_name".into()),
-                y_axis: Some("duration".into()),
+                y_axis: Some("avg_duration".into()),
                 series_key: None,
                 color_field: None,
                 label_field: None,
@@ -263,7 +263,7 @@ fn infer_compound(cq: &crate::ast::CompoundQuery) -> (FormatHint, Option<Visuali
         CompoundClause::PathDeviation { .. } => (
             FormatHint::LineChart,
             Some(VisualizationConfig {
-                x_axis: Some("waypoint_index".into()),
+                x_axis: Some("timestamp".into()),
                 y_axis: Some("lateral_deviation_m".into()),
                 series_key: None,
                 color_field: None,

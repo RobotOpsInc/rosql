@@ -1,0 +1,1 @@
+../../../examples/duckdb/fixtures/08_baseline.sql

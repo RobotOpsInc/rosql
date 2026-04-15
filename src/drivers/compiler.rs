@@ -330,25 +330,35 @@ impl<'a> CompileCtx<'a> {
             let base = if let Some(ref facet) = q.facet {
                 let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
                 let col = self.resolve_column(&facet.dimension, &table)?;
+                // Alias the facet column to its dimension name so the result set
+                // has a predictable column name that matches the series_key hint.
+                let col_expr = format!("{col} AS {}", facet.dimension);
                 if is_star {
-                    format!("{col}, COUNT(*) AS count")
+                    format!("{col_expr}, COUNT(*) AS count")
                 } else {
-                    format!("{col}, {}", self.compile_selections(&q.selections, &table)?)
+                    format!(
+                        "{col_expr}, {}",
+                        self.compile_selections_grouped(&q.selections, &table)?
+                    )
                 }
             } else if matches!(q.selections.as_slice(), [crate::ast::Selection::Star]) {
                 // Default: COUNT(*) for timeseries without explicit aggregation
                 "COUNT(*) AS count".to_string()
             } else {
-                self.compile_selections(&q.selections, &table)?
+                self.compile_selections_grouped(&q.selections, &table)?
             };
             format!("{ts_expr} AS time_bucket, {base}")
         } else if let Some(ref facet) = q.facet {
             let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
             let col = self.resolve_column(&facet.dimension, &table)?;
+            let col_expr = format!("{col} AS {}", facet.dimension);
             if is_star {
-                format!("{col}, COUNT(*) AS count")
+                format!("{col_expr}, COUNT(*) AS count")
             } else {
-                format!("{col}, {}", self.compile_selections(&q.selections, &table)?)
+                format!(
+                    "{col_expr}, {}",
+                    self.compile_selections_grouped(&q.selections, &table)?
+                )
             }
         } else {
             self.compile_selections(&q.selections, &table)?
@@ -371,7 +381,9 @@ impl<'a> CompileCtx<'a> {
             where_parts.push(format!("topic_name = '{}'", alias.topic_name()));
         }
         if let Some(ref scope) = q.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(
+                self.compile_scope_filters(scope, Self::has_direct_robot_id(&q.data_source)),
+            );
         }
         if !where_parts.is_empty() {
             parts.push(format!("WHERE {}", where_parts.join(" AND ")));
@@ -545,16 +557,25 @@ impl<'a> CompileCtx<'a> {
     }
 
     /// Compile scope filters to a list of WHERE predicates.
-    fn compile_scope_filters(&self, scope: &QueryScope) -> Vec<String> {
+    ///
+    /// `direct_robot_id`: set `true` for tables that store robot identity in a
+    /// plain `robot_id` column (e.g. `topic_messages`, `mcap_metadata`,
+    /// `ros2_events`). Set `false` for OTel tables that use the
+    /// `resource_attributes` JSON column.
+    fn compile_scope_filters(&self, scope: &QueryScope, direct_robot_id: bool) -> Vec<String> {
         let mut parts = Vec::new();
         let res = "resource_attributes";
         if let Some(ref robot) = scope.robot {
             match robot {
                 RobotScope::Single(id) => {
-                    parts.push(format!(
-                        "{} = '{id}'",
-                        self.dialect.json_access(res, "robot.id")
-                    ));
+                    if direct_robot_id {
+                        parts.push(format!("robot_id = '{id}'"));
+                    } else {
+                        parts.push(format!(
+                            "{} = '{id}'",
+                            self.dialect.json_access_text(res, "robot.id")
+                        ));
+                    }
                 }
                 RobotScope::Fleet => {} // no filter — all robots
             }
@@ -562,22 +583,35 @@ impl<'a> CompileCtx<'a> {
         if let Some(ref ver) = scope.version {
             parts.push(format!(
                 "{} = '{ver}'",
-                self.dialect.json_access(res, "service.version")
+                self.dialect.json_access_text(res, "service.version")
             ));
         }
         if let Some(ref env) = scope.environment {
             parts.push(format!(
                 "{} = '{env}'",
-                self.dialect.json_access(res, "deployment.environment")
+                self.dialect.json_access_text(res, "deployment.environment")
             ));
         }
         if let Some(ref sess) = scope.session {
             parts.push(format!(
                 "{} = '{sess}'",
-                self.dialect.json_access(res, "ros.session.id")
+                self.dialect.json_access_text(res, "ros.session.id")
             ));
         }
         parts
+    }
+
+    /// Returns true for data sources whose tables store robot identity in a
+    /// plain `robot_id` column rather than `resource_attributes` JSON.
+    fn has_direct_robot_id(source: &DataSource) -> bool {
+        matches!(
+            source,
+            DataSource::Topics
+                | DataSource::TopicAlias(_)
+                | DataSource::Recordings
+                | DataSource::Events
+                | DataSource::Tf
+        )
     }
 
     /// `TRACE 'trace_id'` — recursive CTE span tree walk.
@@ -590,7 +624,7 @@ impl<'a> CompileCtx<'a> {
         // Seed: root spans for this trace (parent_span_id is empty string or NULL)
         let mut seed_where = format!("{tid} = '{trace_id}' AND ({psid} = '' OR {psid} IS NULL)");
         if let Some(ref scope) = cq.scope {
-            for f in self.compile_scope_filters(scope) {
+            for f in self.compile_scope_filters(scope, false) {
                 seed_where.push_str(&format!(" AND {f}"));
             }
         }
@@ -627,7 +661,7 @@ impl<'a> CompileCtx<'a> {
         // Seed filter: spans on the source topic
         let mut seed_where = format!("{topic_attr} = '{from_topic}'");
         if let Some(ref scope) = cq.scope {
-            for f in self.compile_scope_filters(scope) {
+            for f in self.compile_scope_filters(scope, false) {
                 seed_where.push_str(&format!(" AND {f}"));
             }
         }
@@ -635,16 +669,23 @@ impl<'a> CompileCtx<'a> {
             seed_where.push_str(&format!(" AND {}", self.compile_time_range(tr, "")?));
         }
 
-        // Terminal filter for TO NODE / TO TOPIC
-        let terminal_filter = match to_target {
+        // Project the three columns the DirectedGraph viz expects.
+        // Use json_access_text so DuckDB returns VARCHAR, not JSON.
+        let pub_node = self
+            .dialect
+            .json_access_text(span_attrs_col, "ros.publisher_node");
+        let sub_node = self
+            .dialect
+            .json_access_text(span_attrs_col, "ros.subscriber_node");
+        let topic_text = self.dialect.json_access_text(span_attrs_col, "ros.topic");
+
+        // Terminal filter — translated to use the outer projected aliases.
+        let terminal_where = match to_target {
             None => String::new(),
             Some(FlowTarget::Node(node)) => {
-                let node_attr = self.dialect.json_access(span_attrs_col, "ros.node");
-                format!(" WHERE {node_attr} = '{node}'")
+                format!(" AND (source_node = '{node}' OR target_node = '{node}')")
             }
-            Some(FlowTarget::Topic(topic)) => {
-                format!(" WHERE {topic_attr} = '{topic}'")
-            }
+            Some(FlowTarget::Topic(topic)) => format!(" AND topic = '{topic}'"),
         };
 
         let mut sql = format!(
@@ -653,7 +694,13 @@ impl<'a> CompileCtx<'a> {
              UNION ALL \
              SELECT t.* FROM {tbl} t \
              JOIN msg_flow f ON t.{psid} = f.{sid}\
-             ) SELECT * FROM msg_flow{terminal_filter}"
+             ) SELECT DISTINCT \
+             {pub_node} AS source_node, \
+             {sub_node} AS target_node, \
+             {topic_text} AS topic \
+             FROM msg_flow \
+             WHERE {pub_node} IS NOT NULL AND {pub_node} != '' \
+               AND {sub_node} IS NOT NULL AND {sub_node} != ''{terminal_where}"
         );
         sql.push_str(&self.compile_compound_suffix(cq)?);
         Ok(sql)
@@ -669,7 +716,7 @@ impl<'a> CompileCtx<'a> {
 
         let mut where_parts = Vec::new();
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -696,18 +743,16 @@ impl<'a> CompileCtx<'a> {
         let dur = self.col("duration");
         let _ = self.col("timestamp"); // satisfy field_registry usage; not used in output
 
-        let mut where_parts = Vec::new();
+        // Exclude ros2.graph.* spans — these are graph topology sentinels used by
+        // SHOW NODE GRAPH, not real operation spans with meaningful durations.
+        let mut where_parts = vec![format!("{sn} NOT LIKE 'ros2.graph.%'")];
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
         }
-        let where_clause = if where_parts.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", where_parts.join(" AND "))
-        };
+        let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
 
         Ok(format!(
             "SELECT {sn} AS span_name, COUNT(*) AS count, \
@@ -739,7 +784,7 @@ impl<'a> CompileCtx<'a> {
             where_parts.push(format!("{tid} = '{id}'"));
         }
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -819,7 +864,7 @@ impl<'a> CompileCtx<'a> {
 
         let mut where_parts = vec![format!("{topic_col_text} IS NOT NULL")];
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -861,7 +906,7 @@ impl<'a> CompileCtx<'a> {
 
         let mut where_parts = vec![format!("{node_col_text} IS NOT NULL")];
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -902,7 +947,7 @@ impl<'a> CompileCtx<'a> {
             format!("{topic_text} IS NOT NULL"),
         ];
         if let Some(ref scope) = cq.scope {
-            where_parts.extend(self.compile_scope_filters(scope));
+            where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
             where_parts.push(self.compile_time_range(tr, "")?);
@@ -1024,13 +1069,9 @@ impl<'a> CompileCtx<'a> {
                   POWER(a.actual_y::FLOAT - p.y::FLOAT, 2)) AS lateral_deviation_m \
              FROM actual_poses a \
              CROSS JOIN planned_path p\
-             ) SELECT \
-             MAX(lateral_deviation_m) AS max_lateral_deviation_m, \
-             AVG(lateral_deviation_m) AS mean_lateral_deviation_m, \
-             COUNT(*) AS actual_pose_count, \
-             (SELECT COUNT(*) FROM planned_path) AS planned_waypoint_count, \
-             MIN(timestamp) AS start_time, MAX(timestamp) AS end_time \
-             FROM deviations"
+             ) SELECT timestamp, lateral_deviation_m, actual_x, actual_y, planned_x, planned_y \
+             FROM deviations \
+             ORDER BY timestamp"
         ))
     }
 
@@ -1138,7 +1179,7 @@ impl<'a> CompileCtx<'a> {
         // Scope filters
         let mut scope_parts = Vec::new();
         if let Some(ref scope) = cq.scope {
-            scope_parts.extend(self.compile_scope_filters(scope));
+            scope_parts.extend(self.compile_scope_filters(scope, false));
         }
         let scope_clause = if scope_parts.is_empty() {
             String::new()
@@ -1249,6 +1290,40 @@ impl<'a> CompileCtx<'a> {
         let mut cols = Vec::new();
         for sel in sels {
             cols.push(self.compile_selection(sel, table)?);
+        }
+        Ok(cols.join(", "))
+    }
+
+    /// Like `compile_selections` but wraps bare `Field` references in `AVG()`.
+    /// Used when GROUP BY is present (TIMESERIES and/or FACET) and the selection
+    /// is not already an aggregation — a bare column is invalid in that context.
+    ///
+    /// Aggregations that are not already aliased get an auto-derived alias so that
+    /// DuckDB does not fall back to internal names like `count_star()`.
+    fn compile_selections_grouped(
+        &self,
+        sels: &[Selection],
+        table: &str,
+    ) -> Result<String, ROSQLError> {
+        let mut cols = Vec::new();
+        for sel in sels {
+            let s = match sel {
+                Selection::Field(name) => {
+                    let col = self.resolve_column(name, table)?;
+                    format!("AVG({col}) AS {name}")
+                }
+                // Aliased selections already have an explicit alias — compile as-is.
+                Selection::Aliased { .. } => self.compile_selection(sel, table)?,
+                // Aggregations without an explicit alias get an auto-derived one so
+                // backends (especially DuckDB) don't emit internal names like count_star().
+                Selection::Aggregation(agg) => {
+                    let compiled = self.compile_aggregation(agg, table)?;
+                    let alias = derive_agg_alias(agg);
+                    format!("{compiled} AS {alias}")
+                }
+                _ => self.compile_selection(sel, table)?,
+            };
+            cols.push(s);
         }
         Ok(cols.join(", "))
     }
@@ -1479,8 +1554,22 @@ impl<'a> CompileCtx<'a> {
     fn compile_condition(&self, cond: &Condition, table: &str) -> Result<String, ROSQLError> {
         match cond {
             Condition::Comparison { left, op, right } => {
-                let l = self.compile_expr(left, table)?;
+                let mut l = self.compile_expr(left, table)?;
                 let r = self.compile_expr_with_field_context(right, left, table)?;
+                // JSON text extraction (`fields['key']`) returns VARCHAR; comparing
+                // it directly to a numeric literal fails in strict-typing backends
+                // (e.g. DuckDB). Add an explicit CAST when the left side is a bracket
+                // field access and the right side is a numeric value.
+                if matches!(left, Expr::FieldAccess { .. })
+                    && matches!(
+                        right,
+                        Expr::UnitValue(_)
+                            | Expr::Literal(Literal::Float(_))
+                            | Expr::Literal(Literal::Integer(_))
+                    )
+                {
+                    l = self.dialect.cast_to_double(&l);
+                }
                 let op_str = match op {
                     ComparisonOp::Eq => "=",
                     ComparisonOp::Neq => "!=",
@@ -1747,6 +1836,42 @@ impl<'a> CompileCtx<'a> {
 // ---------------------------------------------------------------------------
 // Free functions
 // ---------------------------------------------------------------------------
+
+/// Derive a clean SQL alias for an aggregation call.
+///
+/// Without an explicit alias, DuckDB uses the internal call expression as the
+/// column name (e.g. `count_star()`, `avg("duration")`). This function maps
+/// each aggregation function to a short, user-readable alias.
+fn derive_agg_alias(agg: &AggregationCall) -> String {
+    let fn_name = match agg.function {
+        AggregationFn::Count => "count",
+        AggregationFn::Sum => "sum",
+        AggregationFn::Avg => "avg",
+        AggregationFn::Min => "min",
+        AggregationFn::Max => "max",
+        AggregationFn::Stddev => "stddev",
+        AggregationFn::Percentile => "percentile",
+        AggregationFn::Rate => "rate",
+        AggregationFn::Delta => "delta",
+        AggregationFn::Derivative => "derivative",
+        AggregationFn::MovingAvg => "moving_avg",
+        AggregationFn::TopicRate => "topic_rate",
+        AggregationFn::NodeStatus => "node_status",
+        AggregationFn::Expected => "expected",
+        AggregationFn::ActionSuccessRate => "success_rate",
+        AggregationFn::Uptime => "uptime",
+        AggregationFn::ApproxCountDistinct => "approx_count_distinct",
+        AggregationFn::ApproxPercentile => "approx_percentile",
+    };
+    // If the first arg is a real field name (not the COUNT(*) wildcard), append it
+    // for clarity: avg_duration, sum_value, etc.
+    if let Some(Expr::Field(field)) = agg.args.first() {
+        if field != "*" {
+            return format!("{fn_name}_{field}");
+        }
+    }
+    fn_name.to_string()
+}
 
 fn compile_literal(lit: &Literal) -> String {
     match lit {

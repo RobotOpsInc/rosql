@@ -335,7 +335,7 @@ fn anomaly_missing_compared_to_is_parse_error() {
 
 #[test]
 fn path_deviation_compiles() {
-    // PATH DEVIATION now compiles to a two-CTE SQL query.
+    // PATH DEVIATION compiles to a three-CTE SQL query returning per-timestamp rows.
     let sql = compile_sql(
         "PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday",
         SqlDialect::PostgreSQL,
@@ -343,6 +343,7 @@ fn path_deviation_compiles() {
     assert!(sql.contains("planned_path"), "got: {sql}");
     assert!(sql.contains("actual_poses"), "got: {sql}");
     assert!(sql.contains("lateral_deviation_m"), "got: {sql}");
+    assert!(sql.contains("ORDER BY timestamp"), "got: {sql}");
 }
 
 #[test]
@@ -823,6 +824,20 @@ fn timeseries_compiles_postgres() {
 }
 
 #[test]
+fn timeseries_bare_field_wrapped_in_avg_duckdb() {
+    // A bare field selection (not an aggregation) in a TIMESERIES+FACET query must be
+    // auto-wrapped in AVG() so the generated SQL is valid under GROUP BY.
+    // Regression: previously emitted bare "value" causing DuckDB binder error.
+    let sql = compile_sql(
+        "SELECT cpu_usage FROM metrics TIMESERIES 2 min FACET robot_id SINCE 45 min ago",
+        SqlDialect::DuckDB,
+    );
+    assert!(sql.contains("AVG("), "bare field not wrapped in AVG: {sql}");
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+    assert!(sql.contains("time_bucket"), "got: {sql}");
+}
+
+#[test]
 fn timeseries_composes_with_facet_duckdb() {
     let sql = compile_sql(
         "SELECT AVG(duration) FROM traces TIMESERIES 1 min FACET action_name SINCE 1 hour ago",
@@ -1003,7 +1018,7 @@ fn format_hint_span_summary_viz_has_axes() {
     let cr = compile_result("SHOW SPAN SUMMARY SINCE 1 hour ago");
     let viz = cr.visualization.expect("expected VisualizationConfig");
     assert_eq!(viz.x_axis.as_deref(), Some("span_name"));
-    assert_eq!(viz.y_axis.as_deref(), Some("duration"));
+    assert_eq!(viz.y_axis.as_deref(), Some("avg_duration"));
 }
 
 #[test]
@@ -1125,6 +1140,80 @@ fn execution_error_display_includes_data_source() {
     let msg = err.to_string();
     assert!(msg.contains("PostgreSQL"), "got: {msg}");
     assert!(msg.contains("Table not found"), "got: {msg}");
+}
+
+// ── Showcase query format hints ──────────────────────────────────────────────
+
+#[test]
+fn showcase_format_hints() {
+    // All 9 showcase queries must compile and return the expected format hint.
+
+    // Query 1: Trace a failed mission
+    assert_eq!(
+        format_hint("TRACE 'trace-amr02-m3'"),
+        FormatHint::Gantt,
+        "query 1 (trace)"
+    );
+
+    // Query 2: Enrich trace with logs (still a Gantt)
+    assert_eq!(
+        format_hint("TRACE 'trace-amr02-m3'\nENRICH WITH logs LIMIT 5"),
+        FormatHint::Gantt,
+        "query 2 (enrich with logs)"
+    );
+
+    // Query 3: Fleet CPU over time — TIMESERIES + FACET → StackedLineChart
+    assert_eq!(
+        format_hint(
+            "SELECT cpu_usage FROM metrics\nTIMESERIES 2 min FACET robot_id\nSINCE 45 min ago"
+        ),
+        FormatHint::StackedLineChart,
+        "query 3 (timeseries facet)"
+    );
+
+    // Query 4: Message flow → DirectedGraph
+    assert_eq!(
+        format_hint("MESSAGE FLOW FROM TOPIC '/scan'\nFOR ROBOT 'robot-amr-02'"),
+        FormatHint::DirectedGraph,
+        "query 4 (message flow)"
+    );
+
+    // Query 5: Slowest spans → HorizontalBars
+    assert_eq!(
+        format_hint("SHOW SPAN SUMMARY\nFOR ROBOT 'robot-amr-02'\nSINCE 90 min ago"),
+        FormatHint::HorizontalBars,
+        "query 5 (span summary)"
+    );
+
+    // Query 6: Path deviation → LineChart
+    assert_eq!(
+        format_hint("PATH DEVIATION\nFOR TRACE 'trace-amr02-m3'"),
+        FormatHint::LineChart,
+        "query 6 (path deviation)"
+    );
+
+    // Query 7: Anomaly detection → Table (with color_field for highlighting)
+    assert_eq!(
+        format_hint("ANOMALY(duration)\nCOMPARED TO last week\nFACET robot_id"),
+        FormatHint::Table,
+        "query 7 (anomaly)"
+    );
+
+    // Query 8: Battery below threshold → Table
+    assert_eq!(
+        format_hint(
+            "FROM topics\nWHERE topic_name = '/battery_state'\n  AND fields['voltage'] < 11.5 V\nFOR ROBOT 'robot-amr-02'\nSINCE 2 h ago"
+        ),
+        FormatHint::Table,
+        "query 8 (battery filter)"
+    );
+
+    // Query 9: ROS2 node topology → NodeGraph
+    assert_eq!(
+        format_hint("SHOW NODE GRAPH\nFOR ROBOT 'robot-amr-02'"),
+        FormatHint::NodeGraph,
+        "query 9 (node graph)"
+    );
 }
 
 #[test]

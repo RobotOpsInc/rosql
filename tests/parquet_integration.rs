@@ -282,13 +282,17 @@ async fn query_log_severity_facet() {
     );
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(
-        col_names.contains(&"severity_text"),
-        "expected severity_text column, got: {col_names:?}"
+        col_names.contains(&"severity"),
+        "expected severity column (FACET aliases the dimension), got: {col_names:?}"
+    );
+    assert!(
+        col_names.contains(&"count"),
+        "expected count column (COUNT(*) auto-aliased), got: {col_names:?}"
     );
     assert_eq!(
         col_names.len(),
         2,
-        "expected severity_text + count column, got: {col_names:?}"
+        "expected severity + count columns, got: {col_names:?}"
     );
 }
 

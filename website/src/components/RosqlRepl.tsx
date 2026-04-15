@@ -1,33 +1,63 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import type { VisualizationConfig } from './visualizations/types';
+import { ResultRenderer } from './visualizations/ResultRenderer';
+
+// Maps ENRICH WITH source names to DuckDB table and join column.
+const ENRICH_TABLE_MAP: Record<string, { table: string; join_column: string }> = {
+  logs:   { table: '"otel_logs"',           join_column: 'trace_id' },
+  topics: { table: '"otel_topic_messages"', join_column: 'trace_id' },
+};
+
+function parseEnrichments(queryText: string): Array<{ table: string; join_column: string; limit: number }> {
+  const results: Array<{ table: string; join_column: string; limit: number }> = [];
+  const re = /ENRICH\s+WITH\s+(\w+)(?:\s+LIMIT\s+(\d+))?/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(queryText)) !== null) {
+    const source = match[1].toLowerCase();
+    const limit = parseInt(match[2] ?? '10', 10);
+    const info = ENRICH_TABLE_MAP[source];
+    if (info) results.push({ ...info, limit });
+  }
+  return results;
+}
 
 const EXAMPLE_QUERIES = [
   {
-    label: 'Find error traces',
-    query: "FROM traces WHERE status = 'ERROR'\n-- SINCE 1 hour ago",
+    label: 'Trace a failed mission',
+    query: "TRACE 'trace-amr02-m3'",
   },
   {
-    label: 'Message causality chain',
-    query: "TRACE 'trace-002'",
+    label: 'What went wrong?',
+    query: "TRACE 'trace-amr02-m3'\nENRICH WITH logs LIMIT 5",
   },
   {
-    label: 'Error rate by robot',
-    query: "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET robot_id\n-- SINCE 30 minutes ago",
+    label: 'Fleet CPU over time',
+    query: "SELECT cpu_usage FROM metrics\nTIMESERIES 2 min FACET robot_id\nSINCE 45 min ago",
   },
   {
-    label: 'Action success rate',
-    query: "SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces\n-- SINCE 1 hour ago",
+    label: 'Message flow: /scan',
+    query: "MESSAGE FLOW FROM TOPIC '/scan'\nFOR ROBOT 'robot-amr-02'",
   },
   {
-    label: 'Topic messages',
-    query: "FROM topics WHERE topic_name = '/battery_state'\n-- SINCE 1 hour ago",
+    label: 'Slowest spans',
+    query: "SHOW SPAN SUMMARY\nFOR ROBOT 'robot-amr-02'\nSINCE 90 min ago",
   },
   {
-    label: 'Pipeline syntax',
-    query: `FROM traces
-| WHERE status = 'ERROR'
-| FACET service_name
--- | SINCE 1 hour ago`,
+    label: 'Path deviation',
+    query: "PATH DEVIATION\nFOR TRACE 'trace-amr02-m3'",
+  },
+  {
+    label: 'Which robot regressed?',
+    query: "ANOMALY(duration)\nCOMPARED TO last week\nFACET robot_id",
+  },
+  {
+    label: 'Battery below 11.5V',
+    query: "FROM topics\nWHERE topic_name = '/battery_state'\n  AND fields['voltage'] < 11.5 V\nFOR ROBOT 'robot-amr-02'\nSINCE 2 h ago",
+  },
+  {
+    label: 'ROS2 node topology',
+    query: "SHOW NODE GRAPH\nFOR ROBOT 'robot-amr-02'",
   },
 ];
 
@@ -38,12 +68,14 @@ const FIXTURE_FILES = [
   '/fixtures/04_metrics.sql',
   '/fixtures/05_topic_messages.sql',
   '/fixtures/06_mcap_metadata.sql',
+  '/fixtures/07_events.sql',
+  '/fixtures/08_baseline.sql',
 ];
 
 type OutputState =
   | { kind: 'idle' }
   | { kind: 'loading'; message: string }
-  | { kind: 'success'; text: string; sql?: string }
+  | { kind: 'success'; rows: Record<string, unknown>[]; rawJson: string; sql?: string; formatHint: string; visualization?: VisualizationConfig }
   | { kind: 'error'; text: string; sql?: string };
 
 /** Recursively convert JS Maps (from serde_wasm_bindgen) to plain objects */
@@ -58,6 +90,7 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
   const [query, setQuery] = useState(EXAMPLE_QUERIES[0].query);
   const [output, setOutput] = useState<OutputState>({ kind: 'idle' });
   const [showSql, setShowSql] = useState(false);
+  const [visualMode, setVisualMode] = useState(true);
   const [rosqlReady, setRosqlReady] = useState(false);
   const [dbReady, setDbReady] = useState(false);
   const [dbLoading, setDbLoading] = useState(false);
@@ -174,6 +207,7 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
     setQuery(newQuery);
     setOutput({ kind: 'idle' });
     setShowSql(false);
+    setVisualMode(true);
     if (viewRef.current) {
       try {
         const view = viewRef.current as unknown as { dispatch: (tr: unknown) => void; state: { doc: { length: number } } };
@@ -185,14 +219,28 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
   const handleRun = useCallback(async () => {
     if (!rosqlRef.current) return;
     setShowSql(false);
+    setVisualMode(true);
 
     // Compile ROSQL → SQL
-    const compileResult = normalize(rosqlRef.current.compile(query)) as { ok: boolean; sql?: string; error?: { message: string } };
+    const compileResult = normalize(rosqlRef.current.compile(query)) as {
+      ok: boolean;
+      sql?: string;
+      error?: { message: string };
+      format_hint?: string;
+      visualization?: VisualizationConfig;
+      enrichments?: Array<{ table: string; join_column: string; limit: number }>;
+    };
     if (!compileResult.ok) {
       setOutput({ kind: 'error', text: `Compile error: ${compileResult.error?.message ?? 'unknown'}` });
       return;
     }
     const sql = compileResult.sql!;
+    const formatHint = compileResult.format_hint ?? 'Table';
+    const visualization = compileResult.visualization ?? undefined;
+
+    // Parse ENRICH WITH clauses directly from the query string — does not depend
+    // on the WASM compile result so it works regardless of WASM version.
+    const enrichments = parseEnrichments(query);
 
     // Ensure DuckDB is ready
     const ready = await initDb();
@@ -200,24 +248,50 @@ function RosqlReplInner({ compact = false }: { compact?: boolean }) {
 
     setOutput({ kind: 'loading', message: 'Running query…' });
     try {
-      const rows = await dbRef.current.query(sql);
-      setOutput({ kind: 'success', text: JSON.stringify(rows, (_, v) => typeof v === 'bigint' ? Number(v) : v, 2), sql });
+      const normalize_row = (r: Record<string, unknown>) =>
+        Object.fromEntries(
+          Object.entries(r).map(([k, v]) => [k, typeof v === 'bigint' ? Number(v) : v])
+        ) as Record<string, unknown>;
+
+      const rawRows = await dbRef.current.query(sql);
+      const rows = rawRows.map((r) => normalize_row(r as Record<string, unknown>));
+
+      // Phase 2: run enrichment queries and append their rows
+      let allRows = rows;
+      const enrichSqls: string[] = [];
+      for (const e of enrichments) {
+        const joinValues = [...new Set(rows.map((r) => r[e.join_column]).filter((v) => v != null))];
+        if (joinValues.length > 0) {
+          const inList = joinValues.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
+          const enrichSql = `SELECT * FROM ${e.table} WHERE "${e.join_column}" IN (${inList}) LIMIT ${e.limit * joinValues.length}`;
+          enrichSqls.push(enrichSql);
+          console.log('[ROSQL] enrichment query:', enrichSql);
+          const enrichRaw = await dbRef.current.query(enrichSql);
+          const enrichRows = enrichRaw.map((r) => normalize_row(r as Record<string, unknown>));
+          console.log('[ROSQL] enrichment rows:', enrichRows.length);
+          allRows = [...allRows, ...enrichRows];
+        }
+      }
+
+      const displaySql = enrichSqls.length > 0
+        ? `${sql}\n\n-- ENRICH WITH\n${enrichSqls.join('\n')}`
+        : sql;
+      const rawJson = JSON.stringify(allRows, null, 2);
+      setOutput({ kind: 'success', rows: allRows, rawJson, sql: displaySql, formatHint, visualization });
     } catch (err) {
       setOutput({ kind: 'error', text: String(err), sql });
     }
   }, [query, initDb]);
 
-const isRunning = output.kind === 'loading';
+  const isRunning = output.kind === 'loading';
   const compiledSql = output.kind === 'success' || output.kind === 'error' ? output.sql : undefined;
+  const successOutput = output.kind === 'success' ? output : null;
 
-  const outputText = (() => {
-    switch (output.kind) {
-      case 'idle': return rosqlReady ? '← Click Run to execute against sample data' : 'Loading WASM parser…';
-      case 'loading': return output.message;
-      case 'success': return output.text;
-      case 'error': return output.text;
-    }
-  })();
+  // Whether the Visual toggle is relevant for this result
+  const hasVisualMode = successOutput !== null && successOutput.formatHint !== 'Table';
+  const showVisualOutput = successOutput !== null && visualMode;
+
+  const idleText = rosqlReady ? '← Click Run to execute against sample data' : 'Loading WASM parser…';
 
   return (
     <div className="rosql-repl">
@@ -238,11 +312,75 @@ const isRunning = output.kind === 'loading';
       <div className="rosql-repl-panes">
         <div className="rosql-repl-editor" ref={editorRef} />
         <div className="rosql-repl-output" style={{ background: '#0F0F0F' }}>
-          <pre style={{ color: output.kind === 'success' ? '#6EE7B7' : output.kind === 'error' ? '#FCA5A5' : '#9CA3AF', background: 'transparent' }}>
-            {outputText}
-          </pre>
+          {/* Output pane header: Visual / Raw JSON toggle */}
+          {successOutput !== null && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderBottom: '1px solid #1F2937' }}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => setVisualMode(true)}
+                  style={{
+                    background: visualMode ? '#1F2937' : 'transparent',
+                    border: '1px solid ' + (visualMode ? '#374151' : 'transparent'),
+                    borderRadius: 4,
+                    color: visualMode ? '#D1D5DB' : '#6B7280',
+                    fontSize: 11,
+                    padding: '2px 8px',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Visual
+                </button>
+                <button
+                  onClick={() => setVisualMode(false)}
+                  style={{
+                    background: !visualMode ? '#1F2937' : 'transparent',
+                    border: '1px solid ' + (!visualMode ? '#374151' : 'transparent'),
+                    borderRadius: 4,
+                    color: !visualMode ? '#D1D5DB' : '#6B7280',
+                    fontSize: 11,
+                    padding: '2px 8px',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Raw JSON
+                </button>
+              </div>
+              <span style={{ fontSize: 10, color: '#4B5563' }}>
+                {successOutput.rows.length} row{successOutput.rows.length !== 1 ? 's' : ''} · {successOutput.formatHint}
+              </span>
+            </div>
+          )}
+
+          {/* Main output area */}
+          <div style={{ padding: output.kind !== 'idle' && output.kind !== 'loading' ? '10px' : 0 }}>
+            {output.kind === 'idle' && (
+              <pre style={{ color: '#9CA3AF', background: 'transparent', margin: 0, padding: '12px' }}>{idleText}</pre>
+            )}
+            {output.kind === 'loading' && (
+              <pre style={{ color: '#9CA3AF', background: 'transparent', margin: 0, padding: '12px' }}>{output.message}</pre>
+            )}
+            {output.kind === 'error' && (
+              <pre style={{ color: '#FCA5A5', background: 'transparent', margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{output.text}</pre>
+            )}
+            {output.kind === 'success' && showVisualOutput && (
+              <ResultRenderer
+                rows={output.rows}
+                formatHint={output.formatHint}
+                visualization={output.visualization}
+              />
+            )}
+            {output.kind === 'success' && !showVisualOutput && (
+              <pre style={{ color: '#6EE7B7', background: 'transparent', margin: 0, fontSize: 11, whiteSpace: 'pre-wrap', maxHeight: 280, overflowY: 'auto' }}>
+                {output.rawJson}
+              </pre>
+            )}
+          </div>
+
+          {/* View compiled SQL collapsible */}
           {compiledSql && (
-            <div style={{ marginTop: 8, borderTop: '1px solid #2A2A2A', paddingTop: 8 }}>
+            <div style={{ marginTop: 4, borderTop: '1px solid #1F2937', paddingTop: 6, padding: '6px 10px' }}>
               <button
                 onClick={() => setShowSql((v) => !v)}
                 style={{ background: 'none', border: 'none', color: '#6B7280', fontSize: 11, cursor: 'pointer', padding: 0 }}
@@ -250,7 +388,7 @@ const isRunning = output.kind === 'loading';
                 {showSql ? '▾ Hide SQL' : '▸ View compiled SQL'}
               </button>
               {showSql && (
-                <pre style={{ marginTop: 6, color: '#9CA3AF', fontSize: 11, whiteSpace: 'pre-wrap' }}>
+                <pre style={{ marginTop: 6, color: '#9CA3AF', fontSize: 11, whiteSpace: 'pre-wrap', background: 'transparent' }}>
                   {compiledSql}
                 </pre>
               )}

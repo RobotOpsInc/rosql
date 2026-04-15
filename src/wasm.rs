@@ -164,6 +164,17 @@ pub fn compile(query: &str) -> JsValue {
                         })
                     })
                     .collect();
+                let enrichments: Vec<serde_json::Value> = cr
+                    .enrichments
+                    .iter()
+                    .map(|e| {
+                        serde_json::json!({
+                            "table": e.table,
+                            "join_column": e.join_column,
+                            "limit": e.limit,
+                        })
+                    })
+                    .collect();
                 let result = serde_json::json!({
                     "ok": true,
                     "sql": cr.sql,
@@ -171,6 +182,7 @@ pub fn compile(query: &str) -> JsValue {
                     "format_hint": format!("{:?}", cr.format_hint),
                     "visualization": serde_json::to_value(&cr.visualization).unwrap_or(serde_json::Value::Null),
                     "warnings": warnings,
+                    "enrichments": enrichments,
                 });
                 serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
             }

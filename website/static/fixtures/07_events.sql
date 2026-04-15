@@ -1,0 +1,1 @@
+../../../examples/duckdb/fixtures/07_events.sql
