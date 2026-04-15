@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-04-15
+
 ### Added
 
 - **REPL v2: rich visualizations** — the REPL now renders 11 visualization types (Gantt, StackedLineChart, LineChart, BarChart, HorizontalBars, DirectedGraph, NodeGraph, ScalarCards, LogTable, RecordingList, DataTable) automatically based on the `format_hint` returned by the ROSQL compiler. A Visual / Raw JSON toggle lets users inspect raw results.
@@ -17,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fixture consistency tests** (`tests/fixture_consistency.rs`) — 13 tests verifying cross-table referential integrity, temporal ordering, and data requirements for each showcase query.
 - **Showcase query tests** (`tests/showcase_queries.rs`) — 9 tests verifying compile + format hint for all showcase queries; 5 also execute against the DuckDB fixture dataset.
 - **Format hint coverage** in `tests/compile_audit.rs` — `showcase_format_hints` test asserts correct `FormatHint` for all 9 showcase queries.
+- **Y-axis labels on line charts** — `LineChartViz` and `StackedLineChartViz` now display a human-readable Y-axis label (e.g. "Lateral path deviation (m)", "Cpu Usage") rendered as a rotated HTML element for reliable cross-browser display.
+- **`SvgTooltip` shared component** — hover tooltips extracted into a single reusable SVG component used by `DirectedGraphViz` and `NodeGraphViz`.
+
+### Changed
+
+- **`PATH DEVIATION` returns per-timestamp rows** — the outer SELECT now returns one row per odometry pose (`timestamp`, `lateral_deviation_m`, `actual_x/y`, `planned_x/y`) ordered by timestamp, giving `LineChartViz` real time-series data to plot instead of a single aggregate row.
+- **`format_inference` x-axis for `PathDeviation`** — updated from the non-existent `waypoint_index` to `timestamp` to match the new projection.
+- **`NodeGraphViz` unified with `DirectedGraphViz` visual language** — topics are now rendered as edge labels rather than blue rectangular intermediate nodes, matching `DirectedGraphViz`. Removes the bipartite graph model, the node/topic legend, and the inconsistent blue palette.
+- **Epoch timestamp formatting** — all visualization components (`LineChartViz`, `StackedLineChartViz`, `LogTableViz`) share a single `formatEpochTick` utility that detects ms/μs/ns magnitude and formats as `HH:MM:SS`, replacing per-component ad-hoc formatting.
+- **`MESSAGE FLOW` compiler** — outputs explicit `source_node`, `target_node`, `topic` columns instead of `SELECT *`, ensuring `DirectedGraphViz` always receives correctly named columns.
+- **`SHOW SPAN SUMMARY` compiler** — filters out `ros2.graph.*` topology spans so only application-level spans appear in the "Slowest spans" view; `format_inference` `y_axis` corrected from `duration` to `avg_duration`.
 
 ## [0.4.6] - 2026-04-11
 

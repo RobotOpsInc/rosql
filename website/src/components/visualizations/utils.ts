@@ -27,6 +27,34 @@ export function formatValue(v: unknown): string {
   return String(v);
 }
 
+// Known Y-axis labels — anything not listed gets auto-humanized from snake_case.
+const Y_AXIS_LABELS: Record<string, string> = {
+  lateral_deviation_m: 'Lateral path deviation (m)',
+  avg_duration: 'Avg duration (ns)',
+  count: 'Count',
+};
+
+/** Return a human-readable Y-axis label for a column key. */
+export function humanizeYKey(key: string): string {
+  return Y_AXIS_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Format an epoch value (ms, μs, or ns) as HH:MM or HH:MM:SS.
+ * Returns the raw string for non-timestamp values.
+ */
+export function formatEpochTick(v: unknown, includeSeconds = true): string {
+  // Recharts may pass tick values as strings — coerce to number first.
+  const n = typeof v === 'number' ? v : Number(v);
+  if (isNaN(n) || n <= 946684800_000) return String(v);
+  // Infer unit by magnitude: ns > 1e17, μs > 1e14, otherwise ms
+  const ms = n > 1e17 ? n / 1_000_000 : n > 1e14 ? n / 1_000 : n;
+  const opts: Intl.DateTimeFormatOptions = includeSeconds
+    ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+    : { hour: '2-digit', minute: '2-digit' };
+  return new Date(ms).toLocaleTimeString([], opts);
+}
+
 /** Pivot flat rows by a series key into { seriesKey: [{x, y}, ...] } */
 export function pivotBySeries(
   rows: Record<string, unknown>[],

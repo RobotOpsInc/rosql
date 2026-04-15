@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { VizProps } from './types';
+import { formatEpochTick } from './utils';
 
 const SEVERITY_COLORS: Record<string, string> = {
   ERROR: '#EF4444',
@@ -26,7 +27,8 @@ export function LogTableViz({ rows }: VizProps) {
         const sev = String(row['severity_text'] ?? row['severity'] ?? 'INFO');
         const color = severityColor(sev);
         const body = String(row['body'] ?? row['message'] ?? '');
-        const ts = String(row['timestamp'] ?? '');
+        const rawTs = row['timestamp'];
+        const ts = formatEpochTick(typeof rawTs === 'number' ? rawTs : Number(rawTs), true);
         const service = String(row['service_name'] ?? '');
         const isOpen = expanded === i;
 
@@ -48,7 +50,7 @@ export function LogTableViz({ rows }: VizProps) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color, minWidth: 40 }}>{sev}</span>
-                <span style={{ fontSize: 10, color: '#6B7280', flexShrink: 0 }}>{ts.slice(0, 19)}</span>
+                <span style={{ fontSize: 10, color: '#6B7280', flexShrink: 0 }}>{ts}</span>
                 {service && <span style={{ fontSize: 10, color: '#9CA3AF' }}>{service}</span>}
               </div>
               <div

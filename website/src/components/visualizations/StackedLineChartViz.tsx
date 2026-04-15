@@ -1,7 +1,18 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import type { VizProps } from './types';
-import { SERIES_COLORS, formatValue } from './utils';
+import { SERIES_COLORS, formatValue, humanizeYKey, formatEpochTick } from './utils';
+
+const Y_LABEL_STYLE: React.CSSProperties = {
+  writingMode: 'vertical-rl',
+  transform: 'rotate(180deg)',
+  color: '#6B7280',
+  fontSize: 9,
+  whiteSpace: 'nowrap',
+  fontFamily: 'var(--ifm-font-family-monospace)',
+  flexShrink: 0,
+  paddingRight: 4,
+};
 
 export function StackedLineChartViz({ rows, visualization }: VizProps) {
   if (rows.length === 0) {
@@ -16,6 +27,7 @@ export function StackedLineChartViz({ rows, visualization }: VizProps) {
   const yKey = visualization?.y_axis ??
     Object.keys(rows[0]).find((k) => k !== xKey && k !== seriesKey) ??
     Object.keys(rows[0])[1];
+  const yLabel = humanizeYKey(yKey);
 
   // Collect all series names (in order of first appearance)
   const seriesNames = useMemo(() => {
@@ -43,52 +55,49 @@ export function StackedLineChartViz({ rows, visualization }: VizProps) {
   }, [rows, xKey, yKey, seriesKey]);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(560);
+  const [width, setWidth] = useState(520);
   useEffect(() => {
-    if (containerRef.current) setWidth(containerRef.current.offsetWidth || 560);
+    if (containerRef.current) setWidth(containerRef.current.offsetWidth || 520);
   }, []);
 
   return (
-    <div ref={containerRef} style={{ overflowX: 'auto' }}>
-      <LineChart width={width} height={280} data={data} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
-        <XAxis
-          dataKey="x"
-          tick={{ fill: '#9CA3AF', fontSize: 10 }}
-          axisLine={{ stroke: '#374151' }}
-          tickLine={false}
-          tickFormatter={(v: string) => {
-            const n = Number(v);
-            // DuckDB returns TIMESTAMPTZ as epoch milliseconds; format as HH:MM
-            if (!isNaN(n) && n > 1e10) {
-              return new Date(n).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            }
-            return v;
-          }}
-        />
-        <YAxis
-          tick={{ fill: '#9CA3AF', fontSize: 10 }}
-          axisLine={false}
-          tickLine={false}
-          width={48}
-        />
-        <Tooltip
-          contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: 6, fontSize: 12 }}
-          labelStyle={{ color: '#D1D5DB' }}
-          formatter={(v: number, name: string) => [formatValue(v), name]}
-        />
-        <Legend wrapperStyle={{ fontSize: 11, color: '#9CA3AF' }} />
-        {seriesNames.map((name, i) => (
-          <Line
-            key={name}
-            type="monotone"
-            dataKey={name}
-            stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-            strokeWidth={2}
-            dot={false}
-            activeDot={{ r: 3 }}
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      <div style={Y_LABEL_STYLE}>{yLabel}</div>
+      <div ref={containerRef} style={{ flex: 1, overflowX: 'auto' }}>
+        <LineChart width={width} height={280} data={data} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+          <XAxis
+            dataKey="x"
+            tick={{ fill: '#9CA3AF', fontSize: 10 }}
+            axisLine={{ stroke: '#374151' }}
+            tickLine={false}
+            tickFormatter={(v) => formatEpochTick(v, false)}
           />
-        ))}
-      </LineChart>
+          <YAxis
+            tick={{ fill: '#9CA3AF', fontSize: 10 }}
+            axisLine={false}
+            tickLine={false}
+            width={44}
+          />
+          <Tooltip
+            contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: 6, fontSize: 12 }}
+            labelStyle={{ color: '#D1D5DB' }}
+            labelFormatter={(v) => formatEpochTick(v, false)}
+            formatter={(v: number, name: string) => [formatValue(v), name]}
+          />
+          <Legend wrapperStyle={{ fontSize: 11, color: '#9CA3AF' }} />
+          {seriesNames.map((name, i) => (
+            <Line
+              key={name}
+              type="monotone"
+              dataKey={name}
+              stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 3 }}
+            />
+          ))}
+        </LineChart>
+      </div>
     </div>
   );
 }
