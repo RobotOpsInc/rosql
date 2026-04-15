@@ -28,19 +28,19 @@ const EXAMPLE_QUERIES = [
     query: "TRACE 'trace-amr02-m3'",
   },
   {
-    label: 'What went wrong?',
-    query: "TRACE 'trace-amr02-m3'\nENRICH WITH logs LIMIT 5",
+    label: 'Show logs for a failed trace',
+    query: "TRACE 'trace-amr02-m3'\nENRICH WITH logs LIMIT 5\n--Make sure to scroll down\n--on the right pane to see the logs!",
   },
   {
-    label: 'Fleet CPU over time',
+    label: 'CPU usage across fleet',
     query: "SELECT cpu_usage FROM metrics\nTIMESERIES 2 min FACET robot_id\nSINCE 45 min ago",
   },
   {
-    label: 'Message flow: /scan',
+    label: 'Message flow for topic: /scan',
     query: "MESSAGE FLOW FROM TOPIC '/scan'\nFOR ROBOT 'robot-amr-02'",
   },
   {
-    label: 'Slowest spans',
+    label: 'Slowest actions/spans',
     query: "SHOW SPAN SUMMARY\nFOR ROBOT 'robot-amr-02'\nSINCE 90 min ago",
   },
   {

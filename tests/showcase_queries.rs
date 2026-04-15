@@ -87,7 +87,7 @@ fn showcase_01_trace_failed_mission() {
     assert!(rows > 0, "expected spans from trace-amr02-m3, got 0");
 }
 
-// ── Showcase query 2: What went wrong? (ENRICH WITH logs) ───────────────────
+// ── Showcase query 2: Show logs for a failed trace (ENRICH WITH logs) ───────────────────
 
 #[test]
 fn showcase_02_enrich_with_logs() {
@@ -98,7 +98,7 @@ fn showcase_02_enrich_with_logs() {
     assert!(rows > 0, "expected enriched trace rows, got 0");
 }
 
-// ── Showcase query 3: Fleet CPU over time ────────────────────────────────────
+// ── Showcase query 3: CPU usage across fleet ────────────────────────────────────
 
 #[test]
 fn showcase_03_fleet_cpu_timeseries() {
@@ -124,7 +124,7 @@ fn showcase_03_fleet_cpu_timeseries() {
     assert!(rows > 0, "expected cpu_usage timeseries rows, got 0");
 }
 
-// ── Showcase query 4: Message flow: /scan ────────────────────────────────────
+// ── Showcase query 4: Message flow for topic: /scan ────────────────────────────────────
 
 #[test]
 fn showcase_04_message_flow_scan() {
@@ -139,7 +139,7 @@ fn showcase_04_message_flow_scan() {
     assert!(rows > 0, "expected message flow rows for /scan, got 0");
 }
 
-// ── Showcase query 5: Slowest spans ──────────────────────────────────────────
+// ── Showcase query 5: Slowest actions/spans ──────────────────────────────────────────
 
 #[test]
 fn showcase_05_slowest_spans() {
