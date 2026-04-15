@@ -3,11 +3,8 @@ import type { VizProps } from './types';
 import { SvgTooltip } from './SvgTooltip';
 import type { SvgTooltipProps } from './SvgTooltip';
 
-type Tooltip = Omit<SvgTooltipProps, 'svgWidth'>;
-
 interface GraphNode {
   id: string;
-  type: 'node' | 'topic';
   x: number;
   y: number;
   vx: number;
@@ -17,12 +14,14 @@ interface GraphNode {
 interface GraphEdge {
   source: string;
   target: string;
+  label: string;
 }
+
+type Tooltip = Omit<SvgTooltipProps, 'svgWidth'>;
 
 const WIDTH = 580;
 const HEIGHT = 280;
 const NODE_R = 18;
-const TOPIC_R = 10;
 
 function simpleForce(nodes: GraphNode[], edges: GraphEdge[], iters = 120): GraphNode[] {
   const ns = nodes.map((n) => ({ ...n }));
@@ -41,7 +40,7 @@ function simpleForce(nodes: GraphNode[], edges: GraphEdge[], iters = 120): Graph
         ns[b].vy += (dy / dist) * f;
       }
     }
-    // Attraction
+    // Attraction along edges
     for (const e of edges) {
       const s = ns.find((n) => n.id === e.source);
       const t = ns.find((n) => n.id === e.target);
@@ -64,9 +63,8 @@ function simpleForce(nodes: GraphNode[], edges: GraphEdge[], iters = 120): Graph
     for (const n of ns) {
       n.vx *= 0.85;
       n.vy *= 0.85;
-      const r = n.type === 'node' ? NODE_R : TOPIC_R;
-      n.x = Math.max(r + 4, Math.min(WIDTH - r - 4, n.x + n.vx));
-      n.y = Math.max(r + 4, Math.min(HEIGHT - r - 4, n.y + n.vy));
+      n.x = Math.max(NODE_R + 4, Math.min(WIDTH - NODE_R - 4, n.x + n.vx));
+      n.y = Math.max(NODE_R + 4, Math.min(HEIGHT - NODE_R - 4, n.y + n.vy));
     }
   }
   return ns;
@@ -80,36 +78,25 @@ export function NodeGraphViz({ rows }: VizProps) {
   useEffect(() => {
     if (rows.length === 0) return;
 
-    const ros2Nodes = new Set<string>();
-    const topics = new Set<string>();
+    const nodeIds = new Set<string>();
     const edgeList: GraphEdge[] = [];
 
     for (const row of rows) {
       const src = String(row['source_node'] ?? '');
       const tgt = String(row['target_node'] ?? '');
-      const topic = String(row['topic'] ?? '');
-      if (src) ros2Nodes.add(src);
-      if (tgt) ros2Nodes.add(tgt);
-      if (topic) topics.add(topic);
-      // Edges: source_node → topic, topic → target_node
-      if (src && topic) edgeList.push({ source: src, target: topic });
-      if (topic && tgt) edgeList.push({ source: topic, target: tgt });
+      const label = String(row['topic'] ?? '');
+      if (src) nodeIds.add(src);
+      if (tgt) nodeIds.add(tgt);
+      if (src && tgt) edgeList.push({ source: src, target: tgt, label });
     }
 
-    const all: GraphNode[] = [
-      ...[...ros2Nodes].map((id, i, arr) => {
-        const angle = (i / arr.length) * 2 * Math.PI;
-        const r = 90;
-        return { id, type: 'node' as const, x: WIDTH / 2 + r * Math.cos(angle), y: HEIGHT / 2 + r * Math.sin(angle), vx: 0, vy: 0 };
-      }),
-      ...[...topics].map((id, i, arr) => {
-        const angle = (i / arr.length) * 2 * Math.PI + Math.PI / arr.length;
-        const r = 50;
-        return { id, type: 'topic' as const, x: WIDTH / 2 + r * Math.cos(angle), y: HEIGHT / 2 + r * Math.sin(angle), vx: 0, vy: 0 };
-      }),
-    ];
+    const nodeArr = [...nodeIds].map((id, i, arr) => {
+      const angle = (i / arr.length) * 2 * Math.PI;
+      const r = Math.min(WIDTH, HEIGHT) / 2 - NODE_R - 20;
+      return { id, x: WIDTH / 2 + r * Math.cos(angle), y: HEIGHT / 2 + r * Math.sin(angle), vx: 0, vy: 0 };
+    });
 
-    const laid = simpleForce(all, edgeList, 120);
+    const laid = simpleForce(nodeArr, edgeList, 120);
     setNodes(laid);
     setEdges(edgeList);
   }, [rows]);
@@ -124,8 +111,8 @@ export function NodeGraphViz({ rows }: VizProps) {
     <div style={{ overflowX: 'auto' }}>
       <svg width={WIDTH} height={HEIGHT} style={{ display: 'block' }} onMouseLeave={() => setTooltip(null)}>
         <defs>
-          <marker id="ng-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
-            <path d="M0,0 L0,6 L7,3 z" fill="#60A5FA" />
+          <marker id="ng-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#6EE7B7" />
           </marker>
         </defs>
 
@@ -137,57 +124,56 @@ export function NodeGraphViz({ rows }: VizProps) {
           const dx = t.x - s.x;
           const dy = t.y - s.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const sR = s.type === 'node' ? NODE_R : TOPIC_R;
-          const tR = t.type === 'node' ? NODE_R : TOPIC_R;
+          const x1 = s.x + (dx / dist) * NODE_R;
+          const y1 = s.y + (dy / dist) * NODE_R;
+          const x2 = t.x - (dx / dist) * (NODE_R + 6);
+          const y2 = t.y - (dy / dist) * (NODE_R + 6);
+          const mx = (x1 + x2) / 2;
+          const my = (y1 + y2) / 2;
           return (
-            <line
-              key={i}
-              x1={s.x + (dx / dist) * sR}
-              y1={s.y + (dy / dist) * sR}
-              x2={t.x - (dx / dist) * (tR + 6)}
-              y2={t.y - (dy / dist) * (tR + 6)}
-              stroke="#60A5FA"
-              strokeWidth={1.2}
-              strokeOpacity={0.5}
-              markerEnd="url(#ng-arrow)"
-            />
+            <g key={i}>
+              <line
+                x1={x1} y1={y1} x2={x2} y2={y2}
+                stroke="#6EE7B7"
+                strokeWidth={1.5}
+                strokeOpacity={0.6}
+                markerEnd="url(#ng-arrow)"
+              />
+              {edge.label && (
+                <text
+                  x={mx} y={my - 4}
+                  textAnchor="middle"
+                  fill="#6B7280"
+                  fontSize={9}
+                  fontFamily="var(--ifm-font-family-monospace)"
+                  style={{ cursor: 'default' }}
+                  onMouseEnter={() => setTooltip({ text: edge.label, cx: mx, cy: my - 12 })}
+                  onMouseLeave={() => setTooltip(null)}
+                >
+                  {edge.label.length > 16 ? edge.label.slice(0, 16) + '…' : edge.label}
+                </text>
+              )}
+            </g>
           );
         })}
 
         {/* Nodes */}
         {nodes.map((n) => {
-          const isTopic = n.type === 'topic';
-          const r = isTopic ? TOPIC_R : NODE_R;
-          const fill = isTopic ? '#1E3A5F' : '#1F2937';
-          const stroke = isTopic ? '#60A5FA' : '#6EE7B7';
           const shortName = n.id.split('/').pop() ?? n.id;
           return (
             <g
               key={n.id}
               style={{ cursor: 'default' }}
-              onMouseEnter={() => setTooltip({ text: n.id, cx: n.x, cy: n.y - r - 6 })}
+              onMouseEnter={() => setTooltip({ text: n.id, cx: n.x, cy: n.y - NODE_R - 6 })}
               onMouseLeave={() => setTooltip(null)}
             >
-              {isTopic ? (
-                <rect
-                  x={n.x - r}
-                  y={n.y - r * 0.7}
-                  width={r * 2}
-                  height={r * 1.4}
-                  rx={3}
-                  fill={fill}
-                  stroke={stroke}
-                  strokeWidth={1.5}
-                />
-              ) : (
-                <circle cx={n.x} cy={n.y} r={r} fill={fill} stroke={stroke} strokeWidth={1.5} />
-              )}
+              <circle cx={n.x} cy={n.y} r={NODE_R} fill="#1F2937" stroke="#6EE7B7" strokeWidth={1.5} />
               <text
                 x={n.x}
                 y={n.y + 1}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fill={isTopic ? '#93C5FD' : '#D1D5DB'}
+                fill="#D1D5DB"
                 fontSize={8}
                 fontFamily="var(--ifm-font-family-monospace)"
               >
@@ -196,14 +182,6 @@ export function NodeGraphViz({ rows }: VizProps) {
             </g>
           );
         })}
-
-        {/* Legend */}
-        <g transform="translate(8, 8)">
-          <circle cx={8} cy={8} r={6} fill="#1F2937" stroke="#6EE7B7" strokeWidth={1.5} />
-          <text x={17} y={12} fill="#6B7280" fontSize={8} fontFamily="var(--ifm-font-family-monospace)">node</text>
-          <rect x={2} y={22} width={12} height={8} rx={2} fill="#1E3A5F" stroke="#60A5FA" strokeWidth={1.5} />
-          <text x={17} y={30} fill="#6B7280" fontSize={8} fontFamily="var(--ifm-font-family-monospace)">topic</text>
-        </g>
 
         {/* Tooltip — rendered last so it appears on top of everything */}
         {tooltip && <SvgTooltip {...tooltip} svgWidth={WIDTH} />}
