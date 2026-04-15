@@ -320,9 +320,28 @@ fn condition_to_proto(cond: &ast::Condition) -> pb::Condition {
                 high: Some(expr_to_proto(high)),
             })
         }
-        // WITHIN geospatial condition — proto not yet defined; fall back to a stub.
-        // TODO: add WithinCondition to ast.proto for full proto round-trip support.
-        ast::Condition::Within { .. } => pb::condition::Condition::IsNotNull(pb::Expr::default()),
+        ast::Condition::Within {
+            field,
+            radius,
+            center,
+        } => {
+            let center_oneof = match center {
+                ast::GeospatialCenter::Gps(lat, lon) => {
+                    pb::within_condition::Center::Gps(pb::GpsCenter {
+                        lat: *lat,
+                        lon: *lon,
+                    })
+                }
+                ast::GeospatialCenter::Local(x, y) => {
+                    pb::within_condition::Center::Local(pb::LocalCenter { x: *x, y: *y })
+                }
+            };
+            pb::condition::Condition::Within(pb::WithinCondition {
+                field: Some(expr_to_proto(field)),
+                radius: Some(unit_value_to_proto(radius)),
+                center: Some(center_oneof),
+            })
+        }
     };
     pb::Condition {
         condition: Some(cond_oneof),
@@ -692,6 +711,60 @@ mod tests {
                 }
             }
             _ => panic!("expected Compound"),
+        }
+    }
+
+    #[test]
+    fn convert_within_gps() {
+        let ast = parse("FROM traces WHERE position WITHIN 50 m OF (37.7749, -122.4194)").unwrap();
+        let proto = query_to_proto(&ast);
+        match proto.query.unwrap() {
+            pb::rosql_query::Query::Standard(sq) => {
+                let cond = sq.conditions.unwrap().condition.unwrap();
+                match cond {
+                    pb::condition::Condition::Within(w) => {
+                        assert!(w.field.is_some());
+                        let radius = w.radius.unwrap();
+                        assert_eq!(radius.raw_value, 50.0);
+                        match w.center.unwrap() {
+                            pb::within_condition::Center::Gps(g) => {
+                                assert!((g.lat - 37.7749).abs() < 1e-6);
+                                assert!((g.lon - -122.4194).abs() < 1e-6);
+                            }
+                            _ => panic!("expected GPS center"),
+                        }
+                    }
+                    _ => panic!("expected Within condition"),
+                }
+            }
+            _ => panic!("expected Standard"),
+        }
+    }
+
+    #[test]
+    fn convert_within_local() {
+        let ast = parse("FROM traces WHERE position WITHIN 5 m OF POSITION (10.0, 20.0)").unwrap();
+        let proto = query_to_proto(&ast);
+        match proto.query.unwrap() {
+            pb::rosql_query::Query::Standard(sq) => {
+                let cond = sq.conditions.unwrap().condition.unwrap();
+                match cond {
+                    pb::condition::Condition::Within(w) => {
+                        assert!(w.field.is_some());
+                        let radius = w.radius.unwrap();
+                        assert_eq!(radius.raw_value, 5.0);
+                        match w.center.unwrap() {
+                            pb::within_condition::Center::Local(l) => {
+                                assert!((l.x - 10.0).abs() < 1e-6);
+                                assert!((l.y - 20.0).abs() < 1e-6);
+                            }
+                            _ => panic!("expected Local center"),
+                        }
+                    }
+                    _ => panic!("expected Within condition"),
+                }
+            }
+            _ => panic!("expected Standard"),
         }
     }
 }

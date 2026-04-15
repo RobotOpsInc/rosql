@@ -238,6 +238,7 @@ message Condition {
     InExpr in_expr = 7;
     LikeExpr like = 8;
     BetweenExpr between = 9;
+    WithinCondition within = 10;
   }
 }
 
@@ -266,6 +267,25 @@ message BetweenExpr {
   Expr expr = 1;
   Expr low = 2;
   Expr high = 3;
+}
+
+message WithinCondition {
+  Expr field = 1;
+  UnitValue radius = 2;
+  oneof center {
+    GpsCenter gps = 3;
+    LocalCenter local = 4;
+  }
+}
+
+message GpsCenter {
+  double lat = 1;
+  double lon = 2;
+}
+
+message LocalCenter {
+  double x = 1;
+  double y = 2;
 }
 
 enum ComparisonOp {
