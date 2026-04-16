@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-04-16
+
+### Fixed
+
+- **macOS Intel CI** — `macos-13` runner is no longer available on GitHub Actions; switched to cross-compiling `x86_64-apple-darwin` from `macos-latest` (Apple Silicon) using `rustup target add x86_64-apple-darwin`.
+- **npm publish** — removed `npm install -g npm@latest` which was corrupting the npm module tree on the runner; Node 22's built-in npm supports OIDC provenance publishing without upgrading.
+
 ## [0.4.10] - 2026-04-15
 
 ### Fixed
