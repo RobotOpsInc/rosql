@@ -169,12 +169,17 @@ jobs:
           git commit -m "rosql ${VERSION}"
           git push origin "$BRANCH"
 
-          gh pr create \
+          PR_URL=$(gh pr create \
             --repo RobotOpsInc/homebrew-tap \
             --title "rosql ${VERSION}" \
             --body "Automated formula bump for rosql ${VERSION}." \
             --base main \
-            --head "$BRANCH"
+            --head "$BRANCH")
+
+          gh pr merge "$PR_URL" \
+            --repo RobotOpsInc/homebrew-tap \
+            --auto \
+            --merge
 
   publish-crate:
     name: Publish to crates.io
