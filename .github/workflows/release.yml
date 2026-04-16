@@ -223,4 +223,4 @@ jobs:
 
       - name: Publish with provenance (OIDC trusted publishing)
         working-directory: pkg
-        run: npm publish --access public --provenance
+        run: npx --yes npm@11 publish --access public --provenance

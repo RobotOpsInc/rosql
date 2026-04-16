@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.12] - 2026-04-16
+
+### Fixed
+
+- **npm publish** — node 22 bundles npm 10.x which has an OIDC provenance bug with scoped packages, producing a spurious 404. Switched to `npx --yes npm@11 publish` to use a known-good npm version without the self-upgrade corruption issue.
+
 ## [0.4.11] - 2026-04-16
 
 ### Fixed
