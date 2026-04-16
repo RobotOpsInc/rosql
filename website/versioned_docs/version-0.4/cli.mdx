@@ -1,29 +1,46 @@
 ---
 title: CLI Reference
-description: Complete reference for the rosql command-line tool — parse, compile, query, validate, and serve
+description: Complete reference for the rosql command-line tool — parse, compile, query, validate, schema, and serve
 sidebar_position: 3
-keywords: [rosql, cli, command line, parse, compile, query, validate, serve]
+keywords: [rosql, cli, command line, parse, compile, query, validate, schema, serve]
 ---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
 
 # CLI Reference
 
 The `rosql` CLI requires the `server` feature flag.
 
-**One-liner install (Linux x86_64 / arm64 · macOS Apple Silicon):**
+**Install:**
+
+<Tabs>
+  <TabItem value="curl" label="curl | sh" default>
 
 ```bash
 curl -fsSL https://rosql.org/install.sh | sh
 ```
 
-**Build from source (all platforms):**
+Linux x86_64 / arm64 · macOS Intel &amp; Apple Silicon.
+
+  </TabItem>
+  <TabItem value="brew" label="Homebrew (macOS)">
 
 ```bash
-# With Parquet backend (--backend parquet)
-cargo install rosql --features server,duckdb
-
-# With PostgreSQL backend
-cargo install rosql --features server,postgres
+brew install robotopsinc/tap/rosql
 ```
+
+  </TabItem>
+  <TabItem value="cargo" label="cargo install">
+
+```bash
+cargo install rosql --features server,duckdb
+```
+
+All platforms including Windows.
+
+  </TabItem>
+</Tabs>
 
 ## Commands
 
@@ -35,7 +52,8 @@ Parse a ROSQL query and output the AST as JSON.
 rosql parse "FROM traces WHERE duration > 500 ms SINCE 1 hour ago"
 ```
 
-Useful for inspecting the parsed structure of a query and verifying syntax.
+Flags:
+- `--file <path>` — read query from a file instead of a positional argument
 
 ---
 
@@ -55,14 +73,15 @@ LIMIT 100
 ```
 
 Flags:
-- `--backend` — target SQL dialect: `postgres`, `mysql`, `parquet` (required)
-- `--schema` — column naming profile: `otel-postgres` (default), `otel-clickhouse`
+- `--backend` — target SQL dialect: `postgres`, `mysql`, `parquet` (required; env: `ROSQL_BACKEND`)
+- `--schema` — column naming profile: `otel-postgres` (default), `otel-clickhouse` (env: `ROSQL_SCHEMA`)
+- `--file <path>` — read query from a file
 
 ---
 
 ### `rosql query`
 
-Execute a ROSQL query and return results as JSON.
+Execute a ROSQL query and return results.
 
 ```bash
 rosql query "FROM traces WHERE status = 'ERROR'" \
@@ -70,10 +89,46 @@ rosql query "FROM traces WHERE status = 'ERROR'" \
   --url postgresql://user:pass@localhost:5432/db
 ```
 
+Output defaults to a human-readable table. Use `--format json` for scripts.
+
 Flags:
-- `--backend` — driver: `postgres`, `mysql`, `parquet` (required)
-- `--url` — database connection string or local/S3 path (required)
-- `--schema` — column naming profile
+- `--backend` — driver: `postgres`, `mysql`, `parquet` (env: `ROSQL_BACKEND`)
+- `--url` — database connection string (env: `ROSQL_URL`)
+- `--schema` — column naming profile (env: `ROSQL_SCHEMA`)
+- `--format` — output format: `table` (default), `json`, `csv`
+- `--no-color` — disable ANSI color codes
+- `--file <path>` — read query from a file
+
+If `--backend` or `--url` are omitted, they are read from `ROSQL_BACKEND` / `ROSQL_URL`
+environment variables or `~/.config/rosql/config.toml`.
+
+---
+
+### `rosql schema`
+
+Inspect which canonical data sources are available on the connected backend.
+
+```bash
+rosql schema --backend parquet --url ./telemetry/
+```
+
+```
+╭─────────────┬──────────────────┬───────────────╮
+│ Source      │ Table            │ Status        │
+├─────────────┼──────────────────┼───────────────┤
+│ traces      │ otel_traces      │ available     │
+│ logs        │ otel_logs        │ available     │
+│ metrics     │ otel_metrics     │ not found     │
+│ topics      │ topic_messages   │ available     │
+│ recordings  │ mcap_metadata    │ not found     │
+╰─────────────┴──────────────────┴───────────────╯
+```
+
+Flags:
+- `--backend` — driver (env: `ROSQL_BACKEND`)
+- `--url` — connection string (env: `ROSQL_URL`)
+- `--format` — `table` (default), `json`, `csv`
+- `--no-color` — disable color
 
 ---
 
@@ -88,6 +143,9 @@ rosql validate "SELECT * FROM logs"
 rosql validate "INSERT INTO logs"
 # exit 1 — invalid: INSERT not supported
 ```
+
+Flags:
+- `--file <path>` — read query from a file
 
 Useful in CI pipelines to validate stored queries.
 
@@ -135,17 +193,49 @@ The server exposes the `ParserService` proto interface (defined in `proto/rosql/
 
 ---
 
+## Global flags
+
+| Flag | Description |
+|------|-------------|
+| `--no-color` | Disable ANSI color codes for all output. Auto-disabled when stdout is not a TTY. |
+| `--help` | Print help for any subcommand. |
+| `--version` | Print the installed version. |
+
+---
+
+## Config file
+
+`~/.config/rosql/config.toml` sets default values for `--backend`, `--url`, and `--schema`.
+
+```toml
+[default]
+backend = "postgres"
+url = "postgresql://user:pass@localhost:5432/telemetry"
+schema = "otel-postgres"
+```
+
+Precedence: CLI flag > `ROSQL_*` environment variable > config file > built-in default.
+
+---
+
+## Environment variables
+
+| Variable | Equivalent flag | Description |
+|----------|-----------------|-------------|
+| `ROSQL_BACKEND` | `--backend` | Default backend for `query`, `schema`, `compile` |
+| `ROSQL_URL` | `--url` | Default connection URL for `query` and `schema` |
+| `ROSQL_SCHEMA` | `--schema` | Default schema profile |
+
+---
+
 ## Schema profiles
 
-All commands that interact with a database accept `--schema`:
+| Profile | Columns | Exporter |
+|---------|---------|----------|
+| `otel-postgres` (default) | snake_case: `trace_id`, `span_name` | OTel Collector PostgreSQL exporter |
+| `otel-clickhouse` | PascalCase: `TraceId`, `SpanName` | OTel Collector ClickHouse exporter |
 
-```bash
-# lowercase columns (PostgreSQL default OTel exporter)
-rosql query "FROM traces" --backend postgres --schema otel-postgres
-
-# PascalCase columns (ClickHouse OTel exporter)
-rosql query "FROM traces" --backend clickhouse --schema otel-clickhouse
-```
+---
 
 ## Pre-built binaries
 
@@ -153,5 +243,7 @@ rosql query "FROM traces" --backend clickhouse --schema otel-clickhouse
 |----------|-------------|----------|
 | Linux | x86_64 | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
 | Linux | aarch64 | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
+| macOS | Apple Silicon (aarch64) | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
+| macOS | Intel (x86_64) | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
 
 Other platforms: build from source (see [Quickstart →](./quickstart)).

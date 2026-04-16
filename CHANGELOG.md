@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-04-15
+
+### Added
+
+- **macOS Intel (x86_64) binary** — pre-built tarballs for `x86_64-apple-darwin` are now published to GitHub Releases on every release. `install.sh` and the Homebrew formula cover all four targets: Linux x86_64, Linux arm64, macOS Intel, macOS Apple Silicon.
+- **Homebrew tap** — `brew install robotopsinc/tap/rosql` is now the recommended macOS install method. The release workflow automatically opens a bump PR on `RobotOpsInc/homebrew-tap` after each release.
+- **`rosql query` table output** — results now render as a human-readable aligned table by default. Use `--format json` to get the previous JSON output, or `--format csv` for export. Row count and execution time are printed to stderr.
+- **`rosql schema` subcommand** — connects to a backend and reports which canonical OTel data sources (`traces`, `logs`, `metrics`, `topics`, `recordings`) are available.
+- **`--file <path>`** flag on `parse`, `compile`, `query`, `validate` — read the query from a `.rosql` file instead of a positional argument.
+- **`--no-color`** global flag — disable ANSI color codes. Color is also auto-disabled when stdout is not a TTY.
+- **`ROSQL_BACKEND`, `ROSQL_URL`, `ROSQL_SCHEMA` environment variables** — set default values for the corresponding flags.
+- **`~/.config/rosql/config.toml`** — persistent per-user defaults for `backend`, `url`, and `schema`. Precedence: CLI flag > env var > config file > built-in default.
+
+### Changed
+
+- **`rosql query` default output format changed from JSON to table** — this is a breaking change for scripts that rely on the JSON output. Replace `rosql query ...` with `rosql query ... --format json` to restore the previous behavior.
+
 ## [0.4.8] - 2026-04-15
 
 ### Fixed

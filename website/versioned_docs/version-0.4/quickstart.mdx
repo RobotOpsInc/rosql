@@ -15,13 +15,22 @@ Get ROSQL running against your ROS2 telemetry data in under 5 minutes.
 ## Install the CLI
 
 <Tabs>
-  <TabItem value="prebuilt" label="Pre-built binary" default>
+  <TabItem value="prebuilt" label="curl | sh" default>
 
 ```bash
 curl -fsSL https://rosql.org/install.sh | sh
 ```
 
-Linux x86_64, Linux arm64, and macOS Apple Silicon. Installs to `~/.local/bin/` with the Parquet backend included.
+Linux x86_64, Linux arm64, macOS Intel, and macOS Apple Silicon. Installs to `~/.local/bin/` with the Parquet backend included.
+
+  </TabItem>
+  <TabItem value="brew" label="Homebrew (macOS)">
+
+```bash
+brew install robotopsinc/tap/rosql
+```
+
+Intel and Apple Silicon. Supports `brew upgrade rosql` and `brew uninstall rosql`.
 
   </TabItem>
   <TabItem value="cargo" label="cargo install">
@@ -37,7 +46,7 @@ cargo install rosql --features server,postgres
 cargo install rosql --features server,duckdb,postgres
 ```
 
-Windows, Intel Mac, and all other platforms. Requires Rust stable — [rustup.rs](https://rustup.rs).
+All platforms including Windows. Requires Rust stable — [rustup.rs](https://rustup.rs).
 
   </TabItem>
   <TabItem value="source" label="Build from source">

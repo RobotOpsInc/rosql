@@ -2,24 +2,81 @@
 //!
 //! Build with: `cargo build --features server --bin rosql`
 //! For query execution: `cargo build --features server,postgres --bin rosql`
+//!                      `cargo build --features server,duckdb --bin rosql`
 //!
 //! Usage:
 //!   rosql parse <query>                          # parse → JSON AST
 //!   rosql compile <query> --backend <type>       # parse → compiled SQL
 //!   rosql query <query> --backend <type> --url   # parse → execute → results
 //!   rosql validate <query>                       # validate syntax
+//!   rosql schema --backend <type> --url          # inspect available data sources
 //!   rosql completions <query> <pos>              # autocomplete
 //!   rosql serve [--socket <path>]                # gRPC server
 
 use clap::{Parser, Subcommand, ValueEnum};
-use std::io::{self, Read};
+use std::io::{self, IsTerminal, Read};
+
+// ---------------------------------------------------------------------------
+// Config file — ~/.config/rosql/config.toml
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct Config {
+    default: Option<ConfigDefaults>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ConfigDefaults {
+    backend: Option<String>,
+    url: Option<String>,
+    schema: Option<String>,
+}
+
+fn load_config() -> Config {
+    let Some(config_dir) = dirs::config_dir() else {
+        return Config::default();
+    };
+    let path = config_dir.join("rosql").join("config.toml");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Config::default();
+    };
+    toml::from_str(&content).unwrap_or_default()
+}
+
+fn config_backend(config: &Config) -> Option<Backend> {
+    let s = config.default.as_ref()?.backend.as_deref()?;
+    match s.to_lowercase().as_str() {
+        "postgres" | "postgresql" => Some(Backend::Postgres),
+        "mysql" | "mariadb" => Some(Backend::Mysql),
+        "parquet" | "duckdb" => Some(Backend::Parquet),
+        _ => None,
+    }
+}
+
+fn config_schema(config: &Config) -> Option<Schema> {
+    let s = config.default.as_ref()?.schema.as_deref()?;
+    match s.to_lowercase().as_str() {
+        "otel-postgres" | "otel_postgres" => Some(Schema::OtelPostgres),
+        "otel-clickhouse" | "otel_clickhouse" => Some(Schema::OtelClickhouse),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CLI types
+// ---------------------------------------------------------------------------
 
 #[derive(Parser)]
 #[command(
     name = "rosql",
-    about = "ROSQL — parse, compile, and execute ROS2 telemetry queries"
+    about = "ROSQL — parse, compile, and execute ROS2 telemetry queries",
+    version
 )]
 struct Cli {
+    /// Disable ANSI color codes in all output.
+    #[arg(long, global = true)]
+    no_color: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -30,6 +87,10 @@ enum Commands {
     Parse {
         /// The ROSQL query string. Reads from stdin if omitted.
         query: Option<String>,
+
+        /// Read the query from a file instead of a positional argument.
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
     },
 
     /// Compile a ROSQL query to SQL for a specific backend.
@@ -37,13 +98,16 @@ enum Commands {
         /// The ROSQL query string. Reads from stdin if omitted.
         query: Option<String>,
 
+        /// Read the query from a file instead of a positional argument.
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+
         /// Target database backend.
-        #[arg(long, default_value = "postgres")]
+        #[arg(long, default_value = "postgres", env = "ROSQL_BACKEND")]
         backend: Backend,
 
         /// Schema profile — determines column naming convention.
-        /// Defaults to otel-postgres for postgres/mysql/sqlite backends.
-        #[arg(long, default_value = "otel-postgres")]
+        #[arg(long, default_value = "otel-postgres", env = "ROSQL_SCHEMA")]
         schema: Schema,
     },
 
@@ -52,26 +116,53 @@ enum Commands {
         /// The ROSQL query string. Reads from stdin if omitted.
         query: Option<String>,
 
-        /// Target database backend.
+        /// Read the query from a file instead of a positional argument.
         #[arg(long)]
-        backend: Backend,
+        file: Option<std::path::PathBuf>,
+
+        /// Target database backend.
+        #[arg(long, env = "ROSQL_BACKEND")]
+        backend: Option<Backend>,
 
         /// Schema profile — determines column naming convention.
-        #[arg(long, default_value = "otel-postgres")]
-        schema: Schema,
+        #[arg(long, env = "ROSQL_SCHEMA")]
+        schema: Option<Schema>,
 
         /// Database connection URL.
         /// PostgreSQL: postgresql://user:pass@host:5432/db
-        /// SQLite: sqlite:./path/to/db
-        /// MySQL: mysql://user:pass@host:3306/db
-        #[arg(long)]
-        url: String,
+        /// Parquet:    /path/to/telemetry/  or  s3://bucket/prefix/
+        /// MySQL:      mysql://user:pass@host:3306/db
+        #[arg(long, env = "ROSQL_URL")]
+        url: Option<String>,
+
+        /// Output format.
+        #[arg(long, default_value = "table")]
+        format: CliFormat,
     },
 
     /// Validate a ROSQL query.
     Validate {
         /// The ROSQL query string. Reads from stdin if omitted.
         query: Option<String>,
+
+        /// Read the query from a file instead of a positional argument.
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+    },
+
+    /// Inspect available data sources on the connected backend.
+    SchemaCmd {
+        /// Target database backend.
+        #[arg(long, env = "ROSQL_BACKEND")]
+        backend: Option<Backend>,
+
+        /// Database connection URL.
+        #[arg(long, env = "ROSQL_URL")]
+        url: Option<String>,
+
+        /// Output format.
+        #[arg(long, default_value = "table")]
+        format: CliFormat,
     },
 
     /// Get completions at a cursor position.
@@ -92,6 +183,17 @@ enum Commands {
         #[arg(long, default_value = "info")]
         log_level: String,
     },
+}
+
+/// Output format for `query` and `schema` subcommands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CliFormat {
+    /// Human-readable aligned table (default).
+    Table,
+    /// JSON output for programmatic consumption.
+    Json,
+    /// CSV output.
+    Csv,
 }
 
 /// Schema profile — column naming convention for the OTel exporter.
@@ -144,35 +246,56 @@ impl Backend {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    let no_color = cli.no_color || !io::stdout().is_terminal();
+    let config = load_config();
 
     match cli.command {
-        Commands::Parse { query } => {
-            let query = read_query(query);
+        Commands::Parse { query, file } => {
+            let query = read_query(query, file);
             cmd_parse(&query);
         }
         Commands::Compile {
             query,
+            file,
             backend,
             schema,
         } => {
-            let query = read_query(query);
+            let query = read_query(query, file);
             cmd_compile(&query, backend, schema);
         }
         Commands::Query {
             query,
+            file,
             backend,
             schema,
             url,
+            format,
         } => {
-            let query = read_query(query);
-            cmd_query(&query, backend, schema, &url).await;
+            let query = read_query(query, file);
+            let backend = resolve_backend(backend, &config);
+            let url = resolve_url(url, &config);
+            let schema = resolve_schema(schema, &config);
+            cmd_query(&query, backend, schema, &url, format, no_color).await;
         }
-        Commands::Validate { query } => {
-            let query = read_query(query);
+        Commands::Validate { query, file } => {
+            let query = read_query(query, file);
             cmd_validate(&query);
+        }
+        Commands::SchemaCmd {
+            backend,
+            url,
+            format,
+        } => {
+            let backend = resolve_backend(backend, &config);
+            let url = resolve_url(url, &config);
+            cmd_schema(backend, &url, format, no_color).await;
         }
         Commands::Completions { query, cursor_pos } => {
             cmd_completions(&query, cursor_pos);
@@ -181,6 +304,38 @@ async fn main() {
             serve(socket, log_level).await;
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Config resolution helpers
+// ---------------------------------------------------------------------------
+
+fn resolve_backend(cli_backend: Option<Backend>, config: &Config) -> Backend {
+    cli_backend
+        .or_else(|| config_backend(config))
+        .unwrap_or_else(|| {
+            eprintln!(
+                "Error: --backend is required (or set ROSQL_BACKEND, or add to ~/.config/rosql/config.toml)"
+            );
+            std::process::exit(1);
+        })
+}
+
+fn resolve_url(cli_url: Option<String>, config: &Config) -> String {
+    cli_url
+        .or_else(|| config.default.as_ref().and_then(|d| d.url.clone()))
+        .unwrap_or_else(|| {
+            eprintln!(
+                "Error: --url is required (or set ROSQL_URL, or add to ~/.config/rosql/config.toml)"
+            );
+            std::process::exit(1);
+        })
+}
+
+fn resolve_schema(cli_schema: Option<Schema>, config: &Config) -> Schema {
+    cli_schema
+        .or_else(|| config_schema(config))
+        .unwrap_or(Schema::OtelPostgres)
 }
 
 // ---------------------------------------------------------------------------
@@ -247,12 +402,18 @@ fn cmd_compile(query: &str, backend: Backend, schema: Schema) {
 }
 
 #[allow(unused_variables)]
-async fn cmd_query(query: &str, backend: Backend, _schema: Schema, url: &str) {
+async fn cmd_query(
+    query: &str,
+    backend: Backend,
+    schema: Schema,
+    url: &str,
+    format: CliFormat,
+    no_color: bool,
+) {
     #[cfg(any(feature = "postgres", feature = "mysql", feature = "duckdb"))]
     {
         use rosql::drivers::ROSQLBackend;
 
-        // Validate backend is supported (errors out on Athena/BigQuery).
         if let Err(msg) = backend.to_dialect() {
             eprintln!("Error: {msg}");
             std::process::exit(1);
@@ -287,8 +448,7 @@ async fn cmd_query(query: &str, backend: Backend, _schema: Schema, url: &str) {
         let opts = rosql::ExecOptions::default();
         match sql_backend.execute(&ast, &opts).await {
             Ok(result) => {
-                let json = serde_json::to_string_pretty(&result).unwrap();
-                println!("{json}");
+                print_result(&result, format, no_color);
             }
             Err(err) => {
                 let json = serde_json::json!({
@@ -338,10 +498,241 @@ fn cmd_validate(query: &str) {
     }
 }
 
+#[allow(unused_variables)]
+async fn cmd_schema(backend: Backend, url: &str, format: CliFormat, no_color: bool) {
+    #[cfg(any(feature = "postgres", feature = "mysql", feature = "duckdb"))]
+    {
+        if let Err(msg) = backend.to_dialect() {
+            eprintln!("Error: {msg}");
+            std::process::exit(1);
+        }
+
+        let sql_backend = match backend {
+            #[cfg(feature = "duckdb")]
+            Backend::Parquet => match rosql::drivers::sql::SqlBackend::from_parquet(url).await {
+                Ok(b) => b,
+                Err(err) => {
+                    eprintln!("Parquet backend error: {err}");
+                    std::process::exit(1);
+                }
+            },
+            _ => match rosql::drivers::sql::SqlBackend::new(url).await {
+                Ok(b) => b,
+                Err(err) => {
+                    eprintln!("Connection error: {err}");
+                    std::process::exit(1);
+                }
+            },
+        };
+
+        use rosql::drivers::ROSQLBackend;
+
+        // Probe each canonical data source via a LIMIT 0 ROSQL query.
+        let sources = [
+            ("traces", "otel_traces"),
+            ("logs", "otel_logs"),
+            ("metrics", "otel_metrics"),
+            ("topics", "topic_messages"),
+            ("recordings", "mcap_metadata"),
+        ];
+
+        struct SourceRow {
+            rosql_source: &'static str,
+            table: &'static str,
+            status: &'static str,
+        }
+
+        let mut rows: Vec<SourceRow> = Vec::new();
+        for (rosql_source, table) in sources {
+            let probe = format!("FROM {rosql_source} LIMIT 0");
+            let status = match rosql::parse(&probe) {
+                Ok(ast) => {
+                    let opts = rosql::ExecOptions::default();
+                    if sql_backend.execute(&ast, &opts).await.is_ok() {
+                        "available"
+                    } else {
+                        "not found"
+                    }
+                }
+                Err(_) => "not found",
+            };
+            rows.push(SourceRow {
+                rosql_source,
+                table,
+                status,
+            });
+        }
+
+        match format {
+            CliFormat::Json => {
+                let json_rows: Vec<serde_json::Value> = rows
+                    .iter()
+                    .map(|r| {
+                        serde_json::json!({
+                            "source": r.rosql_source,
+                            "table": r.table,
+                            "status": r.status,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&json_rows).unwrap());
+            }
+            CliFormat::Csv => {
+                println!("source,table,status");
+                for r in &rows {
+                    println!("{},{},{}", r.rosql_source, r.table, r.status);
+                }
+            }
+            CliFormat::Table => {
+                use colored::Colorize;
+                use tabled::{Table, Tabled};
+
+                #[derive(Tabled)]
+                struct Row {
+                    #[tabled(rename = "Source")]
+                    source: String,
+                    #[tabled(rename = "Table")]
+                    table: String,
+                    #[tabled(rename = "Status")]
+                    status: String,
+                }
+
+                let table_rows: Vec<Row> = rows
+                    .iter()
+                    .map(|r| Row {
+                        source: r.rosql_source.to_string(),
+                        table: r.table.to_string(),
+                        status: if no_color {
+                            r.status.to_string()
+                        } else if r.status == "available" {
+                            r.status.green().to_string()
+                        } else {
+                            r.status.dimmed().to_string()
+                        },
+                    })
+                    .collect();
+
+                let table = Table::new(table_rows);
+                println!("{table}");
+            }
+        }
+    }
+
+    #[cfg(not(any(feature = "postgres", feature = "mysql", feature = "duckdb")))]
+    {
+        eprintln!(
+            "Error: the `schema` subcommand requires a database driver feature.\n\
+             Rebuild with one of:\n\
+             cargo build --features server,postgres --bin rosql\n\
+             cargo build --features server,duckdb --bin rosql"
+        );
+        std::process::exit(1);
+    }
+}
+
 fn cmd_completions(query: &str, cursor_pos: usize) {
     let completions = rosql::completions::get_completions(query, cursor_pos);
     let json = serde_json::to_string_pretty(&completions).unwrap();
     println!("{json}");
+}
+
+// ---------------------------------------------------------------------------
+// Output rendering
+// ---------------------------------------------------------------------------
+
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "duckdb"))]
+fn print_result(result: &rosql::drivers::ROSQLResult, format: CliFormat, no_color: bool) {
+    match format {
+        CliFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(result).unwrap());
+        }
+        CliFormat::Csv => {
+            print_csv(result);
+        }
+        CliFormat::Table => {
+            print_table(result, no_color);
+        }
+    }
+}
+
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "duckdb"))]
+fn print_table(result: &rosql::drivers::ROSQLResult, no_color: bool) {
+    use tabled::{
+        builder::Builder,
+        settings::{object::Rows, Color, Modify, Style},
+    };
+
+    if result.rows.is_empty() {
+        eprintln!("(0 rows)");
+        return;
+    }
+
+    let headers: Vec<String> = result.columns.iter().map(|c| c.name.clone()).collect();
+
+    let mut builder = Builder::default();
+    builder.push_record(headers);
+
+    for row in &result.rows {
+        let cells: Vec<String> = row
+            .iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Null => String::new(),
+                other => other.to_string(),
+            })
+            .collect();
+        builder.push_record(cells);
+    }
+
+    let mut table = builder.build();
+    table.with(Style::rounded());
+
+    if !no_color {
+        table.with(Modify::new(Rows::first()).with(Color::BOLD));
+    }
+
+    println!("{table}");
+
+    let row_count = result.rows.len();
+    let row_word = if row_count == 1 { "row" } else { "rows" };
+    eprintln!(
+        "({row_count} {row_word}, {}ms)",
+        result.metadata.execution_time_ms
+    );
+}
+
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "duckdb"))]
+fn print_csv(result: &rosql::drivers::ROSQLResult) {
+    let headers: Vec<String> = result.columns.iter().map(|c| c.name.clone()).collect();
+    println!("{}", csv_row(&headers));
+
+    for row in &result.rows {
+        let cells: Vec<String> = row
+            .iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Null => String::new(),
+                other => other.to_string(),
+            })
+            .collect();
+        println!("{}", csv_row(&cells));
+    }
+}
+
+/// Encode a single CSV row, quoting fields that contain commas, quotes, or newlines.
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "duckdb"))]
+fn csv_row(fields: &[String]) -> String {
+    fields
+        .iter()
+        .map(|f| {
+            if f.contains(',') || f.contains('"') || f.contains('\n') {
+                format!("\"{}\"", f.replace('"', "\"\""))
+            } else {
+                f.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn print_errors(errors: &[rosql::ROSQLError]) {
@@ -356,10 +747,21 @@ fn print_errors(errors: &[rosql::ROSQLError]) {
     println!("{}", serde_json::to_string_pretty(&json).unwrap());
 }
 
-fn read_query(query: Option<String>) -> String {
-    match query {
-        Some(q) => q,
-        None => {
+fn read_query(positional: Option<String>, file: Option<std::path::PathBuf>) -> String {
+    match (positional, file) {
+        (Some(_), Some(_)) => {
+            eprintln!("Error: provide either a query string or --file, not both.");
+            std::process::exit(1);
+        }
+        (Some(q), None) => q,
+        (None, Some(path)) => match std::fs::read_to_string(&path) {
+            Ok(s) => s.trim().to_string(),
+            Err(err) => {
+                eprintln!("Error reading {}: {err}", path.display());
+                std::process::exit(1);
+            }
+        },
+        (None, None) => {
             let mut buf = String::new();
             io::stdin()
                 .read_to_string(&mut buf)
