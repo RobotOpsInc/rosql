@@ -44,13 +44,14 @@ jobs:
           git tag "${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (draft)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "ROSQL ${{ steps.version.outputs.tag }}" \
-            --notes-file /tmp/release-notes.md
+            --notes-file /tmp/release-notes.md \
+            --draft
 
   build-binaries:
     name: Build (${{ matrix.target }})
@@ -109,9 +110,22 @@ jobs:
           gh release upload "${{ needs.create-release.outputs.tag }}" \
             rosql-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
 
+  finalize-release:
+    name: Publish Release
+    needs: [create-release, build-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ needs.create-release.outputs.tag }}" \
+            --repo RobotOpsInc/rosql \
+            --draft=false
+
   update-homebrew-tap:
     name: Update Homebrew tap
-    needs: [create-release, build-binaries]
+    needs: [create-release, finalize-release]
     runs-on: ubuntu-latest
     steps:
       - name: Download macOS tarballs
