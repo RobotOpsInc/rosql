@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.13] - 2026-04-16
+
+### Fixed
+
+- **Homebrew tap auto-merge** — formula bump PRs on `RobotOpsInc/homebrew-tap` now auto-merge immediately after creation instead of waiting for manual review.
+
 ## [0.4.12] - 2026-04-16
 
 ### Fixed
