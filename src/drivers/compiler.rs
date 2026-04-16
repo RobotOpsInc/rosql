@@ -1781,25 +1781,23 @@ impl<'a> CompileCtx<'a> {
     fn resolve_table(&self, source: &DataSource) -> Result<String, ROSQLError> {
         // Check capability requirements
         match source {
-            DataSource::Topics | DataSource::TopicAlias(_) | DataSource::Tf => {
-                if !self.capabilities.topic_data {
-                    return Err(ROSQLError::DataSourceUnavailable {
-                        data_source: format!("{source:?}"),
-                        message: "This data source requires topic ingest. \
-                                 Configure topic ingest to enable this feature."
-                            .into(),
-                    });
-                }
+            DataSource::Topics | DataSource::TopicAlias(_) | DataSource::Tf
+                if !self.capabilities.topic_data =>
+            {
+                return Err(ROSQLError::DataSourceUnavailable {
+                    data_source: format!("{source:?}"),
+                    message: "This data source requires topic ingest. \
+                             Configure topic ingest to enable this feature."
+                        .into(),
+                });
             }
-            DataSource::Recordings => {
-                if !self.capabilities.recording_index {
-                    return Err(ROSQLError::DataSourceUnavailable {
-                        data_source: "recordings".into(),
-                        message: "FROM recordings requires an mcap_metadata table. \
-                                 Configure your recording index to enable this feature."
-                            .into(),
-                    });
-                }
+            DataSource::Recordings if !self.capabilities.recording_index => {
+                return Err(ROSQLError::DataSourceUnavailable {
+                    data_source: "recordings".into(),
+                    message: "FROM recordings requires an mcap_metadata table. \
+                             Configure your recording index to enable this feature."
+                        .into(),
+                });
             }
             _ => {}
         }
