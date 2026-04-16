@@ -134,6 +134,13 @@ impl<'src> Parser<'src> {
             "LIKE",
             "HAVING",
             "WITH",
+            "TIMESERIES",
+            "ENRICH",
+            "TOPICS",
+            "NODES",
+            "GRAPH",
+            "SAMPLE",
+            "FULL",
         ];
 
         let got_upper = got.to_uppercase();
@@ -167,6 +174,9 @@ impl<'src> Parser<'src> {
             }
             Some(Token::Anomaly) => self.parse_compound_query(),
             Some(Token::Path) if matches!(self.peek_second(), Some(Token::Deviation)) => {
+                self.parse_compound_query()
+            }
+            Some(Token::Joint) if matches!(self.peek_second(), Some(Token::Deviation)) => {
                 self.parse_compound_query()
             }
             Some(Token::Correlate) => self.parse_compound_query(),
@@ -215,6 +225,10 @@ impl<'src> Parser<'src> {
             return Err(ROSQLError::ReservedSyntax {
                 keyword: "ALERT".into(),
                 location: loc,
+                message: "ALERT is a reserved keyword but is not supported in ROSQL. \
+                           Alert rules should be configured in the Robot Ops platform. \
+                           ROSQL is a read-only query language."
+                    .into(),
             });
         }
         if matches!(self.peek(), Some(Token::Define)) {
@@ -222,6 +236,9 @@ impl<'src> Parser<'src> {
             return Err(ROSQLError::ReservedSyntax {
                 keyword: "DEFINE".into(),
                 location: loc,
+                message: "DEFINE is a reserved keyword but is not supported in ROSQL. \
+                           Saved queries can be managed in the Robot Ops platform dashboard."
+                    .into(),
             });
         }
         Ok(())
@@ -240,20 +257,24 @@ impl<'src> Parser<'src> {
         let mut query = ROSQLQuery {
             selections: Vec::new(),
             data_source: DataSource::Logs, // placeholder
-            robot_scope: None,
+            scope: None,
             conditions: None,
             facet: None,
             time_range: None,
             time_basis: None,
             order_by: None,
             limit: None,
+            offset: None,
             output_format: None,
             baseline: None,
+            timeseries: None,
+            enrichments: Vec::new(),
         };
 
-        // Optional FOR ROBOT/FLEET at the start
-        if matches!(self.peek(), Some(Token::For)) {
-            query.robot_scope = Some(self.parse_robot_scope()?);
+        // Optional FOR ... scope clause(s) at the start
+        while matches!(self.peek(), Some(Token::For)) {
+            let scope = query.scope.get_or_insert_with(QueryScope::empty);
+            self.parse_scope_clause(scope)?;
         }
 
         // SELECT or FROM
@@ -280,9 +301,10 @@ impl<'src> Parser<'src> {
 
         query.data_source = self.parse_data_source()?;
 
-        // Optional FOR ROBOT/FLEET after FROM
-        if query.robot_scope.is_none() && matches!(self.peek(), Some(Token::For)) {
-            query.robot_scope = Some(self.parse_robot_scope()?);
+        // Optional FOR ... scope clause(s) after FROM
+        while matches!(self.peek(), Some(Token::For)) {
+            let scope = query.scope.get_or_insert_with(QueryScope::empty);
+            self.parse_scope_clause(scope)?;
         }
 
         // Optional clauses in any order
@@ -312,6 +334,15 @@ impl<'src> Parser<'src> {
                 Some(Token::Limit) => {
                     self.advance();
                     query.limit = Some(self.parse_limit_value()?);
+                    // Support inline LIMIT N OFFSET M
+                    if matches!(self.peek(), Some(Token::Offset)) {
+                        self.advance();
+                        query.offset = Some(self.parse_limit_value()?);
+                    }
+                }
+                Some(Token::Offset) => {
+                    self.advance();
+                    query.offset = Some(self.parse_limit_value()?);
                 }
                 Some(Token::Format) => {
                     self.advance();
@@ -320,8 +351,20 @@ impl<'src> Parser<'src> {
                 Some(Token::Compare) => {
                     query.baseline = Some(self.parse_baseline()?);
                 }
-                Some(Token::For) if query.robot_scope.is_none() => {
-                    query.robot_scope = Some(self.parse_robot_scope()?);
+                Some(Token::For) => {
+                    let scope = query.scope.get_or_insert_with(QueryScope::empty);
+                    self.parse_scope_clause(scope)?;
+                }
+                Some(Token::Timeseries) => {
+                    self.advance();
+                    query.timeseries = Some(TimeseriesClause {
+                        interval: self.parse_timeseries_interval()?,
+                    });
+                }
+                Some(Token::Enrich) => {
+                    self.advance();
+                    self.expect(&Token::With)?;
+                    query.enrichments.push(self.parse_enrichment_clause()?);
                 }
                 Some(Token::Semicolon) => {
                     self.advance();
@@ -385,18 +428,39 @@ impl<'src> Parser<'src> {
                 self.advance();
                 Ok(PipelineStage::Limit(self.parse_limit_value()?))
             }
+            Some(Token::Offset) => {
+                self.advance();
+                Ok(PipelineStage::Offset(self.parse_limit_value()?))
+            }
             Some(Token::Format) => {
                 self.advance();
                 Ok(PipelineStage::Format(self.parse_output_format()?))
             }
             Some(Token::Compare) => Ok(PipelineStage::CompareTo(self.parse_baseline()?)),
-            Some(Token::For) => Ok(PipelineStage::ForRobot(self.parse_robot_scope()?)),
+            Some(Token::For) => {
+                let mut scope = QueryScope::empty();
+                while matches!(self.peek(), Some(Token::For)) {
+                    self.parse_scope_clause(&mut scope)?;
+                }
+                Ok(PipelineStage::ForScope(scope))
+            }
             Some(Token::Show) => {
                 let clause = self.parse_show_clause()?;
                 Ok(PipelineStage::CompoundClause(clause))
             }
+            Some(Token::Timeseries) => {
+                self.advance();
+                Ok(PipelineStage::Timeseries(TimeseriesClause {
+                    interval: self.parse_timeseries_interval()?,
+                }))
+            }
+            Some(Token::Enrich) => {
+                self.advance();
+                self.expect(&Token::With)?;
+                Ok(PipelineStage::EnrichWith(self.parse_enrichment_clause()?))
+            }
             _ => {
-                Err(self.error("expected pipeline stage (WHERE, SELECT, FACET, SINCE, ...)".into()))
+                Err(self.error("expected pipeline stage (WHERE, SELECT, FACET, SINCE, TIMESERIES, ENRICH WITH, ...)".into()))
             }
         }
     }
@@ -408,13 +472,14 @@ impl<'src> Parser<'src> {
 
         let mut cq = CompoundQuery {
             clause,
-            robot_scope: None,
+            scope: None,
             time_range: None,
             time_basis: None,
             conditions: None,
             facet: None,
             order_by: None,
             limit: None,
+            offset: None,
             output_format: None,
             baseline: None,
         };
@@ -423,7 +488,8 @@ impl<'src> Parser<'src> {
         loop {
             match self.peek() {
                 Some(Token::For) => {
-                    cq.robot_scope = Some(self.parse_robot_scope()?);
+                    let scope = cq.scope.get_or_insert_with(QueryScope::empty);
+                    self.parse_scope_clause(scope)?;
                 }
                 Some(Token::Since) => {
                     cq.time_range = Some(self.parse_since()?);
@@ -449,6 +515,15 @@ impl<'src> Parser<'src> {
                 Some(Token::Limit) => {
                     self.advance();
                     cq.limit = Some(self.parse_limit_value()?);
+                    // Support inline LIMIT N OFFSET M
+                    if matches!(self.peek(), Some(Token::Offset)) {
+                        self.advance();
+                        cq.offset = Some(self.parse_limit_value()?);
+                    }
+                }
+                Some(Token::Offset) => {
+                    self.advance();
+                    cq.offset = Some(self.parse_limit_value()?);
                 }
                 Some(Token::Format) => {
                     self.advance();
@@ -476,6 +551,7 @@ impl<'src> Parser<'src> {
             Some(Token::Health) => self.parse_health_clause(),
             Some(Token::Anomaly) => self.parse_anomaly_clause(),
             Some(Token::Path) => self.parse_path_deviation_clause(),
+            Some(Token::Joint) => self.parse_joint_deviation_clause(),
             Some(Token::Correlate) => self.parse_correlate_clause(),
             Some(Token::Show) => self.parse_show_clause(),
             Some(Token::During) => self.parse_during_clause(),
@@ -486,44 +562,73 @@ impl<'src> Parser<'src> {
     fn parse_message_clause(&mut self) -> Result<CompoundClause, ROSQLError> {
         self.advance(); // consume MESSAGE
         match self.peek() {
-            Some(Token::Journey) => {
+            Some(Token::Flow) => {
                 self.advance();
-                // MESSAGE JOURNEY FOR TRACE 'trace_id'
-                self.expect(&Token::For)?;
-                self.expect(&Token::Trace)?;
-                let trace_id = self.parse_string_literal()?;
-                Ok(CompoundClause::MessageJourney { trace_id })
-            }
-            Some(Token::Paths) => {
-                self.advance();
-                // MESSAGE PATHS FOR TOPIC '/topic'
-                self.expect(&Token::For)?;
-                self.expect(&Token::Topic)?;
-                let topic = self.parse_string_literal()?;
-                Ok(CompoundClause::MessagePaths { topic })
-            }
-            Some(Token::Path) => {
-                self.advance();
-                // MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst' [SHOW ...]
+                // MESSAGE FLOW FROM TOPIC '/topic' [TO NODE '/node' | TO TOPIC '/topic'] [SHOW ...]
                 self.expect(&Token::From)?;
                 self.expect(&Token::Topic)?;
                 let from_topic = self.parse_string_literal()?;
-                self.expect(&Token::To)?;
-                self.expect(&Token::Node)?;
-                let to_node = self.parse_string_literal()?;
+                let to_target = if matches!(self.peek(), Some(Token::To)) {
+                    self.advance();
+                    match self.peek() {
+                        Some(Token::Node) => {
+                            self.advance();
+                            Some(FlowTarget::Node(self.parse_string_literal()?))
+                        }
+                        Some(Token::Topic) => {
+                            self.advance();
+                            Some(FlowTarget::Topic(self.parse_string_literal()?))
+                        }
+                        _ => {
+                            return Err(self
+                                .error("expected NODE or TOPIC after TO in MESSAGE FLOW".into()))
+                        }
+                    }
+                } else {
+                    None
+                };
                 let show = if matches!(self.peek(), Some(Token::Show)) {
                     self.advance();
                     Some(self.parse_identifier_string()?)
                 } else {
                     None
                 };
-                Ok(CompoundClause::MessagePath {
+                Ok(CompoundClause::MessageFlow {
                     from_topic,
-                    to_node,
+                    to_target,
                     show,
                 })
             }
-            _ => Err(self.error("expected JOURNEY, PATHS, or PATH after MESSAGE".into())),
+            Some(Token::Journey) => {
+                self.advance();
+                // Consume the old syntax to give a useful error
+                let _ = self.expect(&Token::For);
+                let _ = self.expect(&Token::Trace);
+                let _ = self.parse_string_literal();
+                Err(self.error(
+                    "MESSAGE JOURNEY is removed. Use TRACE 'trace_id' instead \
+                     (now performs a recursive span tree walk)."
+                        .into(),
+                ))
+            }
+            Some(Token::Paths) => {
+                self.advance();
+                let _ = self.expect(&Token::For);
+                let _ = self.expect(&Token::Topic);
+                let _ = self.parse_string_literal();
+                Err(self.error(
+                    "MESSAGE PATHS is removed. Use MESSAGE FLOW FROM TOPIC '/topic' instead."
+                        .into(),
+                ))
+            }
+            Some(Token::Path) => {
+                self.advance();
+                Err(self.error(
+                    "MESSAGE PATH is removed. Use MESSAGE FLOW FROM TOPIC '/src' TO NODE '/dst' instead."
+                        .into(),
+                ))
+            }
+            _ => Err(self.error("expected FLOW after MESSAGE".into())),
         }
     }
 
@@ -545,26 +650,105 @@ impl<'src> Parser<'src> {
         self.expect(&Token::LParen)?;
         let field = self.parse_identifier_string()?;
         self.expect(&Token::RParen)?;
-        let compared_to = if matches!(self.peek(), Some(Token::Compared)) {
-            self.advance(); // COMPARED
-            self.expect(&Token::To)?;
-            Some(self.parse_baseline_value()?)
+
+        // Optional FROM <source>
+        let data_source = if matches!(self.peek(), Some(Token::From)) {
+            self.advance();
+            Some(self.parse_data_source()?)
         } else {
             None
         };
-        Ok(CompoundClause::Anomaly { field, compared_to })
+
+        // COMPARED TO is now required
+        if !matches!(self.peek(), Some(Token::Compared)) {
+            return Err(ROSQLError::ParseError {
+                message: "ANOMALY() requires COMPARED TO <baseline>".into(),
+                location: self.current_location(),
+                suggestion: Some(
+                    "add COMPARED TO <baseline>, e.g. COMPARED TO last week, COMPARED TO fleet, COMPARED TO last 24 hours".into(),
+                ),
+            });
+        }
+        self.advance(); // consume COMPARED
+        self.expect(&Token::To)?;
+        let compared_to = self.parse_baseline_value()?;
+
+        Ok(CompoundClause::Anomaly {
+            field,
+            compared_to,
+            data_source,
+        })
     }
 
     fn parse_path_deviation_clause(&mut self) -> Result<CompoundClause, ROSQLError> {
         self.advance(); // consume PATH
         self.expect(&Token::Deviation)?;
-        let show = if matches!(self.peek(), Some(Token::Show)) {
-            self.advance();
-            Some(self.parse_identifier_list()?)
+
+        // Optional PLAN <integer> (e.g. PLAN 0 or PLAN -1)
+        let plan_index = if matches!(self.peek(), Some(Token::Plan)) {
+            self.advance(); // consume PLAN
+            let neg = if matches!(self.peek(), Some(Token::Minus)) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+            match self.peek() {
+                Some(Token::Integer(s)) => {
+                    let n: i64 = s
+                        .parse()
+                        .map_err(|_| self.error("expected integer after PLAN".into()))?;
+                    self.advance();
+                    Some(if neg { -n } else { n })
+                }
+                _ => return Err(self.error("expected integer after PLAN in PATH DEVIATION".into())),
+            }
         } else {
             None
         };
-        Ok(CompoundClause::PathDeviation { show })
+
+        // Required FOR TRACE 'id' or FOR ROBOT 'id'
+        self.expect(&Token::For)?;
+        let target = match self.peek() {
+            Some(Token::Trace) => {
+                self.advance();
+                DeviationTarget::Trace(self.parse_string_literal()?)
+            }
+            Some(Token::Robot) => {
+                self.advance();
+                DeviationTarget::Robot(self.parse_string_literal()?)
+            }
+            _ => {
+                return Err(self.error("expected TRACE or ROBOT after FOR in PATH DEVIATION".into()))
+            }
+        };
+
+        Ok(CompoundClause::PathDeviation { target, plan_index })
+    }
+
+    fn parse_joint_deviation_clause(&mut self) -> Result<CompoundClause, ROSQLError> {
+        self.advance(); // consume JOINT
+        self.expect(&Token::Deviation)?;
+
+        // Required FOR TRACE 'id' or FOR ROBOT 'id'
+        self.expect(&Token::For)?;
+        let target = match self.peek() {
+            Some(Token::Trace) => {
+                self.advance();
+                DeviationTarget::Trace(self.parse_string_literal()?)
+            }
+            Some(Token::Robot) => {
+                self.advance();
+                DeviationTarget::Robot(self.parse_string_literal()?)
+            }
+            _ => {
+                return Err(
+                    self.error("expected TRACE or ROBOT after FOR in JOINT DEVIATION".into())
+                )
+            }
+        };
+
+        Ok(CompoundClause::JointDeviation { target })
     }
 
     fn parse_correlate_clause(&mut self) -> Result<CompoundClause, ROSQLError> {
@@ -585,7 +769,63 @@ impl<'src> Parser<'src> {
                 self.advance();
                 Ok(CompoundClause::ShowTraceBreakdown)
             }
-            _ => Err(self.error("expected RECORDING or TRACE_BREAKDOWN after SHOW".into())),
+            Some(Token::Deployments) => {
+                self.advance();
+                Ok(CompoundClause::ShowDeployments)
+            }
+            Some(Token::Span) => {
+                self.advance();
+                // SHOW SPAN SUMMARY
+                match self.peek() {
+                    Some(Token::Summary) => {
+                        self.advance();
+                        Ok(CompoundClause::ShowSpanSummary)
+                    }
+                    _ => Err(self.error("expected SUMMARY after SHOW SPAN".into())),
+                }
+            }
+            Some(Token::Plans) => {
+                self.advance();
+                // SHOW PLANS [FOR TRACE 'id'] — consume FOR TRACE inline before trailing loop
+                let trace_id =
+                    if matches!(self.peek(), Some(Token::For))
+                        && matches!(self.peek_second(), Some(Token::Trace))
+                    {
+                        self.advance(); // FOR
+                        self.advance(); // TRACE
+                        Some(self.parse_string_literal()?)
+                    } else {
+                        None
+                    };
+                Ok(CompoundClause::ShowPlans { trace_id })
+            }
+            Some(Token::Topics) => {
+                self.advance();
+                Ok(CompoundClause::ShowTopics)
+            }
+            Some(Token::Nodes) => {
+                self.advance();
+                Ok(CompoundClause::ShowNodes)
+            }
+            Some(Token::Node) => {
+                self.advance();
+                // SHOW NODE GRAPH
+                match self.peek() {
+                    Some(Token::Graph) => {
+                        self.advance();
+                        Ok(CompoundClause::ShowNodeGraph)
+                    }
+                    _ => Err(self.error("expected GRAPH after SHOW NODE".into())),
+                }
+            }
+            Some(Token::Joints) => {
+                self.advance();
+                Ok(CompoundClause::ShowJoints)
+            }
+            _ => Err(self.error(
+                "expected RECORDING, TRACE_BREAKDOWN, DEPLOYMENTS, SPAN SUMMARY, PLANS, TOPICS, NODES, NODE GRAPH, or JOINTS after SHOW"
+                    .into(),
+            )),
         }
     }
 
@@ -613,6 +853,106 @@ impl<'src> Parser<'src> {
             inner_source,
             inner_conditions,
             inner_time_range,
+        })
+    }
+
+    // ── TIMESERIES / ENRICH WITH helpers ───────────────────────────
+
+    fn parse_timeseries_interval(&mut self) -> Result<UnitValue, ROSQLError> {
+        // Accept Integer/Float followed by either:
+        //   - A SI unit symbol known to the unit registry (e.g. "min", "h", "ms")
+        //   - A long-form English time word (e.g. "hours", "minutes", "day")
+        let num_str = match self.peek() {
+            Some(Token::Integer(s)) => {
+                let s = s.to_string();
+                self.advance();
+                s
+            }
+            Some(Token::Float(s)) => {
+                let s = s.to_string();
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(self.error(
+                    "expected time interval after TIMESERIES (e.g. '5 min', '1 hour')".into(),
+                ))
+            }
+        };
+
+        let unit_sym = match self.peek() {
+            Some(Token::Identifier(u)) if units::lookup_unit(u).is_some() => {
+                let s = u.to_string();
+                self.advance();
+                s
+            }
+            Some(Token::Identifier(u)) if is_time_unit_word(&u.to_lowercase()) => {
+                // Map long-form to SI symbol
+                let mapped = match u.to_lowercase().as_str() {
+                    "nanosecond" | "nanoseconds" => "ns",
+                    "microsecond" | "microseconds" => "us",
+                    "millisecond" | "milliseconds" => "ms",
+                    "second" | "seconds" => "s",
+                    "minute" | "minutes" => "min",
+                    "hour" | "hours" => "h",
+                    "day" | "days" => "days",
+                    "week" | "weeks" => "days", // 1 week ≈ 7 days handled via raw_value
+                    _ => "s",
+                };
+                self.advance();
+                mapped.to_string()
+            }
+            _ => {
+                return Err(self.error(
+                    "expected time unit after TIMESERIES interval (e.g. 'min', 'hour', 'day')"
+                        .into(),
+                ))
+            }
+        };
+
+        let raw: f64 = num_str
+            .parse()
+            .map_err(|_| self.error(format!("invalid number '{num_str}'")))?;
+        let (si_val, si_unit) =
+            units::convert_to_si(raw, &unit_sym, None).map_err(|e| match e {
+                ROSQLError::UnitError { message, .. } => self.error(message),
+                other => other,
+            })?;
+
+        Ok(UnitValue {
+            raw_value: raw,
+            unit: unit_sym,
+            si_value: si_val,
+            si_unit,
+        })
+    }
+
+    fn parse_enrichment_clause(&mut self) -> Result<EnrichmentClause, ROSQLError> {
+        let source = self.parse_data_source()?;
+        let mut limit = None;
+        let mut sample_full = false;
+
+        // Parse optional LIMIT N and SAMPLE FULL modifiers in any order
+        loop {
+            match self.peek() {
+                Some(Token::Limit) => {
+                    self.advance();
+                    limit = Some(self.parse_limit_value()?);
+                }
+                Some(Token::Sample) => {
+                    self.advance();
+                    self.expect(&Token::Full)?;
+                    sample_full = true;
+                }
+                _ => break,
+            }
+        }
+
+        Ok(EnrichmentClause {
+            source,
+            join_key: None,
+            limit,
+            sample_full,
         })
     }
 
@@ -688,12 +1028,34 @@ impl<'src> Parser<'src> {
                 self.advance();
                 Ok(s)
             }
-            // Some data source names overlap with keywords
+            // Keywords that are also valid data source names
             Some(Token::Trace) => {
                 self.advance();
-                // Check if followed by 's' identifier to form "traces"
-                // Actually "traces" is an identifier, not "trace". Let's handle it.
                 Ok("trace".to_string())
+            }
+            Some(Token::Topics) => {
+                self.advance();
+                Ok("topics".to_string())
+            }
+            Some(Token::Nodes) => {
+                self.advance();
+                Ok("nodes".to_string())
+            }
+            Some(Token::Node) => {
+                self.advance();
+                Ok("node".to_string())
+            }
+            Some(Token::Graph) => {
+                self.advance();
+                Ok("graph".to_string())
+            }
+            Some(Token::Recording) => {
+                self.advance();
+                Ok("recordings".to_string())
+            }
+            Some(Token::Session) => {
+                self.advance();
+                Ok("events".to_string())
             }
             _ => {
                 // Try to consume any identifier-like token
@@ -707,22 +1069,40 @@ impl<'src> Parser<'src> {
         }
     }
 
-    // ── Robot scope ─────────────────────────────────────────────────
+    // ── Query scope ─────────────────────────────────────────────────
 
-    fn parse_robot_scope(&mut self) -> Result<RobotScope, ROSQLError> {
+    /// Parse one `FOR <dimension> [value]` clause and merge into `scope`.
+    fn parse_scope_clause(&mut self, scope: &mut QueryScope) -> Result<(), ROSQLError> {
         self.expect(&Token::For)?;
         match self.peek() {
             Some(Token::Robot) => {
                 self.advance();
                 let robot_id = self.parse_string_literal()?;
-                Ok(RobotScope::Single(robot_id))
+                scope.robot = Some(RobotScope::Single(robot_id));
             }
             Some(Token::Fleet) => {
                 self.advance();
-                Ok(RobotScope::Fleet)
+                scope.robot = Some(RobotScope::Fleet);
             }
-            _ => Err(self.error("expected ROBOT or FLEET after FOR".into())),
+            Some(Token::Version) => {
+                self.advance();
+                scope.version = Some(self.parse_string_literal()?);
+            }
+            Some(Token::Environment) => {
+                self.advance();
+                scope.environment = Some(self.parse_string_literal()?);
+            }
+            Some(Token::Session) => {
+                self.advance();
+                scope.session = Some(self.parse_string_literal()?);
+            }
+            _ => {
+                return Err(self.error(
+                    "expected ROBOT, FLEET, VERSION, ENVIRONMENT, or SESSION after FOR".into(),
+                ))
+            }
         }
+        Ok(())
     }
 
     // ── Conditions ──────────────────────────────────────────────────
@@ -817,6 +1197,45 @@ impl<'src> Parser<'src> {
                 expr: left,
                 low: Box::new(low),
                 high: Box::new(high),
+            });
+        }
+
+        // WITHIN <radius> OF [POSITION] (<x>, <y>)
+        if matches!(self.peek(), Some(Token::Within)) {
+            self.advance(); // consume WITHIN
+                            // Parse the radius as a unit value expression, e.g. "500 m" or "2 m"
+            let radius_expr = self.parse_primary_expr()?;
+            let radius = match radius_expr {
+                Expr::UnitValue(uv) => uv,
+                _ => {
+                    return Err(
+                        self.error("expected a unit value after WITHIN (e.g. 500 m, 2 m)".into())
+                    )
+                }
+            };
+            self.expect(&Token::Of)?;
+            let center = if matches!(self.peek(), Some(Token::Position)) {
+                // Local frame: WITHIN N m OF POSITION (x, y)
+                self.advance(); // consume POSITION
+                self.expect(&Token::LParen)?;
+                let x = self.parse_float_or_int()?;
+                self.expect(&Token::Comma)?;
+                let y = self.parse_float_or_int()?;
+                self.expect(&Token::RParen)?;
+                GeospatialCenter::Local(x, y)
+            } else {
+                // GPS: WITHIN N m OF (lat, lon)
+                self.expect(&Token::LParen)?;
+                let lat = self.parse_float_or_int()?;
+                self.expect(&Token::Comma)?;
+                let lon = self.parse_float_or_int()?;
+                self.expect(&Token::RParen)?;
+                GeospatialCenter::Gps(lat, lon)
+            };
+            return Ok(Condition::Within {
+                field: left,
+                radius,
+                center,
             });
         }
 
@@ -1290,6 +1709,16 @@ impl<'src> Parser<'src> {
             return Ok(Baseline::CompareRobots);
         }
 
+        // COMPARE VERSION 'v1' TO VERSION 'v2'
+        if matches!(self.peek(), Some(Token::Version)) {
+            self.advance();
+            let v1 = self.parse_string_literal()?;
+            self.expect(&Token::To)?;
+            self.expect(&Token::Version)?;
+            let v2 = self.parse_string_literal()?;
+            return Ok(Baseline::VersionPair(v1, v2));
+        }
+
         self.expect(&Token::To)?;
         self.parse_baseline_value()
     }
@@ -1307,7 +1736,22 @@ impl<'src> Parser<'src> {
                         self.advance();
                         Ok(Baseline::LastDeployment)
                     }
-                    _ => Err(self.error("expected WEEK or DEPLOYMENT after LAST".into())),
+                    Some(Token::Integer(s)) if *s == "24" => {
+                        self.advance(); // consume 24
+                                        // Expect the identifier "hours" (case-insensitive)
+                        match self.peek() {
+                            Some(Token::Identifier(u)) if u.eq_ignore_ascii_case("hours") => {
+                                self.advance();
+                                Ok(Baseline::Last24Hours)
+                            }
+                            _ => Err(self.error(
+                                "expected 'hours' after LAST 24 (e.g. LAST 24 HOURS)".into(),
+                            )),
+                        }
+                    }
+                    _ => {
+                        Err(self.error("expected WEEK, DEPLOYMENT, or 24 HOURS after LAST".into()))
+                    }
                 }
             }
             Some(Token::Fleet) => {
@@ -1319,17 +1763,52 @@ impl<'src> Parser<'src> {
                 let robot_id = self.parse_string_literal()?;
                 Ok(Baseline::Robot(robot_id))
             }
+            Some(Token::Version) => {
+                self.advance();
+                let v = self.parse_string_literal()?;
+                Ok(Baseline::Version(v))
+            }
             Some(Token::Identifier(id)) if id.eq_ignore_ascii_case("fleet") => {
                 self.advance();
                 Ok(Baseline::Fleet)
             }
             _ => Err(self.error(
-                "expected baseline (LAST WEEK, FLEET, ROBOT '...', LAST DEPLOYMENT)".into(),
+                "expected baseline (LAST WEEK, FLEET, ROBOT '...', LAST DEPLOYMENT, VERSION '...')"
+                    .into(),
             )),
         }
     }
 
     // ── Identifier helpers ──────────────────────────────────────────
+
+    /// Parse a floating-point or integer literal as an `f64`. Handles optional
+    /// leading minus sign (for negative coordinates, e.g. `-122.4194`).
+    fn parse_float_or_int(&mut self) -> Result<f64, ROSQLError> {
+        let neg = if matches!(self.peek(), Some(Token::Minus)) {
+            self.advance();
+            true
+        } else {
+            false
+        };
+        let v = match self.peek() {
+            Some(Token::Float(s)) => {
+                let val: f64 = s
+                    .parse()
+                    .map_err(|_| self.error("invalid float literal".into()))?;
+                self.advance();
+                val
+            }
+            Some(Token::Integer(s)) => {
+                let val: f64 = s
+                    .parse()
+                    .map_err(|_| self.error("invalid integer literal".into()))?;
+                self.advance();
+                val
+            }
+            _ => return Err(self.error("expected a numeric literal".into())),
+        };
+        Ok(if neg { -v } else { v })
+    }
 
     fn parse_string_literal(&mut self) -> Result<String, ROSQLError> {
         match self.peek() {
@@ -1365,7 +1844,13 @@ impl<'src> Parser<'src> {
                     | Token::Restart
                     | Token::Failure
                     | Token::Diagnostic
-                    | Token::Deviation,
+                    | Token::Deviation
+                    // New tokens that may appear as field names
+                    | Token::Position
+                    | Token::Joint
+                    | Token::Joints
+                    | Token::Plan
+                    | Token::Of,
                 ) => Some(self.source[span.clone()].to_string()),
                 _ => None,
             }
@@ -1435,6 +1920,7 @@ impl<'src> Parser<'src> {
         Ok(result)
     }
 
+    #[allow(dead_code)]
     fn parse_identifier_list(&mut self) -> Result<Vec<String>, ROSQLError> {
         let mut ids = vec![self.parse_dotted_identifier()?];
         while matches!(self.peek(), Some(Token::Comma)) {
@@ -1454,20 +1940,28 @@ fn is_time_unit_word(s: &str) -> bool {
         s,
         "nanoseconds"
             | "nanosecond"
+            | "ns"
             | "microseconds"
             | "microsecond"
+            | "us"
             | "milliseconds"
             | "millisecond"
+            | "ms"
             | "seconds"
             | "second"
+            | "s"
             | "minutes"
             | "minute"
+            | "min"
             | "hours"
             | "hour"
+            | "h"
             | "days"
             | "day"
+            | "d"
             | "weeks"
             | "week"
+            | "w"
     )
 }
 
@@ -1915,14 +2409,15 @@ mod tests {
         }
     }
 
-    // ── Robot scope ─────────────────────────────────────────────────
+    // ── Query scope ─────────────────────────────────────────────────
 
     #[test]
     fn for_robot() {
         let q = parse_ok("FOR ROBOT 'robot_42' FROM logs SINCE 1 hour ago");
         match q {
             Query::Standard(sq) => {
-                assert_eq!(sq.robot_scope, Some(RobotScope::Single("robot_42".into())));
+                let scope = sq.scope.unwrap();
+                assert_eq!(scope.robot, Some(RobotScope::Single("robot_42".into())));
             }
             _ => panic!("expected Standard"),
         }
@@ -1933,7 +2428,36 @@ mod tests {
         let q = parse_ok("FROM metrics SINCE 1 hour ago FOR FLEET");
         match q {
             Query::Standard(sq) => {
-                assert_eq!(sq.robot_scope, Some(RobotScope::Fleet));
+                let scope = sq.scope.unwrap();
+                assert_eq!(scope.robot, Some(RobotScope::Fleet));
+            }
+            _ => panic!("expected Standard"),
+        }
+    }
+
+    #[test]
+    fn composable_scope() {
+        let q = parse_ok(
+            "FOR ROBOT 'r1' FOR VERSION 'v2.3.1' FOR ENVIRONMENT 'production' FROM traces",
+        );
+        match q {
+            Query::Standard(sq) => {
+                let scope = sq.scope.unwrap();
+                assert_eq!(scope.robot, Some(RobotScope::Single("r1".into())));
+                assert_eq!(scope.version, Some("v2.3.1".into()));
+                assert_eq!(scope.environment, Some("production".into()));
+            }
+            _ => panic!("expected Standard"),
+        }
+    }
+
+    #[test]
+    fn for_session() {
+        let q = parse_ok("FROM traces FOR SESSION 'sess_042'");
+        match q {
+            Query::Standard(sq) => {
+                let scope = sq.scope.unwrap();
+                assert_eq!(scope.session, Some("sess_042".into()));
             }
             _ => panic!("expected Standard"),
         }
@@ -2051,28 +2575,45 @@ mod tests {
     // ── Compound clauses ────────────────────────────────────────────
 
     #[test]
-    fn message_journey() {
-        let q = parse_ok("MESSAGE JOURNEY FOR TRACE 'abc123'");
-        match q {
-            Query::Compound(cq) => {
-                assert!(matches!(
-                    cq.clause,
-                    CompoundClause::MessageJourney { ref trace_id } if trace_id == "abc123"
-                ));
-            }
-            _ => panic!("expected Compound"),
-        }
+    fn message_journey_deprecated() {
+        let errs = parse_err("MESSAGE JOURNEY FOR TRACE 'abc123'");
+        assert!(matches!(errs[0], ROSQLError::ParseError { .. }));
+        let msg = errs[0].to_string();
+        assert!(msg.contains("MESSAGE JOURNEY is removed"), "got: {msg}");
     }
 
     #[test]
-    fn message_paths() {
-        let q = parse_ok("MESSAGE PATHS FOR TOPIC '/cmd_vel' SINCE 1 hour ago");
+    fn message_paths_deprecated() {
+        let errs = parse_err("MESSAGE PATHS FOR TOPIC '/cmd_vel'");
+        assert!(matches!(errs[0], ROSQLError::ParseError { .. }));
+        let msg = errs[0].to_string();
+        assert!(msg.contains("MESSAGE PATHS is removed"), "got: {msg}");
+    }
+
+    #[test]
+    fn message_path_deprecated() {
+        let errs = parse_err("MESSAGE PATH FROM TOPIC '/scan' TO NODE '/local_costmap_node'");
+        assert!(matches!(errs[0], ROSQLError::ParseError { .. }));
+        let msg = errs[0].to_string();
+        assert!(msg.contains("MESSAGE PATH is removed"), "got: {msg}");
+    }
+
+    #[test]
+    fn message_flow_from_topic() {
+        let q = parse_ok("MESSAGE FLOW FROM TOPIC '/cmd_vel' SINCE 1 hour ago");
         match q {
             Query::Compound(cq) => {
-                assert!(matches!(
-                    cq.clause,
-                    CompoundClause::MessagePaths { ref topic } if topic == "/cmd_vel"
-                ));
+                match &cq.clause {
+                    CompoundClause::MessageFlow {
+                        from_topic,
+                        to_target,
+                        ..
+                    } => {
+                        assert_eq!(from_topic, "/cmd_vel");
+                        assert!(to_target.is_none());
+                    }
+                    _ => panic!("expected MessageFlow"),
+                }
                 assert!(cq.time_range.is_some());
             }
             _ => panic!("expected Compound"),
@@ -2080,21 +2621,41 @@ mod tests {
     }
 
     #[test]
-    fn message_path_from_to() {
-        let q = parse_ok(
-            "MESSAGE PATH FROM TOPIC '/scan' TO NODE '/local_costmap_node' SINCE 1 day ago",
-        );
+    fn message_flow_to_node() {
+        let q = parse_ok("MESSAGE FLOW FROM TOPIC '/scan' TO NODE '/local_costmap_node'");
         match q {
             Query::Compound(cq) => match &cq.clause {
-                CompoundClause::MessagePath {
+                CompoundClause::MessageFlow {
                     from_topic,
-                    to_node,
+                    to_target,
                     ..
                 } => {
                     assert_eq!(from_topic, "/scan");
-                    assert_eq!(to_node, "/local_costmap_node");
+                    assert_eq!(
+                        *to_target,
+                        Some(FlowTarget::Node("/local_costmap_node".into()))
+                    );
                 }
-                _ => panic!("expected MessagePath"),
+                _ => panic!("expected MessageFlow"),
+            },
+            _ => panic!("expected Compound"),
+        }
+    }
+
+    #[test]
+    fn message_flow_to_topic() {
+        let q = parse_ok("MESSAGE FLOW FROM TOPIC '/cmd_vel' TO TOPIC '/motor_cmd'");
+        match q {
+            Query::Compound(cq) => match &cq.clause {
+                CompoundClause::MessageFlow {
+                    from_topic,
+                    to_target,
+                    ..
+                } => {
+                    assert_eq!(from_topic, "/cmd_vel");
+                    assert_eq!(*to_target, Some(FlowTarget::Topic("/motor_cmd".into())));
+                }
+                _ => panic!("expected MessageFlow"),
             },
             _ => panic!("expected Compound"),
         }
@@ -2120,7 +2681,8 @@ mod tests {
         match q {
             Query::Compound(cq) => {
                 assert!(matches!(cq.clause, CompoundClause::Health));
-                assert_eq!(cq.robot_scope, Some(RobotScope::Single("robot_42".into())));
+                let scope = cq.scope.unwrap();
+                assert_eq!(scope.robot, Some(RobotScope::Single("robot_42".into())));
             }
             _ => panic!("expected Compound"),
         }
@@ -2132,9 +2694,11 @@ mod tests {
         match q {
             Query::Compound(cq) => {
                 match &cq.clause {
-                    CompoundClause::Anomaly { field, compared_to } => {
+                    CompoundClause::Anomaly {
+                        field, compared_to, ..
+                    } => {
                         assert_eq!(field, "duration");
-                        assert_eq!(*compared_to, Some(Baseline::Fleet));
+                        assert_eq!(*compared_to, Baseline::Fleet);
                     }
                     _ => panic!("expected Anomaly"),
                 }
@@ -2147,12 +2711,15 @@ mod tests {
 
     #[test]
     fn path_deviation() {
-        let q = parse_ok("PATH DEVIATION FOR ROBOT 'robot_42' SINCE yesterday");
+        let q = parse_ok("PATH DEVIATION FOR TRACE 'trace-002'");
         match q {
-            Query::Compound(cq) => {
-                assert!(matches!(cq.clause, CompoundClause::PathDeviation { .. }));
-                assert_eq!(cq.robot_scope, Some(RobotScope::Single("robot_42".into())));
-            }
+            Query::Compound(cq) => match &cq.clause {
+                CompoundClause::PathDeviation { target, plan_index } => {
+                    assert_eq!(*target, DeviationTarget::Trace("trace-002".into()));
+                    assert_eq!(*plan_index, None);
+                }
+                _ => panic!("expected PathDeviation"),
+            },
             _ => panic!("expected Compound"),
         }
     }
@@ -2182,6 +2749,86 @@ mod tests {
                 assert!(cq.time_range.is_some());
             }
             _ => panic!("expected Compound"),
+        }
+    }
+
+    #[test]
+    fn show_deployments() {
+        let q = parse_ok("SHOW DEPLOYMENTS FOR ROBOT 'robot_42' SINCE 7 days ago");
+        match q {
+            Query::Compound(cq) => {
+                assert!(matches!(cq.clause, CompoundClause::ShowDeployments));
+                assert!(cq.scope.unwrap().robot.is_some());
+                assert!(cq.time_range.is_some());
+            }
+            _ => panic!("expected Compound"),
+        }
+    }
+
+    #[test]
+    fn show_span_summary() {
+        let q = parse_ok("SHOW SPAN SUMMARY SINCE 1 hour ago");
+        match q {
+            Query::Compound(cq) => {
+                assert!(matches!(cq.clause, CompoundClause::ShowSpanSummary));
+                assert!(cq.time_range.is_some());
+            }
+            _ => panic!("expected Compound"),
+        }
+    }
+
+    #[test]
+    fn show_plans_for_trace() {
+        let q = parse_ok("SHOW PLANS FOR TRACE 'abc123'");
+        match q {
+            Query::Compound(cq) => match &cq.clause {
+                CompoundClause::ShowPlans { trace_id } => {
+                    assert_eq!(*trace_id, Some("abc123".into()));
+                }
+                _ => panic!("expected ShowPlans"),
+            },
+            _ => panic!("expected Compound"),
+        }
+    }
+
+    #[test]
+    fn show_plans_for_robot() {
+        let q = parse_ok("SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 hour ago");
+        match q {
+            Query::Compound(cq) => {
+                assert!(matches!(
+                    cq.clause,
+                    CompoundClause::ShowPlans { trace_id: None }
+                ));
+                assert!(cq.scope.unwrap().robot.is_some());
+                assert!(cq.time_range.is_some());
+            }
+            _ => panic!("expected Compound"),
+        }
+    }
+
+    #[test]
+    fn compare_to_version() {
+        let q = parse_ok("FROM traces COMPARE TO VERSION 'v2.3.1'");
+        match q {
+            Query::Standard(sq) => {
+                assert_eq!(sq.baseline, Some(Baseline::Version("v2.3.1".into())));
+            }
+            _ => panic!("expected Standard"),
+        }
+    }
+
+    #[test]
+    fn compare_version_pair() {
+        let q = parse_ok("FROM traces COMPARE VERSION 'v1.0' TO VERSION 'v2.0'");
+        match q {
+            Query::Standard(sq) => {
+                assert_eq!(
+                    sq.baseline,
+                    Some(Baseline::VersionPair("v1.0".into(), "v2.0".into()))
+                );
+            }
+            _ => panic!("expected Standard"),
         }
     }
 
@@ -2341,6 +2988,19 @@ mod tests {
                 assert!(matches!(cq.clause, CompoundClause::Health));
                 assert!(cq.time_range.is_some());
                 assert_eq!(cq.facet.unwrap().dimension, "robot_id");
+            }
+            _ => panic!("expected Compound"),
+        }
+    }
+
+    #[test]
+    fn trace_with_scope() {
+        let q = parse_ok("TRACE 'abc123' FOR ROBOT 'r1'");
+        match q {
+            Query::Compound(cq) => {
+                assert!(matches!(cq.clause, CompoundClause::Trace { .. }));
+                let scope = cq.scope.unwrap();
+                assert_eq!(scope.robot, Some(RobotScope::Single("r1".into())));
             }
             _ => panic!("expected Compound"),
         }

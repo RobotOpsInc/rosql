@@ -38,12 +38,19 @@ fn mutation_create() {
 fn reserved_alert() {
     let errs = parse("ALERT WHEN cpu > 90").unwrap_err();
     assert!(matches!(&errs[0], ROSQLError::ReservedSyntax { keyword, .. } if keyword == "ALERT"));
+    if let ROSQLError::ReservedSyntax { message, .. } = &errs[0] {
+        assert!(message.contains("Robot Ops platform"));
+        assert!(message.contains("read-only"));
+    }
 }
 
 #[test]
 fn reserved_define() {
     let errs = parse("DEFINE SLO availability 99.9").unwrap_err();
     assert!(matches!(&errs[0], ROSQLError::ReservedSyntax { keyword, .. } if keyword == "DEFINE"));
+    if let ROSQLError::ReservedSyntax { message, .. } = &errs[0] {
+        assert!(message.contains("Robot Ops platform dashboard"));
+    }
 }
 
 #[test]
@@ -95,4 +102,36 @@ fn error_has_location() {
         }
         other => panic!("expected ParseError, got {other:?}"),
     }
+}
+
+// ── Removed syntax — deprecation errors ─────────────────────────────────────
+
+#[test]
+fn message_journey_removed() {
+    let errs = parse("MESSAGE JOURNEY FOR TRACE 'abc'").unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.to_string().contains("MESSAGE JOURNEY is removed")),
+        "got: {errs:?}"
+    );
+}
+
+#[test]
+fn message_paths_removed() {
+    let errs = parse("MESSAGE PATHS FOR TOPIC '/cmd_vel'").unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.to_string().contains("MESSAGE PATHS is removed")),
+        "got: {errs:?}"
+    );
+}
+
+#[test]
+fn message_path_removed() {
+    let errs = parse("MESSAGE PATH FROM TOPIC '/a' TO NODE '/b'").unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.to_string().contains("MESSAGE PATH is removed")),
+        "got: {errs:?}"
+    );
 }

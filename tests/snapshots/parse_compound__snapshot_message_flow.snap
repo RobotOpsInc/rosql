@@ -1,0 +1,24 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause:
+    MessageFlow:
+      from_topic: /cmd_vel
+      to_target: ~
+      show: ~
+  scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

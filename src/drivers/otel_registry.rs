@@ -89,6 +89,14 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
     ));
     reg.register(map_field("topic", "otel_traces", span_attrs, "ros.topic"));
 
+    // Resource attributes shared across all OTel tables.
+    // robot_id on OTel tables lives in resource_attributes->>'robot.id'.
+    // On topic_messages it is a bare column (registered separately below).
+    let res_attrs = "resource_attributes";
+    for otel_table in ["otel_traces", "otel_logs", "otel_metrics"] {
+        reg.register(map_field("robot_id", otel_table, res_attrs, "robot.id"));
+    }
+
     // ── otel_metrics fields ─────────────────────────────────────────
     let metric_name = profile.col("metric_name", "MetricName");
     let metric_value = profile.col("value", "Value");
@@ -96,28 +104,185 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
     reg.register(simple("metric_name", "otel_metrics", metric_name));
     reg.register(simple("metric_value", "otel_metrics", metric_value));
 
+    // ── ROS2 topic metrics ──────────────────────────────────────────
+    // Canonical names (robot_agent MetricsCollector output).
     reg.register(metric_field(
         "publish_rate",
-        "ros2.topic.rx_rate_hz",
+        "ros2.topic.message_rate",
         Some("Hz"),
         metric_value,
     ));
     reg.register(metric_field(
         "bandwidth",
-        "ros2.topic.rx_bandwidth_bps",
+        "ros2.topic.bandwidth",
         Some("B/s"),
         metric_value,
     ));
     reg.register(metric_field(
-        "cpu_usage",
-        "system.cpu.total_usage_pct",
+        "messages_received",
+        "ros2.topic.messages_received",
         None,
         metric_value,
     ));
     reg.register(metric_field(
-        "memory_usage",
-        "system.memory.usage_pct",
+        "messages_captured",
+        "ros2.topic.messages_captured",
         None,
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "messages_filtered",
+        "ros2.topic.messages_filtered",
+        None,
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "action_servers_count",
+        "ros2.action_servers.count",
+        None,
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "services_count",
+        "ros2.services.count",
+        None,
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "queued_goals",
+        "ros2.action.queued_goals",
+        None,
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "active_goals",
+        "ros2.action.active_goals",
+        None,
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "completion_rate",
+        "ros2.action.completion_rate",
+        Some("Hz"),
+        metric_value,
+    ));
+
+    // ── System metrics ──────────────────────────────────────────────
+    // Canonical names (OTel semantic conventions, robot_agent output).
+    reg.register(metric_field(
+        "cpu_usage",
+        "system.cpu.utilization",
+        Some("%"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "memory_usage",
+        "system.memory.utilization",
+        Some("%"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "memory_bytes",
+        "system.memory.usage",
+        Some("B"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "disk_usage",
+        "system.filesystem.utilization",
+        Some("%"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "disk_bytes",
+        "system.filesystem.usage",
+        Some("B"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "disk_io",
+        "system.disk.io",
+        Some("B/s"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "disk_iops",
+        "system.disk.operations",
+        Some("ops/s"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "network_io",
+        "system.network.io",
+        Some("B/s"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "network_packets",
+        "system.network.packets",
+        Some("packets/s"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "network_latency",
+        "system.network.latency",
+        Some("ms"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "network_jitter",
+        "system.network.jitter",
+        Some("ms"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "packet_loss",
+        "system.network.packet_loss",
+        Some("%"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "temperature",
+        "system.temperature",
+        Some("°C"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "battery_charge",
+        "system.battery.charge",
+        Some("%"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "battery_voltage",
+        "system.battery.voltage",
+        Some("V"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "battery_current",
+        "system.battery.current",
+        Some("A"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "battery_temperature",
+        "system.battery.temperature",
+        Some("°C"),
+        metric_value,
+    ));
+
+    // ── Process metrics ─────────────────────────────────────────────
+    reg.register(metric_field(
+        "process_cpu",
+        "process.cpu.utilization",
+        Some("%"),
+        metric_value,
+    ));
+    reg.register(metric_field(
+        "process_memory",
+        "process.memory.usage",
+        Some("B"),
         metric_value,
     ));
 

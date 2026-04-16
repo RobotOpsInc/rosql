@@ -37,20 +37,42 @@ pub enum ROSQLError {
         location: SourceLocation,
     },
 
-    /// A keyword reserved for a future version was used (ALERT WHEN, DEFINE SLO).
-    #[error("{keyword} is reserved for a future ROSQL version (at {location})")]
+    /// A keyword that is reserved but not supported in ROSQL was used (ALERT, DEFINE).
+    #[error("{message} (at {location})")]
     ReservedSyntax {
         keyword: String,
         location: SourceLocation,
+        message: String,
     },
 
-    /// A driver or connection error.
+    /// A feature that parses correctly but is not yet implemented in the compiler.
+    #[error("Not implemented: {feature}. {message}")]
+    NotImplemented { feature: String, message: String },
+
+    /// A driver or connection error (pre-execution, e.g. connection refused).
     #[error("Driver error: {message}")]
     DriverError { message: String },
 
     /// An error compiling the AST to SQL.
     #[error("Compilation error: {message}")]
     CompilationError { message: String },
+
+    /// A database execution error with context and an actionable suggestion.
+    ///
+    /// Unlike `DriverError` (which covers connection/setup failures), this
+    /// variant is raised when the compiled SQL reaches the database and fails.
+    /// The `suggestion` field always tells the user what to do differently.
+    #[error("Execution failed on {data_source}: {message}")]
+    ExecutionError {
+        /// Short description of the failure (no raw driver error text).
+        message: String,
+        /// Human-readable data source name (e.g. `"PostgreSQL"`, `"DuckDB"`).
+        data_source: String,
+        /// The compiled SQL that caused the failure (for `--verbose` display).
+        compiled_sql: Option<String>,
+        /// Actionable next step for the user.
+        suggestion: Option<String>,
+    },
 }
 
 #[cfg(test)]
@@ -88,14 +110,25 @@ mod tests {
     #[test]
     fn reserved_syntax_display() {
         let err = ROSQLError::ReservedSyntax {
-            keyword: "ALERT WHEN".into(),
+            keyword: "ALERT".into(),
             location: SourceLocation {
                 line: 1,
                 column: 1,
                 offset: 0,
             },
+            message: "ALERT is a reserved keyword but is not supported in ROSQL.".into(),
         };
-        assert!(err.to_string().contains("ALERT WHEN"));
-        assert!(err.to_string().contains("future"));
+        assert!(err.to_string().contains("ALERT"));
+        assert!(err.to_string().contains("reserved keyword"));
+    }
+
+    #[test]
+    fn not_implemented_display() {
+        let err = ROSQLError::NotImplemented {
+            feature: "NODE_STATUS()".into(),
+            message: "Requires heartbeat data.".into(),
+        };
+        assert!(err.to_string().contains("Not implemented: NODE_STATUS()"));
+        assert!(err.to_string().contains("heartbeat"));
     }
 }

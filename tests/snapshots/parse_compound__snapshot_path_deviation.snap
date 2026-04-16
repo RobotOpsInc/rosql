@@ -5,9 +5,10 @@ expression: ast
 Compound:
   clause:
     PathDeviation:
-      show: ~
-  robot_scope:
-    Single: robot_42
+      target:
+        Robot: robot_42
+      plan_index: ~
+  scope: ~
   time_range:
     Since:
       Relative:
@@ -18,5 +19,6 @@ Compound:
   facet: ~
   order_by: ~
   limit: ~
+  offset: ~
   output_format: ~
   baseline: ~

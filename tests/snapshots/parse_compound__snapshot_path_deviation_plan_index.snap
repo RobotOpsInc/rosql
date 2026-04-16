@@ -4,18 +4,17 @@ expression: ast
 ---
 Compound:
   clause:
-    MessagePaths:
-      topic: /cmd_vel
-  robot_scope: ~
-  time_range:
-    Since:
-      Relative:
-        amount: 1
-        unit: hour
+    PathDeviation:
+      target:
+        Trace: abc
+      plan_index: 0
+  scope: ~
+  time_range: ~
   time_basis: ~
   conditions: ~
   facet: ~
   order_by: ~
   limit: ~
+  offset: ~
   output_format: ~
   baseline: ~

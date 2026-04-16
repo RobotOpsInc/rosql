@@ -1,0 +1,24 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause:
+    PathDeviation:
+      target:
+        Robot: r1
+      plan_index: ~
+  scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

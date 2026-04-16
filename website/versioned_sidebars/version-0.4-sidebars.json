@@ -1,0 +1,13 @@
+{
+  "docs": [
+    "quickstart",
+    "drivers",
+    "cli",
+    "wasm",
+    "cookbook",
+    "syntax",
+    "schema-reference",
+    "command-reference",
+    "repl-dataset"
+  ]
+}

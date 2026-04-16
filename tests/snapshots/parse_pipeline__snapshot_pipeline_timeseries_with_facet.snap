@@ -1,0 +1,25 @@
+---
+source: tests/parse_pipeline.rs
+expression: ast
+---
+Pipeline:
+  stages:
+    - From: Traces
+    - Select:
+        - Aggregation:
+            function: Avg
+            args:
+              - Field: duration
+    - Timeseries:
+        interval:
+          raw_value: 1
+          unit: min
+          si_value: 60
+          si_unit: s
+    - Facet:
+        dimension: action_name
+    - Since:
+        Since:
+          Relative:
+            amount: 1
+            unit: hour

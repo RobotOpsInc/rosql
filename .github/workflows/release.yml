@@ -63,15 +63,24 @@ jobs:
             runner: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-13
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install protoc
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get install -y protobuf-compiler
 
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
       - name: Build
-        run: cargo build --release --features server --bin rosql
+        run: cargo build --release --features server,duckdb --bin rosql
 
       - name: Install cargo-about
         run: cargo install cargo-about --locked
@@ -93,6 +102,73 @@ jobs:
         run: |
           gh release upload "${{ needs.create-release.outputs.tag }}" \
             rosql-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
+
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    needs: [create-release, build-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS tarballs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          TAG="${{ needs.create-release.outputs.tag }}"
+          gh release download "$TAG" \
+            --repo RobotOpsInc/rosql \
+            --pattern "rosql-${VERSION}-aarch64-apple-darwin.tar.gz" \
+            --pattern "rosql-${VERSION}-x86_64-apple-darwin.tar.gz"
+
+      - name: Compute SHA256 checksums
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          ARM_SHA=$(sha256sum "rosql-${VERSION}-aarch64-apple-darwin.tar.gz" | awk '{print $1}')
+          INTEL_SHA=$(sha256sum "rosql-${VERSION}-x86_64-apple-darwin.tar.gz" | awk '{print $1}')
+          echo "ARM_SHA=$ARM_SHA" >> "$GITHUB_ENV"
+          echo "INTEL_SHA=$INTEL_SHA" >> "$GITHUB_ENV"
+
+      - name: Clone homebrew-tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/RobotOpsInc/homebrew-tap.git" tap
+
+      - name: Update formula
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          FORMULA="tap/Formula/rosql.rb"
+
+          # Update version
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" "$FORMULA"
+
+          # Update ARM SHA256 (line after the aarch64 url)
+          sed -i "/aarch64-apple-darwin/,/sha256/{s/sha256 \".*\"/sha256 \"${ARM_SHA}\"/}" "$FORMULA"
+
+          # Update Intel SHA256 (line after the x86_64 url)
+          sed -i "/x86_64-apple-darwin/,/sha256/{s/sha256 \".*\"/sha256 \"${INTEL_SHA}\"/}" "$FORMULA"
+
+      - name: Open PR on homebrew-tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          BRANCH="bump-rosql-${VERSION}"
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add Formula/rosql.rb
+          git commit -m "rosql ${VERSION}"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --repo RobotOpsInc/homebrew-tap \
+            --title "rosql ${VERSION}" \
+            --body "Automated formula bump for rosql ${VERSION}." \
+            --base main \
+            --head "$BRANCH"
 
   publish-crate:
     name: Publish to crates.io

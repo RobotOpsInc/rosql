@@ -1,0 +1,23 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause:
+    JointDeviation:
+      target:
+        Robot: arm_01
+  scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: days
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

@@ -1,0 +1,26 @@
+---
+source: tests/parse_pipeline.rs
+expression: ast
+---
+Pipeline:
+  stages:
+    - From: Traces
+    - Where:
+        Comparison:
+          left:
+            Field: status
+          op: Eq
+          right:
+            Literal:
+              String: ERROR
+    - Timeseries:
+        interval:
+          raw_value: 5
+          unit: min
+          si_value: 300
+          si_unit: s
+    - Since:
+        Since:
+          Relative:
+            amount: 6
+            unit: hours

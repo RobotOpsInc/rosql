@@ -84,3 +84,115 @@ fn snapshot_aggregation_with_args() {
     let ast = parse("SELECT PERCENTILE(duration, 95) FROM logs").unwrap();
     insta::assert_yaml_snapshot!(ast);
 }
+
+#[test]
+fn snapshot_limit_offset() {
+    let ast = parse("FROM logs LIMIT 20 OFFSET 40").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_offset_only() {
+    let ast = parse("FROM logs OFFSET 10").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_composable_scope() {
+    let ast = parse(
+        "SELECT * FROM logs \
+         FOR ROBOT 'robot_sim_001' FOR VERSION 'v2.3.1' FOR ENVIRONMENT 'production' \
+         SINCE 1 hour ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_for_session() {
+    let ast = parse("FROM traces FOR SESSION 'sess_abc123' SINCE 30 minutes ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+// ── TIMESERIES ───────────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_timeseries_basic() {
+    let ast = parse(
+        "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 6 hours ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_timeseries_with_facet() {
+    let ast = parse(
+        "SELECT AVG(duration) FROM traces TIMESERIES 1 min FACET action_name SINCE 1 hour ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_timeseries_1_hour() {
+    let ast = parse("FROM traces TIMESERIES 1 hour SINCE 24 hours ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+// ── ENRICH WITH ──────────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_enrich_with_logs() {
+    let ast =
+        parse("FROM traces WHERE status = 'ERROR' ENRICH WITH logs SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_enrich_with_limit() {
+    let ast =
+        parse("FROM traces WHERE status = 'ERROR' ENRICH WITH logs LIMIT 200 SINCE 1 hour ago")
+            .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_enrich_with_sample_full() {
+    let ast = parse("FROM traces ENRICH WITH joint_states SAMPLE FULL SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_enrich_multiple() {
+    let ast = parse("SELECT * FROM traces WHERE status = 'ERROR' ENRICH WITH logs ENRICH WITH recordings SINCE 1 hour ago").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+// ── Geospatial WITHIN ────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_within_gps() {
+    let ast =
+        parse("FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago")
+            .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_within_local() {
+    let ast = parse("FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago")
+        .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+// ── Array-indexed field access ───────────────────────────────────────────────
+
+#[test]
+fn snapshot_field_access_array_index() {
+    let ast = parse(
+        "FROM joint_states WHERE fields['position[0]'] > 1.5 FOR ROBOT 'arm_01' SINCE 1 hour ago",
+    )
+    .unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}

@@ -1,0 +1,19 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause:
+    JointDeviation:
+      target:
+        Trace: abc
+  scope: ~
+  time_range: ~
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

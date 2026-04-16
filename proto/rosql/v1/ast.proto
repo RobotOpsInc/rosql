@@ -22,7 +22,7 @@ message ROSQLQuery {
 message StandardQuery {
   repeated Selection selections = 1;
   DataSource data_source = 2;
-  RobotScope robot_scope = 3;
+  QueryScope scope = 3;
   Condition conditions = 4;
   FacetClause facet = 5;
   TimeRange time_range = 6;
@@ -31,6 +31,22 @@ message StandardQuery {
   optional uint64 limit = 9;
   OutputFormat output_format = 10;
   Baseline baseline = 11;
+  optional uint64 offset = 12;
+  TimeseriesClause timeseries = 13;          // TIMESERIES interval
+  repeated EnrichmentClause enrichments = 14; // ENRICH WITH clauses
+}
+
+// TIMESERIES time-bucket interval.
+message TimeseriesClause {
+  UnitValue interval = 1;
+}
+
+// ENRICH WITH clause.
+message EnrichmentClause {
+  DataSource source = 1;
+  string join_key = 2;       // optional explicit join key
+  optional uint64 limit = 3; // per-row limit (default 50)
+  bool sample_full = 4;      // disable auto-downsampling
 }
 
 // Pipeline query: FROM source | WHERE ... | FACET ...
@@ -50,8 +66,11 @@ message PipelineStage {
     uint64 limit = 8;
     OutputFormat format = 9;
     Baseline compare_to = 10;
-    RobotScope for_robot = 11;
+    QueryScope for_scope = 11;
     CompoundClause compound_clause = 12;
+    uint64 offset = 13;
+    TimeseriesClause timeseries = 14;   // TIMESERIES interval stage
+    EnrichmentClause enrich_with = 15;  // ENRICH WITH stage
   }
 }
 
@@ -59,10 +78,10 @@ message SelectStage {
   repeated Selection selections = 1;
 }
 
-// Compound query: MESSAGE JOURNEY, HEALTH(), ANOMALY(), etc.
+// Compound query: TRACE, HEALTH(), ANOMALY(), MESSAGE FLOW, SHOW ...
 message CompoundQuery {
   CompoundClause clause = 1;
-  RobotScope robot_scope = 2;
+  QueryScope scope = 2;
   TimeRange time_range = 3;
   TimeBasis time_basis = 4;
   Condition conditions = 5;
@@ -71,6 +90,7 @@ message CompoundQuery {
   optional uint64 limit = 8;
   OutputFormat output_format = 9;
   Baseline baseline = 10;
+  optional uint64 offset = 11;
 }
 
 // ==========================================================================
@@ -218,6 +238,7 @@ message Condition {
     InExpr in_expr = 7;
     LikeExpr like = 8;
     BetweenExpr between = 9;
+    WithinCondition within = 10;
   }
 }
 
@@ -246,6 +267,25 @@ message BetweenExpr {
   Expr expr = 1;
   Expr low = 2;
   Expr high = 3;
+}
+
+message WithinCondition {
+  Expr field = 1;
+  UnitValue radius = 2;
+  oneof center {
+    GpsCenter gps = 3;
+    LocalCenter local = 4;
+  }
+}
+
+message GpsCenter {
+  double lat = 1;
+  double lon = 2;
+}
+
+message LocalCenter {
+  double x = 1;
+  double y = 2;
 }
 
 enum ComparisonOp {
@@ -312,7 +352,7 @@ enum TimeBasis {
 }
 
 // ==========================================================================
-// Robot scoping
+// Robot / query scoping
 // ==========================================================================
 
 message RobotScope {
@@ -320,6 +360,14 @@ message RobotScope {
     string robot_id = 1;     // FOR ROBOT 'robot_42'
     bool fleet = 2;          // FOR FLEET (always true when set)
   }
+}
+
+// Composable scope: FOR ROBOT | FOR VERSION | FOR ENVIRONMENT | FOR SESSION
+message QueryScope {
+  RobotScope robot = 1;
+  string version = 2;      // FOR VERSION 'v1.2.3'
+  string environment = 3;  // FOR ENVIRONMENT 'production'
+  string session = 4;      // FOR SESSION 'sess_id'
 }
 
 // ==========================================================================
@@ -357,12 +405,19 @@ enum OutputFormat {
 
 message Baseline {
   oneof baseline {
-    bool last_week = 1;       // always true when set
-    bool fleet = 2;           // always true when set
-    string robot_id = 3;      // COMPARE TO ROBOT 'robot_01'
-    bool last_deployment = 4; // always true when set
-    bool compare_robots = 5;  // always true when set
+    bool last_week = 1;                // always true when set
+    bool fleet = 2;                    // always true when set
+    string robot_id = 3;               // COMPARE TO ROBOT 'robot_01'
+    bool last_deployment = 4;          // always true when set
+    bool compare_robots = 5;           // always true when set
+    string version = 6;                // COMPARE TO VERSION 'v1.2.3'
+    VersionPairBaseline version_pair = 7; // COMPARE VERSION 'v1' TO VERSION 'v2'
   }
+}
+
+message VersionPairBaseline {
+  string from_version = 1;
+  string to_version = 2;
 }
 
 // ==========================================================================
@@ -372,16 +427,21 @@ message Baseline {
 message CompoundClause {
   oneof clause {
     DuringClause during = 1;
-    MessageJourneyClause message_journey = 2;
-    MessagePathsClause message_paths = 3;
-    MessagePathClause message_path = 4;
+    // fields 2–4 formerly MessageJourney/Paths/Path — removed in v0.4.1
     TraceClause trace = 5;
-    bool show_trace_breakdown = 6;   // always true when set
-    bool health = 7;                 // always true when set
+    bool show_trace_breakdown = 6;        // always true when set
+    bool health = 7;                      // always true when set
     AnomalyClause anomaly = 8;
     PathDeviationClause path_deviation = 9;
     CorrelateClause correlate = 10;
-    bool show_recording = 11;        // always true when set
+    bool show_recording = 11;             // always true when set
+    MessageFlowClause message_flow = 12;  // MESSAGE FLOW FROM TOPIC ...
+    bool show_deployments = 13;           // SHOW DEPLOYMENTS
+    bool show_span_summary = 14;          // SHOW SPAN SUMMARY
+    ShowPlansClause show_plans = 15;      // SHOW PLANS [FOR TRACE ...]
+    bool show_topics = 16;               // SHOW TOPICS
+    bool show_nodes = 17;                // SHOW NODES
+    bool show_node_graph = 18;           // SHOW NODE GRAPH
   }
 }
 
@@ -391,22 +451,25 @@ message DuringClause {
   TimeRange inner_time_range = 3;
 }
 
-message MessageJourneyClause {
-  string trace_id = 1;
-}
-
-message MessagePathsClause {
-  string topic = 1;
-}
-
-message MessagePathClause {
-  string from_topic = 1;
-  string to_node = 2;
-  string show = 3;
-}
-
 message TraceClause {
   string trace_id = 1;
+}
+
+message MessageFlowClause {
+  string from_topic = 1;
+  FlowTarget to_target = 2;    // optional
+  string show = 3;             // optional SHOW hint
+}
+
+message FlowTarget {
+  oneof target {
+    string node = 1;   // TO NODE '/node_name'
+    string topic = 2;  // TO TOPIC '/topic_name'
+  }
+}
+
+message ShowPlansClause {
+  string trace_id = 1;   // optional FOR TRACE 'id'
 }
 
 message AnomalyClause {

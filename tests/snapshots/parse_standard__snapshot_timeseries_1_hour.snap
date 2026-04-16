@@ -1,0 +1,29 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source: Traces
+  scope: ~
+  conditions: ~
+  facet: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 24
+        unit: hours
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~
+  timeseries:
+    interval:
+      raw_value: 1
+      unit: h
+      si_value: 3600
+      si_unit: s
+  enrichments: []

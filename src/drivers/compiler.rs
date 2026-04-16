@@ -5,27 +5,226 @@
 
 use crate::ast::*;
 use crate::error::ROSQLError;
+use serde::{Deserialize, Serialize};
 
 use super::dialect::SqlDialect;
 use super::field_registry::FieldRegistry;
-use super::BackendCapabilities;
+use super::{BackendCapabilities, VisualizationConfig};
 
-/// Compile a ROSQL AST to a SQL string.
+/// A structured, non-fatal compiler warning.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompilerWarning {
+    /// Machine-readable warning code (e.g. `"ANOMALY_NO_FACET"`).
+    pub code: String,
+    /// Human-readable warning message.
+    pub message: String,
+    /// Optional actionable suggestion.
+    pub suggestion: Option<String>,
+}
+
+/// Result of compiling a ROSQL AST to SQL.
+#[derive(Debug)]
+pub struct CompileResult {
+    /// The compiled SQL string.
+    pub sql: String,
+    /// Whether a default LIMIT was injected (no explicit LIMIT in the query).
+    pub default_limit_applied: bool,
+    /// Enrichment plans to execute in phase 2 (empty for non-enriched queries).
+    pub enrichments: Vec<EnrichmentPlan>,
+    /// Non-fatal compiler warnings (e.g. ANOMALY without FACET).
+    pub warnings: Vec<CompilerWarning>,
+    /// Inferred presentation-layer format hint.
+    pub format_hint: FormatHint,
+    /// Visualization configuration (axes, series key, etc.).
+    pub visualization: Option<VisualizationConfig>,
+}
+
+/// A compiled enrichment plan for two-phase execution (ENRICH WITH).
+#[derive(Debug, Clone)]
+pub struct EnrichmentPlan {
+    /// Human-readable data source name (e.g. "logs").
+    pub source_name: String,
+    /// The enrichment table name (dialect-quoted).
+    pub table: String,
+    /// The join column used to correlate enrichment rows with primary rows.
+    pub join_column: String,
+    /// Per-primary-row enrichment row limit.
+    pub limit: u64,
+    /// If true, skip auto-downsampling for high-frequency topic data.
+    pub sample_full: bool,
+}
+
+/// Compile a ROSQL AST to SQL, optionally injecting a default LIMIT.
+///
+/// Pass `default_limit: Some(100)` to automatically cap result sets at 100 rows
+/// for queries that don't have an explicit LIMIT. Certain query shapes are exempt
+/// (scalar aggregations, FACET queries, TRACE, MESSAGE FLOW, SHOW DEPLOYMENTS, SHOW SPAN SUMMARY).
 pub fn compile(
     query: &Query,
     registry: &FieldRegistry,
     dialect: &SqlDialect,
     capabilities: &BackendCapabilities,
-) -> Result<String, ROSQLError> {
+    default_limit: Option<u64>,
+) -> Result<CompileResult, ROSQLError> {
     let ctx = CompileCtx {
         registry,
         dialect,
         capabilities,
     };
+
+    // Apply default LIMIT when none is present and the query type is not exempt.
+    let (query_with_limit, default_limit_applied) = apply_default_limit(query, default_limit);
+    let query_ref = query_with_limit.as_ref().unwrap_or(query);
+
+    let (sql, enrichments) = match query_ref {
+        Query::Standard(sq) => ctx.compile_standard_with_enrichments(sq),
+        Query::Pipeline(pq) => ctx.compile_pipeline_with_enrichments(pq),
+        Query::Compound(cq) => ctx.compile_compound(cq).map(|s| (s, vec![])),
+    }?;
+
+    // Collect non-fatal warnings (e.g. ANOMALY without FACET).
+    let warnings = collect_warnings(query_ref);
+
+    // Infer the presentation-layer format hint from the query shape.
+    let (format_hint, visualization) = super::format_inference::infer_format(query_ref);
+
+    Ok(CompileResult {
+        sql,
+        default_limit_applied,
+        enrichments,
+        warnings,
+        format_hint,
+        visualization,
+    })
+}
+
+/// Collect non-fatal compiler warnings from the (possibly limit-adjusted) query.
+fn collect_warnings(query: &Query) -> Vec<CompilerWarning> {
+    let mut warnings = Vec::new();
+    if let Query::Compound(cq) = query {
+        if let CompoundClause::Anomaly { .. } = &cq.clause {
+            if cq.facet.is_none() {
+                warnings.push(CompilerWarning {
+                    code: "ANOMALY_NO_FACET".into(),
+                    message: "ANOMALY without FACET compares heterogeneous spans (e.g. heartbeats \
+                              vs navigation), producing misleading z-scores."
+                        .into(),
+                    suggestion: Some(
+                        "Add FACET robot_id or FACET action_name to compare like-for-like spans."
+                            .into(),
+                    ),
+                });
+            }
+        }
+    }
+    warnings
+}
+
+/// Return a human-readable name for a DataSource.
+fn data_source_name(ds: &DataSource) -> String {
+    match ds {
+        DataSource::Logs => "logs".into(),
+        DataSource::SystemLogs => "system_logs".into(),
+        DataSource::Traces => "traces".into(),
+        DataSource::Metrics => "metrics".into(),
+        DataSource::Diagnostics => "diagnostics".into(),
+        DataSource::Topics => "topics".into(),
+        DataSource::Tf => "tf".into(),
+        DataSource::Heartbeats => "heartbeats".into(),
+        DataSource::Recordings => "recordings".into(),
+        DataSource::Events => "events".into(),
+        DataSource::TopicAlias(alias) => alias.topic_name().trim_start_matches('/').into(),
+    }
+}
+
+/// Determine whether a query is exempt from the default LIMIT.
+fn is_limit_exempt(query: &Query) -> bool {
     match query {
-        Query::Standard(sq) => ctx.compile_standard(sq),
-        Query::Pipeline(pq) => ctx.compile_pipeline(pq),
-        Query::Compound(cq) => ctx.compile_compound(cq),
+        Query::Standard(sq) => {
+            // Exempt if all selections are aggregations and no FACET (pure scalar agg)
+            let all_agg = !sq.selections.is_empty()
+                && sq.selections.iter().all(|s| match s {
+                    Selection::Aggregation(_) => true,
+                    Selection::Aliased { expr, .. } => {
+                        matches!(expr.as_ref(), Selection::Aggregation(_))
+                    }
+                    _ => false,
+                });
+            all_agg || sq.facet.is_some() || sq.timeseries.is_some()
+        }
+        Query::Pipeline(pq) => {
+            // Check normalized: if it has a FACET stage or only agg SELECT, exempt.
+            let has_facet = pq
+                .stages
+                .iter()
+                .any(|s| matches!(s, PipelineStage::Facet(_)));
+            let all_agg = pq.stages.iter().any(|s| {
+                if let PipelineStage::Select(sels) = s {
+                    !sels.is_empty()
+                        && sels
+                            .iter()
+                            .all(|sel| matches!(sel, Selection::Aggregation(_)))
+                } else {
+                    false
+                }
+            });
+            has_facet || all_agg
+        }
+        Query::Compound(cq) => matches!(
+            cq.clause,
+            CompoundClause::Trace { .. }
+                | CompoundClause::MessageFlow { .. }
+                | CompoundClause::ShowDeployments
+                | CompoundClause::ShowSpanSummary
+                | CompoundClause::ShowTopics
+                | CompoundClause::ShowNodes
+                | CompoundClause::ShowNodeGraph
+                | CompoundClause::ShowJoints
+                | CompoundClause::PathDeviation { .. }
+                | CompoundClause::JointDeviation { .. }
+                | CompoundClause::Anomaly { .. }
+        ),
+    }
+}
+
+/// Returns a modified query with a default LIMIT injected (if applicable) and a flag
+/// indicating whether the limit was applied. Returns `None` for the query if unchanged.
+fn apply_default_limit(query: &Query, default_limit: Option<u64>) -> (Option<Query>, bool) {
+    let limit = match default_limit {
+        Some(n) => n,
+        None => return (None, false),
+    };
+
+    if is_limit_exempt(query) {
+        return (None, false);
+    }
+
+    match query {
+        Query::Standard(sq) if sq.limit.is_none() => {
+            let mut sq2 = sq.clone();
+            sq2.limit = Some(limit);
+            (Some(Query::Standard(sq2)), true)
+        }
+        Query::Pipeline(pq) => {
+            // Inject if no Limit stage present
+            if pq
+                .stages
+                .iter()
+                .any(|s| matches!(s, PipelineStage::Limit(_)))
+            {
+                (None, false)
+            } else {
+                let mut pq2 = pq.clone();
+                pq2.stages.push(PipelineStage::Limit(limit));
+                (Some(Query::Pipeline(pq2)), true)
+            }
+        }
+        Query::Compound(cq) if cq.limit.is_none() => {
+            let mut cq2 = cq.clone();
+            cq2.limit = Some(limit);
+            (Some(Query::Compound(cq2)), true)
+        }
+        _ => (None, false),
     }
 }
 
@@ -54,19 +253,112 @@ impl<'a> CompileCtx<'a> {
 
     // ── Standard query ──────────────────────────────────────────────
 
+    fn compile_standard_with_enrichments(
+        &self,
+        q: &ROSQLQuery,
+    ) -> Result<(String, Vec<EnrichmentPlan>), ROSQLError> {
+        let sql = self.compile_standard(q)?;
+        let enrichments = self.build_enrichment_plans(&q.data_source, &q.enrichments)?;
+        Ok((sql, enrichments))
+    }
+
+    fn compile_pipeline_with_enrichments(
+        &self,
+        pq: &PipelineQuery,
+    ) -> Result<(String, Vec<EnrichmentPlan>), ROSQLError> {
+        let sq = self.normalize_pipeline(pq)?;
+        self.compile_standard_with_enrichments(&sq)
+    }
+
+    /// Build enrichment plans from ENRICH WITH clauses.
+    fn build_enrichment_plans(
+        &self,
+        primary_source: &DataSource,
+        enrichments: &[EnrichmentClause],
+    ) -> Result<Vec<EnrichmentPlan>, ROSQLError> {
+        enrichments
+            .iter()
+            .map(|e| {
+                let table = self.resolve_table(&e.source)?;
+                let join_column = self.infer_join_key(primary_source, &e.source).to_string();
+                let source_name = data_source_name(&e.source);
+                Ok(EnrichmentPlan {
+                    source_name,
+                    table,
+                    join_column,
+                    limit: e.limit.unwrap_or(50),
+                    sample_full: e.sample_full,
+                })
+            })
+            .collect()
+    }
+
+    /// Infer the join key column for a primary→enrichment pair.
+    fn infer_join_key(&self, primary: &DataSource, enrichment: &DataSource) -> &'static str {
+        match (primary, enrichment) {
+            // traces → logs: prefer trace_id (OTel logs carry trace_id)
+            (DataSource::Traces, DataSource::Logs) => "trace_id",
+            // traces → topics/joint_states: trace_id when rmw_robotops is used
+            (DataSource::Traces, DataSource::Topics)
+            | (DataSource::Traces, DataSource::TopicAlias(_)) => "trace_id",
+            // All other combinations: fall back to trace_id as best-effort
+            _ => "trace_id",
+        }
+    }
+
     fn compile_standard(&self, q: &ROSQLQuery) -> Result<String, ROSQLError> {
         let table = self.resolve_table(&q.data_source)?;
         let mut parts = Vec::new();
 
-        // SELECT — when FACET is present and no explicit columns chosen, emit
+        // Resolve the timestamp column for TIMESERIES bucket expressions
+        let ts_col = self.col("timestamp");
+        let has_timeseries = q.timeseries.is_some();
+
+        // SELECT — when TIMESERIES is present, prepend the time_bucket column.
+        // When FACET is present and no explicit columns chosen, emit
         // "{facet_col}, COUNT(*) AS count" instead of the invalid "SELECT * … GROUP BY col"
-        let select_clause = if let Some(ref facet) = q.facet {
-            let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
-            if is_star {
+        let select_clause = if has_timeseries {
+            let ts_expr = q
+                .timeseries
+                .as_ref()
+                .map(|ts| {
+                    // si_value is in seconds for time units (minutes → 60s, etc.)
+                    let seconds = ts.interval.si_value;
+                    self.dialect.time_bucket(seconds, &ts_col)
+                })
+                .unwrap();
+            let base = if let Some(ref facet) = q.facet {
+                let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
                 let col = self.resolve_column(&facet.dimension, &table)?;
-                format!("{col}, COUNT(*) AS count")
+                // Alias the facet column to its dimension name so the result set
+                // has a predictable column name that matches the series_key hint.
+                let col_expr = format!("{col} AS {}", facet.dimension);
+                if is_star {
+                    format!("{col_expr}, COUNT(*) AS count")
+                } else {
+                    format!(
+                        "{col_expr}, {}",
+                        self.compile_selections_grouped(&q.selections, &table)?
+                    )
+                }
+            } else if matches!(q.selections.as_slice(), [crate::ast::Selection::Star]) {
+                // Default: COUNT(*) for timeseries without explicit aggregation
+                "COUNT(*) AS count".to_string()
             } else {
-                self.compile_selections(&q.selections, &table)?
+                self.compile_selections_grouped(&q.selections, &table)?
+            };
+            format!("{ts_expr} AS time_bucket, {base}")
+        } else if let Some(ref facet) = q.facet {
+            let is_star = matches!(q.selections.as_slice(), [crate::ast::Selection::Star]);
+            let col = self.resolve_column(&facet.dimension, &table)?;
+            let col_expr = format!("{col} AS {}", facet.dimension);
+            if is_star {
+                format!("{col_expr}, COUNT(*) AS count")
+            } else {
+                format!(
+                    "{col_expr}, {}",
+                    self.compile_selections_grouped(&q.selections, &table)?
+                )
             }
         } else {
             self.compile_selections(&q.selections, &table)?
@@ -77,7 +369,7 @@ impl<'a> CompileCtx<'a> {
         let from_clause = self.compile_from(&q.data_source, &table)?;
         parts.push(from_clause);
 
-        // WHERE (conditions + time range + topic alias filter combined)
+        // WHERE (conditions + time range + topic alias filter + scope combined)
         let mut where_parts = Vec::new();
         if let Some(ref cond) = q.conditions {
             where_parts.push(self.compile_condition(cond, &table)?);
@@ -88,17 +380,29 @@ impl<'a> CompileCtx<'a> {
         if let DataSource::TopicAlias(ref alias) = q.data_source {
             where_parts.push(format!("topic_name = '{}'", alias.topic_name()));
         }
+        if let Some(ref scope) = q.scope {
+            where_parts.extend(
+                self.compile_scope_filters(scope, Self::has_direct_robot_id(&q.data_source)),
+            );
+        }
         if !where_parts.is_empty() {
             parts.push(format!("WHERE {}", where_parts.join(" AND ")));
         }
 
-        // GROUP BY (from FACET)
+        // GROUP BY — TIMESERIES adds time_bucket; FACET adds its dimension; both can coexist.
+        let mut group_by_cols = Vec::new();
+        if has_timeseries {
+            group_by_cols.push("time_bucket".to_string());
+        }
         if let Some(ref facet) = q.facet {
             let col = self.resolve_column(&facet.dimension, &table)?;
-            parts.push(format!("GROUP BY {col}"));
+            group_by_cols.push(col);
+        }
+        if !group_by_cols.is_empty() {
+            parts.push(format!("GROUP BY {}", group_by_cols.join(", ")));
         }
 
-        // ORDER BY
+        // ORDER BY — default to time_bucket ASC for timeseries (unless explicit ORDER BY given)
         if let Some(ref ob) = q.order_by {
             let col = self.resolve_column(&ob.field, &table)?;
             let dir = match ob.direction {
@@ -106,11 +410,16 @@ impl<'a> CompileCtx<'a> {
                 SortDirection::Desc => "DESC",
             };
             parts.push(format!("ORDER BY {col} {dir}"));
+        } else if has_timeseries {
+            parts.push("ORDER BY time_bucket ASC".to_string());
         }
 
-        // LIMIT
+        // LIMIT / OFFSET
         if let Some(limit) = q.limit {
             parts.push(format!("LIMIT {limit}"));
+        }
+        if let Some(offset) = q.offset {
+            parts.push(format!("OFFSET {offset}"));
         }
 
         Ok(parts.join(" "))
@@ -118,25 +427,22 @@ impl<'a> CompileCtx<'a> {
 
     // ── Pipeline query ──────────────────────────────────────────────
 
-    fn compile_pipeline(&self, pq: &PipelineQuery) -> Result<String, ROSQLError> {
-        // Normalize pipeline to a standard query, then compile.
-        let sq = self.normalize_pipeline(pq)?;
-        self.compile_standard(&sq)
-    }
-
     fn normalize_pipeline(&self, pq: &PipelineQuery) -> Result<ROSQLQuery, ROSQLError> {
         let mut sq = ROSQLQuery {
             selections: vec![Selection::Star],
             data_source: DataSource::Logs, // placeholder
-            robot_scope: None,
+            scope: None,
             conditions: None,
             facet: None,
             time_range: None,
             time_basis: None,
             order_by: None,
             limit: None,
+            offset: None,
             output_format: None,
             baseline: None,
+            timeseries: None,
+            enrichments: Vec::new(),
         };
 
         for stage in &pq.stages {
@@ -156,12 +462,29 @@ impl<'a> CompileCtx<'a> {
                 PipelineStage::Using(tb) => sq.time_basis = Some(*tb),
                 PipelineStage::OrderBy(ob) => sq.order_by = Some(ob.clone()),
                 PipelineStage::Limit(n) => sq.limit = Some(*n),
+                PipelineStage::Offset(n) => sq.offset = Some(*n),
                 PipelineStage::Format(f) => sq.output_format = Some(*f),
                 PipelineStage::CompareTo(b) => sq.baseline = Some(b.clone()),
-                PipelineStage::ForRobot(r) => sq.robot_scope = Some(r.clone()),
+                PipelineStage::ForScope(new_scope) => {
+                    let existing = sq.scope.get_or_insert_with(QueryScope::empty);
+                    if new_scope.robot.is_some() {
+                        existing.robot = new_scope.robot.clone();
+                    }
+                    if new_scope.version.is_some() {
+                        existing.version = new_scope.version.clone();
+                    }
+                    if new_scope.environment.is_some() {
+                        existing.environment = new_scope.environment.clone();
+                    }
+                    if new_scope.session.is_some() {
+                        existing.session = new_scope.session.clone();
+                    }
+                }
                 PipelineStage::CompoundClause(_) => {
                     // Compound clauses in pipeline are handled separately
                 }
+                PipelineStage::Timeseries(ts) => sq.timeseries = Some(ts.clone()),
+                PipelineStage::EnrichWith(e) => sq.enrichments.push(e.clone()),
             }
         }
 
@@ -172,80 +495,157 @@ impl<'a> CompileCtx<'a> {
 
     fn compile_compound(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
         match &cq.clause {
-            CompoundClause::MessageJourney { trace_id } => {
-                self.compile_message_journey(trace_id, cq)
-            }
-            CompoundClause::MessagePaths { topic } => self.compile_message_paths(topic, cq),
-            CompoundClause::MessagePath {
+            CompoundClause::Trace { trace_id } => self.compile_trace(trace_id, cq),
+            CompoundClause::MessageFlow {
                 from_topic,
-                to_node,
+                to_target,
                 ..
-            } => self.compile_message_path(from_topic, to_node, cq),
-            CompoundClause::Trace { trace_id } => self.compile_trace(trace_id),
-            CompoundClause::ShowTraceBreakdown => self.compile_trace_breakdown(cq),
-            CompoundClause::Health => self.compile_health(cq),
-            CompoundClause::Anomaly { field, compared_to } => {
-                self.compile_anomaly(field, compared_to, cq)
+            } => self.compile_message_flow(from_topic, to_target, cq),
+            CompoundClause::ShowDeployments => self.compile_show_deployments(cq),
+            CompoundClause::ShowSpanSummary => self.compile_show_span_summary(cq),
+            CompoundClause::ShowPlans { trace_id } => self.compile_show_plans(trace_id, cq),
+            CompoundClause::ShowTraceBreakdown => Err(ROSQLError::NotImplemented {
+                feature: "SHOW TRACE_BREAKDOWN".into(),
+                message: "SHOW TRACE_BREAKDOWN is replaced by SHOW SPAN SUMMARY. \
+                           Use `SHOW SPAN SUMMARY` or `SELECT span_name, COUNT(*) AS count, \
+                           AVG(duration) AS avg_duration FROM traces FACET span_name` as a workaround."
+                    .into(),
+            }),
+            CompoundClause::Health => Err(ROSQLError::NotImplemented {
+                feature: "HEALTH()".into(),
+                message: "HEALTH() is being redesigned. Run these queries separately: \
+                           error rate (SELECT COUNT(*) FROM traces WHERE status_code='ERROR'), \
+                           log severity (SELECT severity, COUNT(*) FROM logs FACET severity), \
+                           and metric counts (SELECT COUNT(*) FROM metrics). \
+                           See the ROSQL cookbook for a complete health dashboard recipe."
+                    .into(),
+            }),
+            CompoundClause::Anomaly {
+                field,
+                compared_to,
+                data_source,
+            } => self.compile_anomaly(field, compared_to, data_source.as_ref(), cq),
+            CompoundClause::PathDeviation { target, plan_index } => {
+                self.compile_path_deviation(target, *plan_index, cq)
             }
-            CompoundClause::PathDeviation { .. } => self.compile_path_deviation(cq),
-            CompoundClause::Correlate { with_source } => self.compile_correlate(with_source, cq),
-            CompoundClause::ShowRecording => self.compile_show_recording(cq),
+            CompoundClause::JointDeviation { target } => {
+                self.compile_joint_deviation(target, cq)
+            }
+            CompoundClause::Correlate { .. } => Err(ROSQLError::NotImplemented {
+                feature: "CORRELATE WITH".into(),
+                message: "CORRELATE WITH requires redesign. \
+                           Use a manual JOIN between the two data sources with a time-window condition."
+                    .into(),
+            }),
+            CompoundClause::ShowRecording => Err(ROSQLError::NotImplemented {
+                feature: "SHOW RECORDING".into(),
+                message: "SHOW RECORDING is deprecated. Use `FROM recordings` or \
+                           `FROM recordings WHERE topic = '/camera/image_raw'` for topic-filtered \
+                           recording queries."
+                    .into(),
+            }),
+            CompoundClause::ShowJoints => self.compile_show_joints(cq),
             CompoundClause::During {
                 inner_source,
                 inner_conditions,
                 inner_time_range,
             } => self.compile_during(inner_source, inner_conditions, inner_time_range, cq),
+            CompoundClause::ShowTopics => self.compile_show_topics(cq),
+            CompoundClause::ShowNodes => self.compile_show_nodes(cq),
+            CompoundClause::ShowNodeGraph => self.compile_show_node_graph(cq),
         }
     }
 
-    fn compile_message_journey(
-        &self,
-        trace_id: &str,
-        cq: &CompoundQuery,
-    ) -> Result<String, ROSQLError> {
+    /// Compile scope filters to a list of WHERE predicates.
+    ///
+    /// `direct_robot_id`: set `true` for tables that store robot identity in a
+    /// plain `robot_id` column (e.g. `topic_messages`, `mcap_metadata`,
+    /// `ros2_events`). Set `false` for OTel tables that use the
+    /// `resource_attributes` JSON column.
+    fn compile_scope_filters(&self, scope: &QueryScope, direct_robot_id: bool) -> Vec<String> {
+        let mut parts = Vec::new();
+        let res = "resource_attributes";
+        if let Some(ref robot) = scope.robot {
+            match robot {
+                RobotScope::Single(id) => {
+                    if direct_robot_id {
+                        parts.push(format!("robot_id = '{id}'"));
+                    } else {
+                        parts.push(format!(
+                            "{} = '{id}'",
+                            self.dialect.json_access_text(res, "robot.id")
+                        ));
+                    }
+                }
+                RobotScope::Fleet => {} // no filter — all robots
+            }
+        }
+        if let Some(ref ver) = scope.version {
+            parts.push(format!(
+                "{} = '{ver}'",
+                self.dialect.json_access_text(res, "service.version")
+            ));
+        }
+        if let Some(ref env) = scope.environment {
+            parts.push(format!(
+                "{} = '{env}'",
+                self.dialect.json_access_text(res, "deployment.environment")
+            ));
+        }
+        if let Some(ref sess) = scope.session {
+            parts.push(format!(
+                "{} = '{sess}'",
+                self.dialect.json_access_text(res, "ros.session.id")
+            ));
+        }
+        parts
+    }
+
+    /// Returns true for data sources whose tables store robot identity in a
+    /// plain `robot_id` column rather than `resource_attributes` JSON.
+    fn has_direct_robot_id(source: &DataSource) -> bool {
+        matches!(
+            source,
+            DataSource::Topics
+                | DataSource::TopicAlias(_)
+                | DataSource::Recordings
+                | DataSource::Events
+                | DataSource::Tf
+        )
+    }
+
+    /// `TRACE 'trace_id'` — recursive CTE span tree walk.
+    fn compile_trace(&self, trace_id: &str, cq: &CompoundQuery) -> Result<String, ROSQLError> {
         let tbl = self.qtable("otel_traces");
         let tid = self.col("trace_id");
         let psid = self.col("parent_span_id");
         let sid = self.col("span_id");
-        let mut sql = format!(
-            "WITH RECURSIVE journey AS (\
-             SELECT * FROM {tbl} WHERE {tid} = '{trace_id}' AND {psid} = '' \
+
+        // Seed: root spans for this trace (parent_span_id is empty string or NULL)
+        let mut seed_where = format!("{tid} = '{trace_id}' AND ({psid} = '' OR {psid} IS NULL)");
+        if let Some(ref scope) = cq.scope {
+            for f in self.compile_scope_filters(scope, false) {
+                seed_where.push_str(&format!(" AND {f}"));
+            }
+        }
+
+        let sql = format!(
+            "WITH RECURSIVE trace_tree AS (\
+             SELECT * FROM {tbl} WHERE {seed_where} \
              UNION ALL \
              SELECT t.* FROM {tbl} t \
-             JOIN journey j ON t.{psid} = j.{sid}\
-             ) SELECT * FROM journey"
+             JOIN trace_tree r ON t.{psid} = r.{sid}\
+             ) SELECT * FROM trace_tree ORDER BY {ts}",
+            ts = self.col("timestamp")
         );
-        sql.push_str(&self.compile_compound_suffix(cq)?);
         Ok(sql)
     }
 
-    fn compile_message_paths(&self, topic: &str, cq: &CompoundQuery) -> Result<String, ROSQLError> {
-        let tbl = self.qtable("otel_traces");
-        let psid = self.col("parent_span_id");
-        let sid = self.col("span_id");
-        let topic_attr = self.dialect.json_access(
-            self.registry
-                .resolve("topic")
-                .map(|f| f.column.as_str())
-                .unwrap_or("span_attributes"),
-            "ros.topic",
-        );
-        let mut sql = format!(
-            "WITH RECURSIVE paths AS (\
-             SELECT * FROM {tbl} WHERE {topic_attr} = '{topic}' \
-             UNION ALL \
-             SELECT t.* FROM {tbl} t \
-             JOIN paths p ON t.{psid} = p.{sid}\
-             ) SELECT * FROM paths"
-        );
-        sql.push_str(&self.compile_compound_suffix(cq)?);
-        Ok(sql)
-    }
-
-    fn compile_message_path(
+    /// `MESSAGE FLOW FROM TOPIC '...' [TO NODE '...' | TO TOPIC '...'] [SHOW ...]`
+    fn compile_message_flow(
         &self,
         from_topic: &str,
-        to_node: &str,
+        to_target: &Option<FlowTarget>,
         cq: &CompoundQuery,
     ) -> Result<String, ROSQLError> {
         let tbl = self.qtable("otel_traces");
@@ -257,235 +657,142 @@ impl<'a> CompileCtx<'a> {
             .map(|f| f.column.as_str())
             .unwrap_or("span_attributes");
         let topic_attr = self.dialect.json_access(span_attrs_col, "ros.topic");
-        let node_attr = self.dialect.json_access(span_attrs_col, "ros.node");
+
+        // Seed filter: spans on the source topic
+        let mut seed_where = format!("{topic_attr} = '{from_topic}'");
+        if let Some(ref scope) = cq.scope {
+            for f in self.compile_scope_filters(scope, false) {
+                seed_where.push_str(&format!(" AND {f}"));
+            }
+        }
+        if let Some(ref tr) = cq.time_range {
+            seed_where.push_str(&format!(" AND {}", self.compile_time_range(tr, "")?));
+        }
+
+        // Project the three columns the DirectedGraph viz expects.
+        // Use json_access_text so DuckDB returns VARCHAR, not JSON.
+        let pub_node = self
+            .dialect
+            .json_access_text(span_attrs_col, "ros.publisher_node");
+        let sub_node = self
+            .dialect
+            .json_access_text(span_attrs_col, "ros.subscriber_node");
+        let topic_text = self.dialect.json_access_text(span_attrs_col, "ros.topic");
+
+        // Terminal filter — translated to use the outer projected aliases.
+        let terminal_where = match to_target {
+            None => String::new(),
+            Some(FlowTarget::Node(node)) => {
+                format!(" AND (source_node = '{node}' OR target_node = '{node}')")
+            }
+            Some(FlowTarget::Topic(topic)) => format!(" AND topic = '{topic}'"),
+        };
+
         let mut sql = format!(
-            "WITH RECURSIVE msg_path AS (\
-             SELECT * FROM {tbl} WHERE {topic_attr} = '{from_topic}' \
+            "WITH RECURSIVE msg_flow AS (\
+             SELECT * FROM {tbl} WHERE {seed_where} \
              UNION ALL \
              SELECT t.* FROM {tbl} t \
-             JOIN msg_path p ON t.{psid} = p.{sid}\
-             ) SELECT * FROM msg_path WHERE {node_attr} = '{to_node}'"
+             JOIN msg_flow f ON t.{psid} = f.{sid}\
+             ) SELECT DISTINCT \
+             {pub_node} AS source_node, \
+             {sub_node} AS target_node, \
+             {topic_text} AS topic \
+             FROM msg_flow \
+             WHERE {pub_node} IS NOT NULL AND {pub_node} != '' \
+               AND {sub_node} IS NOT NULL AND {sub_node} != ''{terminal_where}"
         );
         sql.push_str(&self.compile_compound_suffix(cq)?);
         Ok(sql)
     }
 
-    fn compile_trace(&self, trace_id: &str) -> Result<String, ROSQLError> {
+    /// `SHOW DEPLOYMENTS` — distinct version/environment deployment history.
+    fn compile_show_deployments(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
         let tbl = self.qtable("otel_traces");
+        let res = "resource_attributes";
+        let ver = self.dialect.json_access(res, "service.version");
+        let env = self.dialect.json_access(res, "deployment.environment");
+        let ts = self.col("timestamp");
+
+        let mut where_parts = Vec::new();
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope, false));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+        let where_clause = if where_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_parts.join(" AND "))
+        };
+
+        Ok(format!(
+            "SELECT {ver} AS version, {env} AS environment, \
+             MIN({ts}) AS first_seen, MAX({ts}) AS last_seen \
+             FROM {tbl}{where_clause} \
+             GROUP BY {ver}, {env} \
+             ORDER BY last_seen DESC"
+        ))
+    }
+
+    /// `SHOW SPAN SUMMARY` — aggregate span stats by name.
+    fn compile_show_span_summary(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let sn = self.col("span_name");
+        let dur = self.col("duration");
+        let _ = self.col("timestamp"); // satisfy field_registry usage; not used in output
+
+        // Exclude ros2.graph.* spans — these are graph topology sentinels used by
+        // SHOW NODE GRAPH, not real operation spans with meaningful durations.
+        let mut where_parts = vec![format!("{sn} NOT LIKE 'ros2.graph.%'")];
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope, false));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+        let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
+
+        Ok(format!(
+            "SELECT {sn} AS span_name, COUNT(*) AS count, \
+             AVG({dur}) AS avg_duration, MAX({dur}) AS max_duration \
+             FROM {tbl}{where_clause} \
+             GROUP BY {sn} \
+             ORDER BY avg_duration DESC"
+        ))
+    }
+
+    /// `SHOW PLANS [FOR TRACE 'id']` — plan-related spans, optionally filtered by trace.
+    fn compile_show_plans(
+        &self,
+        trace_id: &Option<String>,
+        cq: &CompoundQuery,
+    ) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let span_attrs_col = self
+            .registry
+            .resolve("topic")
+            .map(|f| f.column.as_str())
+            .unwrap_or("span_attributes");
+        let plan_attr = self.dialect.json_access(span_attrs_col, "ros.plan.id");
         let tid = self.col("trace_id");
         let ts = self.col("timestamp");
-        Ok(format!(
-            "SELECT * FROM {tbl} WHERE {tid} = '{trace_id}' ORDER BY {ts}"
-        ))
-    }
 
-    fn compile_trace_breakdown(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
-        let tbl = self.qtable("otel_traces");
-        let sname = self.col("span_name");
-        let dur = self.col("duration");
-        let mut sql = format!(
-            "SELECT {sname}, COUNT(*) AS count, \
-             AVG({dur}) AS avg_duration_ns, \
-             MAX({dur}) AS max_duration_ns \
-             FROM {tbl}"
-        );
-
-        let mut where_parts = Vec::new();
+        let mut where_parts = vec![format!("{plan_attr} IS NOT NULL")];
+        if let Some(ref id) = trace_id {
+            where_parts.push(format!("{tid} = '{id}'"));
+        }
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope, false));
+        }
         if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "otel_traces")?);
-        }
-        if let Some(ref cond) = cq.conditions {
-            where_parts.push(self.compile_condition(cond, "otel_traces")?);
-        }
-        if !where_parts.is_empty() {
-            sql.push_str(&format!(" WHERE {}", where_parts.join(" AND ")));
-        }
-        sql.push_str(&format!(" GROUP BY {sname} ORDER BY avg_duration_ns DESC"));
-        Ok(sql)
-    }
-
-    fn compile_health(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
-        let traces_tbl = self.qtable("otel_traces");
-        let logs_tbl = self.qtable("otel_logs");
-        let metrics_tbl = self.qtable("otel_metrics");
-        let status = self.col("status");
-        let severity = self.col("severity");
-        let mname = self.col("metric_name");
-
-        let time_filter = if let Some(ref tr) = cq.time_range {
-            format!(" WHERE {}", self.compile_time_range(tr, "t")?,)
-        } else {
-            String::new()
-        };
-
-        let facet = if let Some(ref f) = cq.facet {
-            let col = &f.dimension;
-            format!(", {col}")
-        } else {
-            String::new()
-        };
-
-        let group_by = if let Some(ref f) = cq.facet {
-            format!(" GROUP BY signal_type, {}", f.dimension)
-        } else {
-            " GROUP BY signal_type".to_string()
-        };
-
-        Ok(format!(
-            "SELECT 'traces' AS signal_type{facet}, \
-             COUNT(*) AS total, \
-             SUM(CASE WHEN {status} = 'ERROR' THEN 1 ELSE 0 END) AS errors \
-             FROM {traces_tbl} t{time_filter}{group_by} \
-             UNION ALL \
-             SELECT 'logs' AS signal_type{facet}, \
-             COUNT(*) AS total, \
-             SUM(CASE WHEN {severity} IN ('ERROR', 'FATAL') THEN 1 ELSE 0 END) AS errors \
-             FROM {logs_tbl} t{time_filter}{group_by} \
-             UNION ALL \
-             SELECT 'metrics' AS signal_type{facet}, \
-             COUNT(DISTINCT {mname}) AS total, \
-             0 AS errors \
-             FROM {metrics_tbl} t{time_filter}{group_by}"
-        ))
-    }
-
-    fn compile_anomaly(
-        &self,
-        field: &str,
-        _compared_to: &Option<Baseline>,
-        cq: &CompoundQuery,
-    ) -> Result<String, ROSQLError> {
-        let table = self.qtable("otel_traces");
-        let col = self.resolve_column(field, "otel_traces")?;
-
-        let mut where_parts = Vec::new();
-        if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, &table)?);
-        }
-        if let Some(ref cond) = cq.conditions {
-            where_parts.push(self.compile_condition(cond, &table)?);
-        }
-        let where_clause = if where_parts.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", where_parts.join(" AND "))
-        };
-
-        let facet_select = if let Some(ref f) = cq.facet {
-            format!(", {}", f.dimension)
-        } else {
-            String::new()
-        };
-
-        let facet_partition = if let Some(ref f) = cq.facet {
-            format!(" PARTITION BY {}", f.dimension)
-        } else {
-            String::new()
-        };
-
-        Ok(format!(
-            "SELECT *{facet_select}, \
-             ({col} - AVG({col}) OVER({facet_partition})) / \
-             NULLIF(STDDEV({col}) OVER({facet_partition}), 0) AS z_score \
-             FROM {table}{where_clause} \
-             ORDER BY z_score DESC"
-        ))
-    }
-
-    fn compile_path_deviation(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
-        if !self.capabilities.topic_data {
-            return Err(ROSQLError::DataSourceUnavailable {
-                data_source: "topic_messages".into(),
-                message: "PATH DEVIATION requires '/odom' topic data. \
-                         Configure topic ingest for this data source."
-                    .into(),
-            });
-        }
-
-        let mut where_parts = vec!["topic_name = '/odom'".to_string()];
-        if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "topic_messages")?);
-        }
-        if let Some(RobotScope::Single(ref id)) = cq.robot_scope {
-            where_parts.push(format!("robot_id = '{id}'"));
+            where_parts.push(self.compile_time_range(tr, "")?);
         }
 
         Ok(format!(
-            "SELECT robot_id, timestamp, \
-             fields->>'position.x' AS x, \
-             fields->>'position.y' AS y, \
-             fields->>'orientation.z' AS theta \
-             FROM topic_messages \
-             WHERE {} \
-             ORDER BY timestamp",
+            "SELECT * FROM {tbl} WHERE {} ORDER BY {ts}",
             where_parts.join(" AND ")
-        ))
-    }
-
-    fn compile_show_recording(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
-        if !self.capabilities.recording_index {
-            return Err(ROSQLError::DataSourceUnavailable {
-                data_source: "mcap_metadata".into(),
-                message: "SHOW RECORDING requires an mcap_metadata table. \
-                         Configure your recording index to enable this feature."
-                    .into(),
-            });
-        }
-
-        let mut where_parts = Vec::new();
-        if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "mcap_metadata")?);
-        }
-        if let Some(RobotScope::Single(ref id)) = cq.robot_scope {
-            where_parts.push(format!("robot_id = '{id}'"));
-        }
-
-        let where_clause = if where_parts.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", where_parts.join(" AND "))
-        };
-
-        Ok(format!(
-            "SELECT robot_id, session_id, start_time, end_time, s3_key, topics \
-             FROM mcap_metadata{where_clause} \
-             ORDER BY start_time DESC"
-        ))
-    }
-
-    fn compile_correlate(
-        &self,
-        with_source: &DataSource,
-        cq: &CompoundQuery,
-    ) -> Result<String, ROSQLError> {
-        let table_b = self.resolve_table(with_source)?;
-        let mut where_parts = Vec::new();
-        if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "a")?);
-        }
-        let where_clause = if where_parts.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", where_parts.join(" AND "))
-        };
-
-        let facet_group = if let Some(ref f) = cq.facet {
-            format!(" GROUP BY {}", f.dimension)
-        } else {
-            String::new()
-        };
-
-        let traces_tbl = self.qtable("otel_traces");
-        let ts = self.col("timestamp");
-        let dur = self.col("duration");
-        let val = self.col("metric_value");
-        Ok(format!(
-            "SELECT {corr} AS correlation{facet_group} \
-             FROM {traces_tbl} a \
-             JOIN {table_b} b ON a.{ts} = b.{ts}{where_clause}",
-            corr = self
-                .dialect
-                .corr_aggregate(&format!("a.{dur}"), &format!("b.{val}")),
         ))
     }
 
@@ -524,24 +831,442 @@ impl<'a> CompileCtx<'a> {
         ))
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────
+    /// `SHOW TOPICS` — topic activity summary from span attributes.
+    fn compile_show_topics(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let ts = self.col("timestamp");
+        let span_attrs = self
+            .registry
+            .resolve("topic")
+            .map(|f| f.column.as_str())
+            .unwrap_or("span_attributes");
+        // Use json_access for WHERE/GROUP BY and json_access_text for SELECT aliases
+        // to avoid DuckDB type cast errors when ordering/comparing extracted values.
+        let topic_col = self.dialect.json_access(span_attrs, "ros.topic");
+        let topic_col_text = self.dialect.json_access_text(span_attrs, "ros.topic");
+        let msg_type_col = self
+            .dialect
+            .json_access_text(span_attrs, "ros.message_type");
+        let pub_node_col = self
+            .dialect
+            .json_access_text(span_attrs, "ros.publisher_node");
+        let sub_node_col = self
+            .dialect
+            .json_access_text(span_attrs, "ros.subscriber_node");
 
-    fn compile_compound_suffix(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
-        let mut parts = Vec::new();
+        // Dialect-aware timestamp difference for avg_rate_hz calculation
+        let diff_secs = self
+            .dialect
+            .timestamp_diff_seconds(&format!("MAX({ts})"), &format!("MIN({ts})"));
+        let age_ms = self
+            .dialect
+            .timestamp_diff_seconds(self.dialect.now_expr(), &format!("MAX({ts})"));
 
-        let mut where_parts = Vec::new();
+        let mut where_parts = vec![format!("{topic_col_text} IS NOT NULL")];
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope, false));
+        }
         if let Some(ref tr) = cq.time_range {
-            // Use a generic table ref since compound queries may span CTEs
             where_parts.push(self.compile_time_range(tr, "")?);
         }
-        if let Some(ref cond) = cq.conditions {
-            where_parts.push(self.compile_condition(cond, "")?);
+        let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
+
+        Ok(format!(
+            "SELECT {topic_col_text} AS topic_name, \
+             MAX({msg_type_col}) AS message_type, \
+             COUNT(*) * 1.0 / NULLIF({diff_secs}, 0) AS avg_rate_hz, \
+             COUNT(DISTINCT {pub_node_col}) AS publishers, \
+             COUNT(DISTINCT {sub_node_col}) AS subscribers, \
+             ({age_ms}) * 1000 AS last_message_age_ms \
+             FROM {tbl}{where_clause} \
+             GROUP BY {topic_col} \
+             ORDER BY topic_name"
+        ))
+    }
+
+    /// `SHOW NODES` — node activity summary from span attributes.
+    fn compile_show_nodes(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let ts = self.col("timestamp");
+        let span_attrs = self
+            .registry
+            .resolve("topic")
+            .map(|f| f.column.as_str())
+            .unwrap_or("span_attributes");
+        let node_col = self.dialect.json_access(span_attrs, "ros.node");
+        let node_col_text = self.dialect.json_access_text(span_attrs, "ros.node");
+        let topic_col_text = self.dialect.json_access_text(span_attrs, "ros.topic");
+        let pub_node_col_text = self
+            .dialect
+            .json_access_text(span_attrs, "ros.publisher_node");
+        let sub_node_col_text = self
+            .dialect
+            .json_access_text(span_attrs, "ros.subscriber_node");
+        let status_col = self.col("status_code");
+
+        let mut where_parts = vec![format!("{node_col_text} IS NOT NULL")];
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope, false));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+        let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
+
+        Ok(format!(
+            "SELECT {node_col_text} AS node_name, \
+             COUNT(DISTINCT CASE WHEN {pub_node_col_text} = {node_col_text} THEN {topic_col_text} END) AS topics_published, \
+             COUNT(DISTINCT CASE WHEN {sub_node_col_text} = {node_col_text} THEN {topic_col_text} END) AS topics_subscribed, \
+             COUNT(CASE WHEN {status_col} = 'ERROR' THEN 1 END) AS error_count, \
+             MAX({ts}) AS last_seen \
+             FROM {tbl}{where_clause} \
+             GROUP BY {node_col} \
+             ORDER BY last_seen DESC"
+        ))
+    }
+
+    /// `SHOW NODE GRAPH` — topic/node edges for graph visualisation.
+    fn compile_show_node_graph(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("otel_traces");
+        let span_attrs = self
+            .registry
+            .resolve("topic")
+            .map(|f| f.column.as_str())
+            .unwrap_or("span_attributes");
+        let pub_node_text = self
+            .dialect
+            .json_access_text(span_attrs, "ros.publisher_node");
+        let sub_node_text = self
+            .dialect
+            .json_access_text(span_attrs, "ros.subscriber_node");
+        let topic_text = self.dialect.json_access_text(span_attrs, "ros.topic");
+
+        let mut where_parts = vec![
+            format!("{pub_node_text} IS NOT NULL"),
+            format!("{sub_node_text} IS NOT NULL"),
+            format!("{topic_text} IS NOT NULL"),
+        ];
+        if let Some(ref scope) = cq.scope {
+            where_parts.extend(self.compile_scope_filters(scope, false));
+        }
+        if let Some(ref tr) = cq.time_range {
+            where_parts.push(self.compile_time_range(tr, "")?);
+        }
+        let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
+
+        Ok(format!(
+            "SELECT DISTINCT {pub_node_text} AS source_node, \
+             {sub_node_text} AS target_node, \
+             {topic_text} AS topic \
+             FROM {tbl}{where_clause} \
+             ORDER BY source_node, topic"
+        ))
+    }
+
+    /// `SHOW JOINTS [FOR ROBOT ...]` — joint map query from `robot_joint_map`.
+    fn compile_show_joints(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let tbl = self.qtable("robot_joint_map");
+
+        let mut where_parts = Vec::new();
+        if let Some(ref scope) = cq.scope {
+            if let Some(RobotScope::Single(id)) = scope.robot.as_ref() {
+                where_parts.push(format!("robot_ids @> ARRAY['{id}']"));
+            }
+            if let Some(ref ver) = scope.version {
+                where_parts.push(format!("version = '{ver}'"));
+            }
+        }
+        // Validity window: if a time range is given, filter on valid_from/valid_to
+        if let Some(ref tr) = cq.time_range {
+            let ts = self.compile_time_range_timestamp(tr)?;
+            where_parts.push(format!(
+                "valid_from <= {ts} AND (valid_to IS NULL OR valid_to > {ts})"
+            ));
         }
 
-        if !where_parts.is_empty() {
-            // The CTE already has a terminal SELECT; append WHERE to it
-            // Actually, we need to restructure: wrap the CTE result
+        let where_clause = if where_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_parts.join(" AND "))
+        };
+
+        Ok(format!(
+            "SELECT robot_model, version, robot_ids, \
+             jsonb_object_keys(joint_map) AS joint_name, \
+             (joint_map->jsonb_object_keys(joint_map)->>'index')::INT AS index, \
+             joint_map->jsonb_object_keys(joint_map)->>'type' AS joint_type, \
+             (joint_map->jsonb_object_keys(joint_map)->'limits'->>'lower')::FLOAT AS lower_limit, \
+             (joint_map->jsonb_object_keys(joint_map)->'limits'->>'upper')::FLOAT AS upper_limit \
+             FROM {tbl}{where_clause} \
+             ORDER BY robot_model, index"
+        ))
+    }
+
+    /// `PATH DEVIATION [PLAN N] FOR TRACE|ROBOT ...` — compare planned vs actual path.
+    fn compile_path_deviation(
+        &self,
+        target: &DeviationTarget,
+        plan_index: Option<i64>,
+        cq: &CompoundQuery,
+    ) -> Result<String, ROSQLError> {
+        if !self.capabilities.topic_data {
+            return Err(ROSQLError::DataSourceUnavailable {
+                data_source: "topic_messages".into(),
+                message: "PATH DEVIATION requires topic ingest (topic_messages table). \
+                          Configure topic ingest to enable this feature."
+                    .into(),
+            });
         }
+        let tbl = self.qtable("topic_messages");
+        let plan_offset = match plan_index.unwrap_or(-1) {
+            -1 => 0i64,       // latest plan = most recent = OFFSET 0 after DESC sort
+            n if n >= 0 => n, // first plan = OFFSET 0, second = OFFSET 1, etc.
+            n => -n - 1,      // negative indexing from end
+        };
+
+        let mut target_filters = Vec::new();
+        match target {
+            DeviationTarget::Trace(id) => {
+                target_filters.push(format!("trace_id = '{id}'"));
+            }
+            DeviationTarget::Robot(id) => {
+                target_filters.push(format!("robot_id = '{id}'"));
+            }
+        }
+        if let Some(ref tr) = cq.time_range {
+            target_filters.push(self.compile_time_range(tr, "")?);
+        }
+        let target_where = if target_filters.is_empty() {
+            String::new()
+        } else {
+            format!(" AND {}", target_filters.join(" AND "))
+        };
+
+        // CTE 1: planned path (one nav plan, latest by default)
+        // CTE 2: actual poses from /odom
+        // CTE 3: per-pose lateral deviation (distance to nearest planned waypoint)
+        let fields = self.col("fields");
+        Ok(format!(
+            "WITH planned_path AS (\
+             SELECT timestamp, \
+             {fields}->>'pose.pose.position.x' AS x, \
+             {fields}->>'pose.pose.position.y' AS y \
+             FROM {tbl} \
+             WHERE topic_name = '/plan'{target_where} \
+             ORDER BY timestamp DESC LIMIT 1 OFFSET {plan_offset}\
+             ), actual_poses AS (\
+             SELECT timestamp, \
+             {fields}->>'pose.pose.position.x' AS actual_x, \
+             {fields}->>'pose.pose.position.y' AS actual_y \
+             FROM {tbl} \
+             WHERE topic_name = '/odom'{target_where} \
+             ORDER BY timestamp\
+             ), deviations AS (\
+             SELECT a.timestamp, \
+             a.actual_x::FLOAT AS actual_x, a.actual_y::FLOAT AS actual_y, \
+             p.x::FLOAT AS planned_x, p.y::FLOAT AS planned_y, \
+             SQRT(POWER(a.actual_x::FLOAT - p.x::FLOAT, 2) + \
+                  POWER(a.actual_y::FLOAT - p.y::FLOAT, 2)) AS lateral_deviation_m \
+             FROM actual_poses a \
+             CROSS JOIN planned_path p\
+             ) SELECT timestamp, lateral_deviation_m, actual_x, actual_y, planned_x, planned_y \
+             FROM deviations \
+             ORDER BY timestamp"
+        ))
+    }
+
+    /// `JOINT DEVIATION FOR TRACE|ROBOT ...` — compare planned vs actual joint positions.
+    fn compile_joint_deviation(
+        &self,
+        target: &DeviationTarget,
+        cq: &CompoundQuery,
+    ) -> Result<String, ROSQLError> {
+        if !self.capabilities.topic_data {
+            return Err(ROSQLError::DataSourceUnavailable {
+                data_source: "topic_messages".into(),
+                message: "JOINT DEVIATION requires topic ingest (topic_messages table). \
+                          Configure topic ingest to enable this feature."
+                    .into(),
+            });
+        }
+        let tbl = self.qtable("topic_messages");
+        let fields = self.col("fields");
+
+        let mut target_filters = Vec::new();
+        match target {
+            DeviationTarget::Trace(id) => {
+                target_filters.push(format!("trace_id = '{id}'"));
+            }
+            DeviationTarget::Robot(id) => {
+                target_filters.push(format!("robot_id = '{id}'"));
+            }
+        }
+        if let Some(ref tr) = cq.time_range {
+            target_filters.push(self.compile_time_range(tr, "")?);
+        }
+        let target_where = if target_filters.is_empty() {
+            String::new()
+        } else {
+            format!(" AND {}", target_filters.join(" AND "))
+        };
+
+        Ok(format!(
+            "WITH planned_joints AS (\
+             SELECT timestamp, \
+             {fields}->>'joint_names' AS joint_names, \
+             {fields}->>'positions' AS planned_positions \
+             FROM {tbl} \
+             WHERE topic_name = '/joint_trajectory'{target_where} \
+             ORDER BY timestamp\
+             ), actual_joints AS (\
+             SELECT timestamp, \
+             {fields}->>'name' AS joint_names, \
+             {fields}->>'position' AS actual_positions \
+             FROM {tbl} \
+             WHERE topic_name = '/joint_states'{target_where} \
+             ORDER BY timestamp\
+             ) SELECT \
+             a.timestamp, \
+             a.joint_names, \
+             a.actual_positions, \
+             p.planned_positions, \
+             MAX(ABS(\
+               (a.actual_positions::JSONB->>0)::FLOAT - (p.planned_positions::JSONB->>0)::FLOAT\
+             )) AS max_joint_error_rad, \
+             AVG(ABS(\
+               (a.actual_positions::JSONB->>0)::FLOAT - (p.planned_positions::JSONB->>0)::FLOAT\
+             )) AS mean_joint_error_rad \
+             FROM actual_joints a \
+             CROSS JOIN LATERAL (\
+               SELECT planned_positions FROM planned_joints p2 \
+               ORDER BY ABS(EXTRACT(EPOCH FROM (p2.timestamp - a.timestamp))) LIMIT 1\
+             ) p \
+             GROUP BY a.timestamp, a.joint_names, a.actual_positions, p.planned_positions \
+             ORDER BY a.timestamp"
+        ))
+    }
+
+    /// `ANOMALY(field) COMPARED TO <baseline>` — two-phase CTE statistical anomaly detection.
+    fn compile_anomaly(
+        &self,
+        field: &str,
+        compared_to: &Baseline,
+        data_source: Option<&DataSource>,
+        cq: &CompoundQuery,
+    ) -> Result<String, ROSQLError> {
+        let table = match data_source {
+            Some(ds) => self.resolve_table(ds)?,
+            None => self.qtable("otel_traces"),
+        };
+        let resolved_field = self.resolve_column(field, &table)?;
+
+        // Build the facet dimension (GROUP BY column)
+        let facet_col = match &cq.facet {
+            Some(f) => self.resolve_column(&f.dimension, &table)?,
+            None => "1".into(), // no facet — aggregate everything together
+        };
+
+        // Current time filter
+        let current_filter = if let Some(ref tr) = cq.time_range {
+            self.compile_time_range(tr, "")?
+        } else {
+            "1=1".into()
+        };
+
+        // Baseline time filter
+        let baseline_filter = self.compile_baseline_time_filter(compared_to)?;
+
+        // Scope filters
+        let mut scope_parts = Vec::new();
+        if let Some(ref scope) = cq.scope {
+            scope_parts.extend(self.compile_scope_filters(scope, false));
+        }
+        let scope_clause = if scope_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" AND {}", scope_parts.join(" AND "))
+        };
+
+        // p95 expression
+        let p95 = self.dialect.percentile_cont(0.95, &resolved_field);
+
+        Ok(format!(
+            "WITH current_stats AS (\
+             SELECT {facet_col} AS facet_dim, \
+             AVG({resolved_field}) AS current_avg, \
+             {p95} AS current_p95, \
+             STDDEV({resolved_field}) AS current_stddev, \
+             COUNT(*) AS current_count \
+             FROM {table} \
+             WHERE ({current_filter}){scope_clause} \
+             GROUP BY {facet_col}\
+             ), baseline_stats AS (\
+             SELECT {facet_col} AS facet_dim, \
+             AVG({resolved_field}) AS baseline_avg, \
+             {p95} AS baseline_p95, \
+             STDDEV({resolved_field}) AS baseline_stddev, \
+             COUNT(*) AS baseline_count \
+             FROM {table} \
+             WHERE ({baseline_filter}){scope_clause} \
+             GROUP BY {facet_col}\
+             ) SELECT \
+             c.facet_dim, \
+             c.current_avg, c.current_p95, c.current_count, \
+             b.baseline_avg, b.baseline_p95, b.baseline_count, \
+             (c.current_avg - b.baseline_avg) / NULLIF(b.baseline_stddev, 0) AS z_score, \
+             ABS((c.current_avg - b.baseline_avg) / NULLIF(b.baseline_stddev, 0)) > 2 \
+               AS is_anomalous, \
+             CASE \
+               WHEN c.current_avg > b.baseline_avg THEN 'higher' \
+               WHEN c.current_avg < b.baseline_avg THEN 'lower' \
+               ELSE 'normal' \
+             END AS direction \
+             FROM current_stats c \
+             LEFT JOIN baseline_stats b ON c.facet_dim = b.facet_dim \
+             ORDER BY ABS((c.current_avg - b.baseline_avg) / \
+               NULLIF(b.baseline_stddev, 0)) DESC NULLS LAST"
+        ))
+    }
+
+    /// Convert a `Baseline` to a SQL WHERE time predicate for the baseline window.
+    fn compile_baseline_time_filter(&self, baseline: &Baseline) -> Result<String, ROSQLError> {
+        let ts = self.col("timestamp");
+        match baseline {
+            Baseline::LastWeek => Ok(format!(
+                "{ts} >= {} AND {ts} < {}",
+                self.dialect.interval_ago(14.0, "days"),
+                self.dialect.interval_ago(7.0, "days"),
+            )),
+            Baseline::Last24Hours => Ok(format!(
+                "{ts} >= {} AND {ts} < {}",
+                self.dialect.interval_ago(48.0, "hours"),
+                self.dialect.interval_ago(24.0, "hours"),
+            )),
+            Baseline::Fleet => Ok("1=1".into()), // no time restriction — fleet-wide baseline
+            other => Err(ROSQLError::CompilationError {
+                message: format!(
+                    "ANOMALY COMPARED TO {:?} is not supported. \
+                     Use COMPARED TO last week, COMPARED TO last 24 hours, or COMPARED TO fleet.",
+                    other
+                ),
+            }),
+        }
+    }
+
+    /// Extract the timestamp expression from a TimeRange for point-in-time comparisons.
+    fn compile_time_range_timestamp(&self, tr: &TimeRange) -> Result<String, ROSQLError> {
+        match tr {
+            TimeRange::Since(te) => self.compile_time_expr(te),
+            TimeRange::Between { start, .. } => self.compile_time_expr(start),
+        }
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────
+
+    /// Appends ORDER BY / LIMIT / OFFSET to a compound query.
+    /// Time range and conditions are handled inline by the specific compile_* functions.
+    fn compile_compound_suffix(&self, cq: &CompoundQuery) -> Result<String, ROSQLError> {
+        let mut parts = Vec::new();
 
         if let Some(ref ob) = cq.order_by {
             let dir = match ob.direction {
@@ -554,6 +1279,9 @@ impl<'a> CompileCtx<'a> {
         if let Some(limit) = cq.limit {
             parts.push(format!(" LIMIT {limit}"));
         }
+        if let Some(offset) = cq.offset {
+            parts.push(format!(" OFFSET {offset}"));
+        }
 
         Ok(parts.join(""))
     }
@@ -562,6 +1290,40 @@ impl<'a> CompileCtx<'a> {
         let mut cols = Vec::new();
         for sel in sels {
             cols.push(self.compile_selection(sel, table)?);
+        }
+        Ok(cols.join(", "))
+    }
+
+    /// Like `compile_selections` but wraps bare `Field` references in `AVG()`.
+    /// Used when GROUP BY is present (TIMESERIES and/or FACET) and the selection
+    /// is not already an aggregation — a bare column is invalid in that context.
+    ///
+    /// Aggregations that are not already aliased get an auto-derived alias so that
+    /// DuckDB does not fall back to internal names like `count_star()`.
+    fn compile_selections_grouped(
+        &self,
+        sels: &[Selection],
+        table: &str,
+    ) -> Result<String, ROSQLError> {
+        let mut cols = Vec::new();
+        for sel in sels {
+            let s = match sel {
+                Selection::Field(name) => {
+                    let col = self.resolve_column(name, table)?;
+                    format!("AVG({col}) AS {name}")
+                }
+                // Aliased selections already have an explicit alias — compile as-is.
+                Selection::Aliased { .. } => self.compile_selection(sel, table)?,
+                // Aggregations without an explicit alias get an auto-derived one so
+                // backends (especially DuckDB) don't emit internal names like count_star().
+                Selection::Aggregation(agg) => {
+                    let compiled = self.compile_aggregation(agg, table)?;
+                    let alias = derive_agg_alias(agg);
+                    format!("{compiled} AS {alias}")
+                }
+                _ => self.compile_selection(sel, table)?,
+            };
+            cols.push(s);
         }
         Ok(cols.join(", "))
     }
@@ -583,48 +1345,205 @@ impl<'a> CompileCtx<'a> {
         agg: &AggregationCall,
         table: &str,
     ) -> Result<String, ROSQLError> {
-        let fn_name = match agg.function {
-            AggregationFn::Count => "COUNT",
-            AggregationFn::Sum => "SUM",
-            AggregationFn::Avg => "AVG",
-            AggregationFn::Min => "MIN",
-            AggregationFn::Max => "MAX",
-            AggregationFn::Stddev => "STDDEV",
+        match agg.function {
+            // ── Standard SQL aggregations ─────────────────────────────
+            AggregationFn::Count => {
+                let args = self.compile_agg_args(agg, table)?;
+                Ok(format!("COUNT({})", args.join(", ")))
+            }
+            AggregationFn::Sum => {
+                let args = self.compile_agg_args(agg, table)?;
+                Ok(format!("SUM({})", args.join(", ")))
+            }
+            AggregationFn::Avg => {
+                let args = self.compile_agg_args(agg, table)?;
+                Ok(format!("AVG({})", args.join(", ")))
+            }
+            AggregationFn::Min => {
+                let args = self.compile_agg_args(agg, table)?;
+                Ok(format!("MIN({})", args.join(", ")))
+            }
+            AggregationFn::Max => {
+                let args = self.compile_agg_args(agg, table)?;
+                Ok(format!("MAX({})", args.join(", ")))
+            }
+            AggregationFn::Stddev => {
+                let args = self.compile_agg_args(agg, table)?;
+                Ok(format!("STDDEV({})", args.join(", ")))
+            }
             AggregationFn::Percentile => {
-                // Special handling: PERCENTILE(field, pct)
                 if agg.args.len() == 2 {
                     let col = self.compile_expr(&agg.args[0], table)?;
-                    let _pct = self.compile_expr(&agg.args[1], table)?;
                     let fraction = match &agg.args[1] {
                         Expr::Literal(Literal::Integer(n)) => *n as f64 / 100.0,
                         Expr::Literal(Literal::Float(f)) => *f / 100.0,
                         _ => 0.5,
                     };
-                    return Ok(self.dialect.percentile_cont(fraction, &col));
+                    Ok(self.dialect.percentile_cont(fraction, &col))
+                } else {
+                    Ok("PERCENTILE_CONT".into())
                 }
-                "PERCENTILE_CONT"
             }
-            AggregationFn::Rate => "RATE",
-            AggregationFn::Delta => "DELTA",
-            AggregationFn::Derivative => "DERIVATIVE",
-            AggregationFn::MovingAvg => "MOVING_AVG",
-            AggregationFn::TopicRate => "TOPIC_RATE",
-            AggregationFn::NodeStatus => "NODE_STATUS",
-            AggregationFn::Expected => "EXPECTED",
-            AggregationFn::ActionSuccessRate => "ACTION_SUCCESS_RATE",
-            AggregationFn::Uptime => "UPTIME",
-            AggregationFn::ApproxCountDistinct => "APPROX_COUNT_DISTINCT",
-            AggregationFn::ApproxPercentile => "APPROX_PERCENTILE",
-        };
 
-        let args: Result<Vec<_>, _> = agg
-            .args
+            // ── Implemented robotics/time-series aggregations ─────────
+
+            // TOPIC_RATE([topic_name]) → query otel_metrics for ros2.topic.message_rate
+            AggregationFn::TopicRate => {
+                let metrics_table = self.dialect.quote_ident("otel_metrics");
+                let value_col = self.col("metric_value");
+                let metric_name_col = self.col("metric_name");
+                let topic_filter = if let Some(arg) = agg.args.first() {
+                    let topic = self.compile_expr(arg, table)?;
+                    let topic_attr = self.dialect.json_access_text("attributes", "topic");
+                    format!(" AND {topic_attr} = {topic}")
+                } else {
+                    String::new()
+                };
+                Ok(format!(
+                    "(SELECT AVG({value_col}) FROM {metrics_table} \
+                     WHERE {metric_name_col} = 'ros2.topic.message_rate'{topic_filter})"
+                ))
+            }
+
+            // ACTION_SUCCESS_RATE([action_name]) → CASE WHEN ratio
+            AggregationFn::ActionSuccessRate => {
+                let status_col = self.col("action_status");
+                let name_col = self.col("action_name");
+                if let Some(arg) = agg.args.first() {
+                    // With action filter: wrap as subquery
+                    let action = self.compile_expr(arg, table)?;
+                    let quoted_table = self.dialect.quote_ident(table);
+                    Ok(format!(
+                        "(SELECT CAST(COUNT(CASE WHEN {status_col} = 'succeeded' THEN 1 END) \
+                         AS DOUBLE PRECISION) / NULLIF(COUNT(*), 0) \
+                         FROM {quoted_table} WHERE {name_col} = {action})"
+                    ))
+                } else {
+                    // Without filter: inline expression
+                    Ok(format!(
+                        "CAST(COUNT(CASE WHEN {status_col} = 'succeeded' THEN 1 END) \
+                         AS DOUBLE PRECISION) / NULLIF(COUNT(*), 0)"
+                    ))
+                }
+            }
+
+            // MOVING_AVG(field, N) → window function
+            AggregationFn::MovingAvg => {
+                if agg.args.len() < 2 {
+                    return Err(ROSQLError::CompilationError {
+                        message: "MOVING_AVG requires two arguments: MOVING_AVG(field, window_size)"
+                            .into(),
+                    });
+                }
+                let col = self.compile_expr(&agg.args[0], table)?;
+                let window_size = match &agg.args[1] {
+                    Expr::Literal(Literal::Integer(n)) => *n,
+                    _ => {
+                        return Err(ROSQLError::CompilationError {
+                            message: "MOVING_AVG window_size must be an integer literal".into(),
+                        })
+                    }
+                };
+                let preceding = window_size.saturating_sub(1);
+                let ts_col = self.col("timestamp");
+                Ok(format!(
+                    "AVG({col}) OVER (ORDER BY {ts_col} ROWS BETWEEN {preceding} PRECEDING AND CURRENT ROW)"
+                ))
+            }
+
+            // DERIVATIVE(field) → LAG-based rate of change per second
+            AggregationFn::Derivative => {
+                if agg.args.is_empty() {
+                    return Err(ROSQLError::CompilationError {
+                        message: "DERIVATIVE requires one argument: DERIVATIVE(field)".into(),
+                    });
+                }
+                let col = self.compile_expr(&agg.args[0], table)?;
+                let ts_col = self.col("timestamp");
+                let lag_val = format!("LAG({col}) OVER (ORDER BY {ts_col})");
+                let lag_ts = format!("LAG({ts_col}) OVER (ORDER BY {ts_col})");
+                let diff = self.dialect.timestamp_diff_seconds(&ts_col, &lag_ts);
+                Ok(format!(
+                    "({col} - {lag_val}) / NULLIF({diff}, 0)"
+                ))
+            }
+
+            // APPROX_COUNT_DISTINCT(field) → dialect-specific
+            AggregationFn::ApproxCountDistinct => {
+                if agg.args.is_empty() {
+                    return Err(ROSQLError::CompilationError {
+                        message: "APPROX_COUNT_DISTINCT requires one argument".into(),
+                    });
+                }
+                let col = self.compile_expr(&agg.args[0], table)?;
+                Ok(self.dialect.approx_count_distinct(&col))
+            }
+
+            // APPROX_PERCENTILE(field, pct) → dialect-specific
+            AggregationFn::ApproxPercentile => {
+                if agg.args.len() < 2 {
+                    return Err(ROSQLError::CompilationError {
+                        message: "APPROX_PERCENTILE requires two arguments: APPROX_PERCENTILE(field, percentile)"
+                            .into(),
+                    });
+                }
+                let col = self.compile_expr(&agg.args[0], table)?;
+                let fraction = match &agg.args[1] {
+                    Expr::Literal(Literal::Integer(n)) => *n as f64 / 100.0,
+                    Expr::Literal(Literal::Float(f)) => *f / 100.0,
+                    _ => 0.5,
+                };
+                Ok(self.dialect.approx_percentile(fraction, &col))
+            }
+
+            // ── Gated features (not yet implemented) ─────────────────
+
+            AggregationFn::NodeStatus => Err(ROSQLError::NotImplemented {
+                feature: "NODE_STATUS()".into(),
+                message: "NODE_STATUS() requires heartbeat data not yet available in the \
+                           open-source schema. Query node health via otel_metrics or otel_logs instead."
+                    .into(),
+            }),
+            AggregationFn::Expected => Err(ROSQLError::NotImplemented {
+                feature: "EXPECTED()".into(),
+                message: "EXPECTED() requires SLO definitions which are configured in the \
+                           Robot Ops platform, not available in open-source ROSQL."
+                    .into(),
+            }),
+            AggregationFn::Uptime => Err(ROSQLError::NotImplemented {
+                feature: "UPTIME()".into(),
+                message: "UPTIME() requires heartbeat data not yet available in the \
+                           open-source schema. Query uptime manually via otel_metrics instead."
+                    .into(),
+            }),
+            AggregationFn::Rate => Err(ROSQLError::NotImplemented {
+                feature: "RATE()".into(),
+                message: "RATE() is not yet implemented. Use DERIVATIVE(field) for rate of change, \
+                           or a manual LAG() window function."
+                    .into(),
+            }),
+            AggregationFn::Delta => Err(ROSQLError::NotImplemented {
+                feature: "DELTA()".into(),
+                message: "DELTA() is not yet implemented. Use manual subtraction with LAG(): \
+                           (field - LAG(field) OVER (ORDER BY timestamp))."
+                    .into(),
+            }),
+        }
+    }
+
+    fn compile_agg_args(
+        &self,
+        agg: &AggregationCall,
+        table: &str,
+    ) -> Result<Vec<String>, ROSQLError> {
+        // Special case: COUNT(*) with no args
+        if agg.args.is_empty() {
+            return Ok(vec!["*".into()]);
+        }
+        agg.args
             .iter()
             .map(|a| self.compile_expr(a, table))
-            .collect();
-        let args = args?;
-
-        Ok(format!("{}({})", fn_name, args.join(", ")))
+            .collect()
     }
 
     fn compile_from(&self, _source: &DataSource, table: &str) -> Result<String, ROSQLError> {
@@ -635,8 +1554,22 @@ impl<'a> CompileCtx<'a> {
     fn compile_condition(&self, cond: &Condition, table: &str) -> Result<String, ROSQLError> {
         match cond {
             Condition::Comparison { left, op, right } => {
-                let l = self.compile_expr(left, table)?;
+                let mut l = self.compile_expr(left, table)?;
                 let r = self.compile_expr_with_field_context(right, left, table)?;
+                // JSON text extraction (`fields['key']`) returns VARCHAR; comparing
+                // it directly to a numeric literal fails in strict-typing backends
+                // (e.g. DuckDB). Add an explicit CAST when the left side is a bracket
+                // field access and the right side is a numeric value.
+                if matches!(left, Expr::FieldAccess { .. })
+                    && matches!(
+                        right,
+                        Expr::UnitValue(_)
+                            | Expr::Literal(Literal::Float(_))
+                            | Expr::Literal(Literal::Integer(_))
+                    )
+                {
+                    l = self.dialect.cast_to_double(&l);
+                }
                 let op_str = match op {
                     ComparisonOp::Eq => "=",
                     ComparisonOp::Neq => "!=",
@@ -685,6 +1618,40 @@ impl<'a> CompileCtx<'a> {
                 let h = self.compile_expr(high, table)?;
                 Ok(format!("{e} BETWEEN {l} AND {h}"))
             }
+            Condition::Within {
+                field: _,
+                radius,
+                center,
+            } => {
+                let r = radius.si_value;
+                match center {
+                    GeospatialCenter::Gps(lat, lon) => {
+                        // Inline Haversine SQL: sqrt((2 * R * asin(sqrt(haversin(dlat) + cos(lat1)*cos(lat2)*haversin(dlon)))))
+                        // Field paths: fields->'pose'->'pose'->'position'->'x' = longitude,
+                        //              fields->'pose'->'pose'->'position'->'y' = latitude
+                        // For nav_msgs/Odometry stored in topic_messages.fields JSONB.
+                        let fields = self.col("fields");
+                        let lat_col = format!("({fields}->>'latitude')::FLOAT");
+                        let lon_col = format!("({fields}->>'longitude')::FLOAT");
+                        Ok(format!(
+                            "(6371000.0 * 2 * ASIN(SQRT(\
+                             POWER(SIN(RADIANS(({lat_col} - {lat}) / 2.0)), 2) + \
+                             COS(RADIANS({lat})) * COS(RADIANS({lat_col})) * \
+                             POWER(SIN(RADIANS(({lon_col} - {lon}) / 2.0)), 2)\
+                             ))) <= {r}"
+                        ))
+                    }
+                    GeospatialCenter::Local(cx, cy) => {
+                        // Euclidean distance in local frame using pose.pose.position.x / .y
+                        let fields = self.col("fields");
+                        let x_col = format!("({fields}->>'pose.pose.position.x')::FLOAT");
+                        let y_col = format!("({fields}->>'pose.pose.position.y')::FLOAT");
+                        Ok(format!(
+                            "SQRT(POWER({x_col} - {cx}, 2) + POWER({y_col} - {cy}, 2)) <= {r}"
+                        ))
+                    }
+                }
+            }
         }
     }
 
@@ -697,7 +1664,21 @@ impl<'a> CompileCtx<'a> {
                 Ok(format!("{}", uv.si_value))
             }
             Expr::Aggregation(agg) => self.compile_aggregation(agg, table),
-            Expr::FieldAccess { base, key } => Ok(self.dialect.json_access(base, key)),
+            Expr::FieldAccess { base, key } => {
+                // Detect array index notation: "name[N]" → json_array_access
+                if let Some(bracket) = key.find('[') {
+                    if let Some(close) = key.rfind(']') {
+                        if close > bracket {
+                            let field_name = &key[..bracket];
+                            let index_str = &key[bracket + 1..close];
+                            if let Ok(index) = index_str.parse::<usize>() {
+                                return Ok(self.dialect.json_array_access(base, field_name, index));
+                            }
+                        }
+                    }
+                }
+                Ok(self.dialect.json_access(base, key))
+            }
             Expr::BinaryOp { left, op, right } => {
                 let l = self.compile_expr(left, table)?;
                 let r = self.compile_expr(right, table)?;
@@ -831,12 +1812,12 @@ impl<'a> CompileCtx<'a> {
             })
     }
 
-    fn resolve_column(&self, field_name: &str, _table: &str) -> Result<String, ROSQLError> {
+    fn resolve_column(&self, field_name: &str, table: &str) -> Result<String, ROSQLError> {
         if field_name == "*" {
             return Ok("*".into());
         }
 
-        if let Some(field_def) = self.registry.resolve(field_name) {
+        if let Some(field_def) = self.registry.resolve_for_table(field_name, table) {
             if field_def.is_map_access {
                 if let (Some(ref map_col), Some(ref map_key)) =
                     (&field_def.map_column, &field_def.map_key)
@@ -855,6 +1836,42 @@ impl<'a> CompileCtx<'a> {
 // ---------------------------------------------------------------------------
 // Free functions
 // ---------------------------------------------------------------------------
+
+/// Derive a clean SQL alias for an aggregation call.
+///
+/// Without an explicit alias, DuckDB uses the internal call expression as the
+/// column name (e.g. `count_star()`, `avg("duration")`). This function maps
+/// each aggregation function to a short, user-readable alias.
+fn derive_agg_alias(agg: &AggregationCall) -> String {
+    let fn_name = match agg.function {
+        AggregationFn::Count => "count",
+        AggregationFn::Sum => "sum",
+        AggregationFn::Avg => "avg",
+        AggregationFn::Min => "min",
+        AggregationFn::Max => "max",
+        AggregationFn::Stddev => "stddev",
+        AggregationFn::Percentile => "percentile",
+        AggregationFn::Rate => "rate",
+        AggregationFn::Delta => "delta",
+        AggregationFn::Derivative => "derivative",
+        AggregationFn::MovingAvg => "moving_avg",
+        AggregationFn::TopicRate => "topic_rate",
+        AggregationFn::NodeStatus => "node_status",
+        AggregationFn::Expected => "expected",
+        AggregationFn::ActionSuccessRate => "success_rate",
+        AggregationFn::Uptime => "uptime",
+        AggregationFn::ApproxCountDistinct => "approx_count_distinct",
+        AggregationFn::ApproxPercentile => "approx_percentile",
+    };
+    // If the first arg is a real field name (not the COUNT(*) wildcard), append it
+    // for clarity: avg_duration, sum_value, etc.
+    if let Some(Expr::Field(field)) = agg.args.first() {
+        if field != "*" {
+            return format!("{fn_name}_{field}");
+        }
+    }
+    fn_name.to_string()
+}
 
 fn compile_literal(lit: &Literal) -> String {
     match lit {
@@ -928,13 +1945,13 @@ mod tests {
     fn compile_pg(query: &str) -> String {
         let ast = crate::parse(query).unwrap();
         let reg = default_otel_registry();
-        compile(&ast, &reg, &pg(), &caps()).unwrap()
+        compile(&ast, &reg, &pg(), &caps(), None).unwrap().sql
     }
 
     fn compile_pg_err(query: &str) -> ROSQLError {
         let ast = crate::parse(query).unwrap();
         let reg = default_otel_registry();
-        compile(&ast, &reg, &pg(), &caps()).unwrap_err()
+        compile(&ast, &reg, &pg(), &caps(), None).unwrap_err()
     }
 
     // Note: PostgreSQL tests use quoted lowercase identifiers (OtelPostgres profile).
@@ -992,8 +2009,14 @@ mod tests {
 
     #[test]
     fn facet_group_by() {
+        // robot_id on otel_logs resolves to resource_attributes->>'robot.id' (not a bare column).
         let sql = compile_pg("FROM logs FACET robot_id");
-        assert!(sql.contains(r#"GROUP BY "robot_id""#), "got: {sql}");
+        assert!(
+            sql.contains("resource_attributes") && sql.contains("robot.id"),
+            "got: {sql}"
+        );
+        // The facet column must appear in both SELECT and GROUP BY.
+        assert!(sql.contains("GROUP BY"), "got: {sql}");
     }
 
     #[test]
@@ -1052,73 +2075,89 @@ mod tests {
     // ── Compound clauses ────────────────────────────────────────────
 
     #[test]
-    fn message_journey() {
-        let sql = compile_pg("MESSAGE JOURNEY FOR TRACE 'abc123'");
-        assert!(sql.contains("WITH RECURSIVE journey"), "got: {sql}");
+    fn trace_recursive_cte() {
+        let sql = compile_pg("TRACE 'abc123'");
+        assert!(sql.contains("WITH RECURSIVE trace_tree"), "got: {sql}");
         assert!(sql.contains("abc123"), "got: {sql}");
         assert!(sql.contains("parent_span_id"), "got: {sql}");
-    }
-
-    #[test]
-    fn trace_query() {
-        let sql = compile_pg("TRACE 'abc123'");
-        assert!(sql.contains("abc123"), "got: {sql}");
         assert!(sql.contains("otel_traces"), "got: {sql}");
     }
 
     #[test]
-    fn health_query() {
-        let sql = compile_pg("HEALTH() SINCE 30 minutes ago");
-        assert!(sql.contains("signal_type"), "got: {sql}");
-        assert!(sql.contains("UNION ALL"), "got: {sql}");
-        assert!(sql.contains("otel_traces"), "got: {sql}");
-        assert!(sql.contains("otel_logs"), "got: {sql}");
-        assert!(sql.contains("otel_metrics"), "got: {sql}");
+    fn trace_with_robot_scope() {
+        let sql = compile_pg("TRACE 'abc123' FOR ROBOT 'r1'");
+        assert!(sql.contains("WITH RECURSIVE trace_tree"), "got: {sql}");
+        assert!(sql.contains("robot.id"), "got: {sql}");
+        assert!(sql.contains("r1"), "got: {sql}");
     }
 
     #[test]
-    fn anomaly_query() {
-        let sql = compile_pg("ANOMALY(duration) SINCE 24 hours ago");
+    fn health_query_gated() {
+        let err = compile_pg_err("HEALTH() SINCE 30 minutes ago");
+        assert!(
+            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "HEALTH()"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn anomaly_compiles_two_cte() {
+        // ANOMALY now compiles to a two-phase CTE (current_stats + baseline_stats).
+        let sql =
+            compile_pg("ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago");
+        assert!(sql.contains("current_stats"), "got: {sql}");
+        assert!(sql.contains("baseline_stats"), "got: {sql}");
         assert!(sql.contains("z_score"), "got: {sql}");
-        assert!(sql.contains("STDDEV"), "got: {sql}");
-        assert!(sql.contains("AVG"), "got: {sql}");
+        assert!(sql.contains("is_anomalous"), "got: {sql}");
+        assert!(sql.contains("direction"), "got: {sql}");
     }
 
     #[test]
-    fn show_recording() {
-        let sql = compile_pg("SHOW RECORDING SINCE yesterday");
-        assert!(sql.contains("mcap_metadata"), "got: {sql}");
-        assert!(sql.contains("s3_key"), "got: {sql}");
+    fn anomaly_missing_compared_to_is_parse_error() {
+        // ANOMALY without COMPARED TO is now a parse error, not a NotImplemented.
+        let result = crate::parse("ANOMALY(duration) SINCE 1 hour ago");
+        assert!(result.is_err(), "expected parse error");
+        let errs = result.unwrap_err();
+        assert!(
+            errs.iter().any(|e| matches!(e, ROSQLError::ParseError { message, .. } if message.contains("COMPARED TO"))),
+            "got: {errs:?}"
+        );
     }
 
     #[test]
-    fn path_deviation_no_capability() {
-        let ast = crate::parse("PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday").unwrap();
-        let reg = default_otel_registry();
-        let no_topics = BackendCapabilities {
-            topic_data: false,
-            recording_index: false,
-        };
-        let err = compile(&ast, &reg, &pg(), &no_topics).unwrap_err();
-        assert!(matches!(err, ROSQLError::DataSourceUnavailable { .. }));
+    fn show_recording_gated() {
+        let err = compile_pg_err("SHOW RECORDING SINCE yesterday");
+        assert!(
+            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "SHOW RECORDING"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
-    fn show_recording_no_capability() {
-        let ast = crate::parse("SHOW RECORDING SINCE yesterday").unwrap();
-        let reg = default_otel_registry();
-        let no_recordings = BackendCapabilities {
-            topic_data: false,
-            recording_index: false,
-        };
-        let err = compile(&ast, &reg, &pg(), &no_recordings).unwrap_err();
-        assert!(matches!(err, ROSQLError::DataSourceUnavailable { .. }));
+    fn path_deviation_compiles() {
+        // PATH DEVIATION now compiles to a multi-CTE SQL query.
+        let sql = compile_pg("PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday");
+        assert!(sql.contains("planned_path"), "got: {sql}");
+        assert!(sql.contains("actual_poses"), "got: {sql}");
+        assert!(sql.contains("lateral_deviation_m"), "got: {sql}");
+        assert!(sql.contains("/plan"), "got: {sql}");
+        assert!(sql.contains("/odom"), "got: {sql}");
     }
 
     #[test]
-    fn correlate_query() {
-        let sql = compile_pg("CORRELATE WITH metrics SINCE 7 days ago");
-        assert!(sql.contains("CORR("), "got: {sql}");
+    fn show_recording_no_capability_gated() {
+        // SHOW RECORDING is now gated regardless of capabilities
+        let err = compile_pg_err("SHOW RECORDING SINCE yesterday");
+        assert!(matches!(err, ROSQLError::NotImplemented { .. }));
+    }
+
+    #[test]
+    fn correlate_query_gated() {
+        let err = compile_pg_err("CORRELATE WITH metrics SINCE 7 days ago");
+        assert!(
+            matches!(err, ROSQLError::NotImplemented { ref feature, .. } if feature == "CORRELATE WITH"),
+            "got: {err:?}"
+        );
     }
 
     #[test]

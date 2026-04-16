@@ -1,0 +1,33 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Aggregation:
+        function: Avg
+        args:
+          - Field: duration
+  data_source: Traces
+  scope: ~
+  conditions: ~
+  facet:
+    dimension: action_name
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~
+  timeseries:
+    interval:
+      raw_value: 1
+      unit: min
+      si_value: 60
+      si_unit: s
+  enrichments: []

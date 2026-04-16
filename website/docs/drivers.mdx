@@ -1,57 +1,123 @@
 ---
 title: Driver Support
-description: Supported database backends for ROSQL — PostgreSQL, MySQL, DuckDB, and more
+description: Supported database backends for ROSQL — Parquet (local/S3), PostgreSQL, MySQL, and more
 sidebar_position: 2
-keywords: [rosql, postgresql, mysql, duckdb, database, driver, backend]
+keywords: [rosql, postgresql, mysql, duckdb, parquet, s3, database, driver, backend]
 ---
 
 # Driver Support
 
-ROSQL compiles to SQL and other database languages and executes against your existing telemetry database. Each backend is enabled via a Cargo feature flag.
+ROSQL compiles to SQL and executes against your telemetry data. Each backend is enabled via a Cargo feature flag.
 
 ## Supported backends
 
-| Backend | Feature flag | Status |
-|---------|-------------|--------|
-| PostgreSQL / TimescaleDB | `postgres` | ✅ v0.1 |
-| MySQL / MariaDB | `mysql` | ✅ v0.1 |
-| DuckDB (embedded) | `duckdb` | ✅ v0.2 |
-| AWS Athena | `athena` | 📋 [Planned](https://github.com/RobotOpsInc/rosql/issues/9) |
-| Google BigQuery | `bigquery` | 📋 [Planned](https://github.com/RobotOpsInc/rosql/issues/10) |
+| Backend | Feature flag | CLI flag | Status |
+|---------|-------------|---------|--------|
+| Parquet files (local / S3) powered by DuckDB | `duckdb` | `--backend parquet` | ✅ v0.4.5 |
+| PostgreSQL / TimescaleDB | `postgres` | `--backend postgres` | ✅ v0.1 |
+| MySQL / MariaDB | `mysql` | `--backend mysql` | ✅ v0.1 |
+| AWS Athena | `athena` | — | 📋 [Planned](https://github.com/RobotOpsInc/rosql/issues/9) |
+| Google BigQuery | `bigquery` | — | 📋 [Planned](https://github.com/RobotOpsInc/rosql/issues/10) |
 
 ## Feature flags
 
 | Feature | What it enables | Runtime deps |
 |---------|----------------|-------------|
 | *(default)* | Parser, AST, unit system, SQL compiler, proto types | logos, serde, prost |
+| `duckdb` | Parquet file backend (local + S3) powered by DuckDB — use with `--backend parquet` | duckdb (bundled), tokio |
 | `postgres` | PostgreSQL / TimescaleDB driver | sqlx, tokio |
 | `mysql` | MySQL / MariaDB driver | sqlx, tokio |
-| `duckdb` | DuckDB embedded driver | duckdb (bundled), tokio |
 | `server` | `rosql` CLI binary + gRPC server | tonic, tokio, clap |
 | `wasm` | WASM exports for browser editors | wasm-bindgen |
 
-## Installing with a specific backend
+## Installing
+
+### One-liner (Linux x86_64 / arm64, macOS Apple Silicon)
 
 ```bash
+curl -fsSL https://rosql.org/install.sh | sh
+```
+
+Pre-built binaries include the Parquet backend (`--backend parquet`) out of the box.
+
+### Build from source
+
+```bash
+# Parquet backend + CLI (recommended — no external database required)
+cargo install rosql --features server,duckdb
+
 # PostgreSQL driver + CLI
 cargo install rosql --features server,postgres
 
 # MySQL driver + CLI
 cargo install rosql --features server,mysql
 
-# DuckDB driver + CLI (no external database required)
-cargo install rosql --features server,duckdb
-
-# Multiple drivers
-cargo install rosql --features server,postgres,mysql,duckdb
+# Multiple backends
+cargo install rosql --features server,duckdb,postgres,mysql
 
 # Library only (no CLI, no runtime)
 cargo add rosql
 ```
 
-## Connection strings
+:::note Windows / Intel Mac
+Pre-built binaries are not available for Windows or Intel Macs. Use `cargo install` above.
+:::
 
-### PostgreSQL / TimescaleDB
+---
+
+## Parquet backend
+
+DuckDB runs embedded and reads Parquet files directly — no external server required.
+
+```bash
+# Local directory
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend parquet \
+  --url ./telemetry/robotops_demo_agent/20260403-141530/
+
+# S3
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend parquet \
+  --url s3://my-bucket/robot-01/robotops_demo_agent/20260403-141530/
+```
+
+### Expected directory layout
+
+The `--url` argument must point to a directory with this structure, following the [demo-agent output format](https://github.com/RobotOpsInc/rmw_robotops/tree/development/demo-agent#output-format):
+
+```
+<url>/
+  traces/          *.parquet  →  otel_traces view
+  logs/            *.parquet  →  otel_logs view
+  metrics/         *.parquet  →  otel_metrics view
+  topic_messages/  *.parquet  →  topic_messages view
+  mcap_metadata/   *.parquet  →  mcap_metadata view
+```
+
+Files are discovered recursively using `**/*.parquet` globs. Each subdirectory can contain multiple Parquet files (e.g., one per hour or per recording session). Missing subdirectories are silently skipped — queries against absent tables return a clear `DataSourceUnavailable` error.
+
+### S3 credentials
+
+When `--url s3://...` is used, ROSQL automatically loads the DuckDB `httpfs` extension. Set credentials via standard AWS environment variables:
+
+| Variable | Description |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | Static access key |
+| `AWS_SECRET_ACCESS_KEY` | Static secret key |
+| `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS region (e.g. `us-east-1`) |
+| `AWS_PROFILE` | Named credentials profile |
+| `AWS_ENDPOINT_URL` | Override endpoint for S3-compatible storage (MinIO, Ceph, etc.) |
+
+### Use cases
+
+- **Local telemetry replay** — query Parquet exports from the demo-agent or OTel Collector without standing up a database
+- **S3 telemetry archives** — query recordings stored on S3 directly
+- **CI/testing** — no Docker or external service required
+- **Offline environments** — works without network access to a database server
+
+---
+
+## PostgreSQL / TimescaleDB
 
 ```bash
 rosql query "FROM traces WHERE status = 'ERROR'" \
@@ -63,7 +129,9 @@ Connection string format: `postgresql://[user[:password]@][host][:port]/database
 
 TimescaleDB is fully supported — ROSQL uses standard PostgreSQL queries that work transparently with hypertables.
 
-### MySQL / MariaDB
+---
+
+## MySQL / MariaDB
 
 ```bash
 rosql query "FROM traces WHERE status = 'ERROR'" \
@@ -73,32 +141,7 @@ rosql query "FROM traces WHERE status = 'ERROR'" \
 
 Connection string format: `mysql://[user[:password]@][host][:port]/database`
 
-### DuckDB
-
-DuckDB runs embedded — no external server required. The database is compiled into the binary.
-
-```bash
-# In-memory database (data is lost when the process exits)
-rosql query "FROM traces WHERE status = 'ERROR'" \
-  --backend duckdb \
-  --url duckdb://
-
-# File-based persistent database
-rosql query "FROM traces WHERE status = 'ERROR'" \
-  --backend duckdb \
-  --url duckdb:///path/to/telemetry.db
-```
-
-Connection string formats:
-- `duckdb://` — in-memory database
-- `duckdb:///absolute/path/to/file.db` — file-based database
-- `md:my_database` — [MotherDuck](https://motherduck.com) (cloud DuckDB)
-
-DuckDB is particularly useful for:
-- **Local analytics** on MCAP/bag files converted to Parquet
-- **CI/testing** — no Docker or external service required
-- **Offline environments** where a database server is unavailable
-- **Embedded robotics systems** with local telemetry storage
+---
 
 ## Schema profiles
 
@@ -106,25 +149,26 @@ Different OTel Collector exporters use different column naming conventions. Sele
 
 | Profile | Column convention | Example | Default for |
 |---------|------------------|---------|-------------|
-| `otel-postgres` | lowercase | `trace_id`, `status_code` | PostgreSQL, MySQL |
+| `otel-postgres` | lowercase | `trace_id`, `status_code` | All backends (default) |
 | `otel-clickhouse` | PascalCase | `TraceId`, `StatusCode` | ClickHouse |
 
 ```bash
-# Explicit schema profile
 rosql compile "FROM traces WHERE status = 'ERROR'" \
-  --backend postgres \
+  --backend parquet \
   --schema otel-postgres
 
 rosql compile "FROM traces WHERE status = 'ERROR'" \
-  --backend clickhouse \
+  --backend postgres \
   --schema otel-clickhouse
 ```
 
 If your column names don't match either profile, custom schema profiles are tracked in [#22](https://github.com/RobotOpsInc/rosql/issues/22).
 
+---
+
 ## Schema requirements
 
-Your database must have the OTel tables ROSQL expects. See the [Schema Reference →](./schema-reference) for complete DDL.
+Your Parquet files or database must have the OTel tables ROSQL expects. See the [Schema Reference →](./schema-reference) for complete DDL.
 
 Required tables for basic functionality:
 - `otel_traces`
@@ -132,5 +176,5 @@ Required tables for basic functionality:
 - `otel_metrics`
 
 Optional tables for advanced features:
-- `topic_messages` — enables `FROM topics`, `PATH DEVIATION`, topic aliases
-- `mcap_metadata` — enables `SHOW RECORDING`
+- `topic_messages` — enables `FROM topics`, topic aliases (`FROM odom`, etc.), `PATH DEVIATION`, `JOINT DEVIATION`
+- `mcap_metadata` — enables `FROM recordings`

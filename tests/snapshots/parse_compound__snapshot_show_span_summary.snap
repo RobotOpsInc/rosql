@@ -3,15 +3,18 @@ source: tests/parse_compound.rs
 expression: ast
 ---
 Compound:
-  clause:
-    MessageJourney:
-      trace_id: abc123def456
-  robot_scope: ~
-  time_range: ~
+  clause: ShowSpanSummary
+  scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
   time_basis: ~
   conditions: ~
   facet: ~
   order_by: ~
   limit: ~
+  offset: ~
   output_format: ~
   baseline: ~

@@ -1,0 +1,90 @@
+---
+title: About the REPL Dataset
+sidebar_label: REPL Dataset
+---
+
+# About the REPL Dataset
+
+The ROSQL playground REPL queries a simulated 3-robot warehouse AMR fleet. All timestamps are relative to **now**, so queries like `SINCE 45 min ago` always return data — the simulation is perpetually in progress.
+
+## The Fleet
+
+| Robot ID | Firmware | Status |
+|---|---|---|
+| `robot-amr-01` | `v2.3.1` | Reliable — 3 successful missions this session |
+| `robot-amr-02` | `v2.4.0` | Recently upgraded — 2 successes + **1 failure** |
+| `robot-amr-03` | `v2.3.0` | Aging hardware — 3 slow successes, gradual battery drain |
+
+## The Investigation Story
+
+The showcase queries follow a real diagnostic workflow:
+
+1. **Trace the failure** — `robot-amr-02` aborted its third mission (`trace-amr02-m3`). Look at the Gantt chart: one span stands out immediately — `/local_costmap_node/update` took **8 seconds** instead of its normal 0.5s.
+
+2. **Find the root cause** — Enrich the trace with logs: you'll see an ERROR from `/local_costmap_node` saying `"costmap update timed out — /scan topic not publishing"`. This followed the `v2.4.0` firmware upgrade.
+
+3. **Check the blast radius** — The fleet CPU time-series shows `robot-amr-02` spiked to **92% CPU** during the failure as it retried the costmap update in a loop.
+
+4. **Confirm it's a regression** — The anomaly detection query flags `robot-amr-02` as anomalous (z-score ≈ 8) compared to last week's baseline, while the other two robots are within normal range.
+
+5. **Inspect the ROS2 topology** — The node graph shows the full Nav2 computation graph for `robot-amr-02`: the `/scan` path goes through `/lidar_node → /local_costmap_node → /controller_server`.
+
+## Tables in the Dataset
+
+| Table | ROSQL alias | Contents |
+|---|---|---|
+| `otel_traces` | `traces` | 9 navigation missions × 4-6 spans + 7 topology spans. Timestamps: NOW()-60min to NOW()-8min |
+| `otel_logs` | `logs` | ~20 log entries correlated to traces. ERROR/WARN only on `trace-amr02-m3` |
+| `otel_metrics` | `metrics` | `system.cpu.utilization` at 2-min intervals per robot for 45+ minutes |
+| `topic_messages` | `topics` | `/odom`, `/plan`, `/battery_state`. Battery readings for `robot-amr-02` drop below 11.5V |
+| `mcap_metadata` | `recordings` | 3 MCAP session records, one per robot |
+| `ros2_events` | `events` | Firmware deployment events for v2.3.0, v2.3.1, v2.4.0 |
+| *(baseline)* | `traces` | Historical trace data at NOW()-14d to NOW()-7d for ANOMALY queries |
+
+## Timestamp Design
+
+All data is inserted using DuckDB `NOW() - INTERVAL` expressions, evaluated each time the REPL loads. This means:
+
+- `SINCE 45 min ago` — always returns metric data (sampled at 2-min intervals back to NOW()-47min)
+- `SINCE 90 min ago` — captures all 9 mission traces
+- `SINCE 2 h ago` — includes battery readings below 11.5V for `robot-amr-02`
+- `COMPARED TO last week` — compares against baseline data at NOW()-14d to NOW()-7d
+
+## All 9 Showcase Queries
+
+| # | Label | Demonstrates |
+|---|---|---|
+| 1 | Trace a failed mission | Distributed trace Gantt with span hierarchy |
+| 2 | Show logs for a failed trace | `ENRICH WITH logs` — cross-signal correlation |
+| 3 | CPU usage across fleet | `TIMESERIES 2 min FACET robot_id` — stacked time-series |
+| 4 | Message flow for topic: /scan | `MESSAGE FLOW FROM TOPIC` — causal span chain |
+| 5 | Slowest actions/spans | `SHOW SPAN SUMMARY` — latency comparison bar chart |
+| 6 | Path deviation | `PATH DEVIATION` — planned vs actual trajectory |
+| 7 | Which robot regressed? | `ANOMALY COMPARED TO last week` — statistical anomaly detection |
+| 8 | Battery below 11.5V | Unit-aware filter: `fields['voltage'] < 11.5 V` |
+| 9 | ROS2 node topology | `SHOW NODE GRAPH` — full computation graph |
+
+## Write Your Own Queries
+
+The REPL accepts any valid ROSQL syntax. Try:
+
+```sql
+-- Error rate by robot
+SELECT COUNT(*) FROM traces
+WHERE status = 'ERROR'
+FACET robot_id
+
+-- Latest battery readings across fleet
+FROM topics
+WHERE topic_name = '/battery_state'
+SINCE 2 h ago
+
+-- Action success rate
+SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces
+SINCE 1 hour ago
+
+-- Compare firmware versions
+COMPARE TO VERSION 'v2.3.1'
+```
+
+See the [syntax reference](/docs/syntax) and [command reference](/docs/command-reference) for all supported query forms.

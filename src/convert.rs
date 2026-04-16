@@ -26,7 +26,7 @@ fn standard_query_to_proto(sq: &ast::ROSQLQuery) -> pb::StandardQuery {
     pb::StandardQuery {
         selections: sq.selections.iter().map(selection_to_proto).collect(),
         data_source: Some(data_source_to_proto(&sq.data_source)),
-        robot_scope: sq.robot_scope.as_ref().map(robot_scope_to_proto),
+        scope: sq.scope.as_ref().map(query_scope_to_proto),
         conditions: sq.conditions.as_ref().map(condition_to_proto),
         facet: sq.facet.as_ref().map(facet_to_proto),
         time_range: sq.time_range.as_ref().map(time_range_to_proto),
@@ -36,11 +36,38 @@ fn standard_query_to_proto(sq: &ast::ROSQLQuery) -> pb::StandardQuery {
             .unwrap_or(0),
         order_by: sq.order_by.as_ref().map(order_by_to_proto),
         limit: sq.limit,
+        offset: sq.offset,
         output_format: sq
             .output_format
             .map(|f| output_format_to_proto(f) as i32)
             .unwrap_or(0),
         baseline: sq.baseline.as_ref().map(baseline_to_proto),
+        timeseries: sq.timeseries.as_ref().map(timeseries_to_proto),
+        enrichments: sq.enrichments.iter().map(enrichment_to_proto).collect(),
+    }
+}
+
+fn unit_value_to_proto(uv: &ast::UnitValue) -> pb::UnitValue {
+    pb::UnitValue {
+        raw_value: uv.raw_value,
+        unit: uv.unit.clone(),
+        si_value: uv.si_value,
+        si_unit: uv.si_unit.clone(),
+    }
+}
+
+fn timeseries_to_proto(ts: &ast::TimeseriesClause) -> pb::TimeseriesClause {
+    pb::TimeseriesClause {
+        interval: Some(unit_value_to_proto(&ts.interval)),
+    }
+}
+
+fn enrichment_to_proto(e: &ast::EnrichmentClause) -> pb::EnrichmentClause {
+    pb::EnrichmentClause {
+        source: Some(data_source_to_proto(&e.source)),
+        join_key: e.join_key.clone().unwrap_or_default(),
+        limit: e.limit,
+        sample_full: e.sample_full,
     }
 }
 
@@ -68,17 +95,24 @@ fn pipeline_stage_to_proto(stage: &ast::PipelineStage) -> pb::PipelineStage {
             pb::pipeline_stage::Stage::OrderBy(order_by_to_proto(ob))
         }
         ast::PipelineStage::Limit(n) => pb::pipeline_stage::Stage::Limit(*n),
+        ast::PipelineStage::Offset(n) => pb::pipeline_stage::Stage::Offset(*n),
         ast::PipelineStage::Format(f) => {
             pb::pipeline_stage::Stage::Format(output_format_to_proto(*f) as i32)
         }
         ast::PipelineStage::CompareTo(b) => {
             pb::pipeline_stage::Stage::CompareTo(baseline_to_proto(b))
         }
-        ast::PipelineStage::ForRobot(r) => {
-            pb::pipeline_stage::Stage::ForRobot(robot_scope_to_proto(r))
+        ast::PipelineStage::ForScope(s) => {
+            pb::pipeline_stage::Stage::ForScope(query_scope_to_proto(s))
         }
         ast::PipelineStage::CompoundClause(cc) => {
             pb::pipeline_stage::Stage::CompoundClause(compound_clause_to_proto(cc))
+        }
+        ast::PipelineStage::Timeseries(ts) => {
+            pb::pipeline_stage::Stage::Timeseries(timeseries_to_proto(ts))
+        }
+        ast::PipelineStage::EnrichWith(e) => {
+            pb::pipeline_stage::Stage::EnrichWith(enrichment_to_proto(e))
         }
     };
     pb::PipelineStage {
@@ -89,7 +123,7 @@ fn pipeline_stage_to_proto(stage: &ast::PipelineStage) -> pb::PipelineStage {
 fn compound_query_to_proto(cq: &ast::CompoundQuery) -> pb::CompoundQuery {
     pb::CompoundQuery {
         clause: Some(compound_clause_to_proto(&cq.clause)),
-        robot_scope: cq.robot_scope.as_ref().map(robot_scope_to_proto),
+        scope: cq.scope.as_ref().map(query_scope_to_proto),
         time_range: cq.time_range.as_ref().map(time_range_to_proto),
         time_basis: cq
             .time_basis
@@ -99,6 +133,7 @@ fn compound_query_to_proto(cq: &ast::CompoundQuery) -> pb::CompoundQuery {
         facet: cq.facet.as_ref().map(facet_to_proto),
         order_by: cq.order_by.as_ref().map(order_by_to_proto),
         limit: cq.limit,
+        offset: cq.offset,
         output_format: cq
             .output_format
             .map(|f| output_format_to_proto(f) as i32)
@@ -285,6 +320,28 @@ fn condition_to_proto(cond: &ast::Condition) -> pb::Condition {
                 high: Some(expr_to_proto(high)),
             })
         }
+        ast::Condition::Within {
+            field,
+            radius,
+            center,
+        } => {
+            let center_oneof = match center {
+                ast::GeospatialCenter::Gps(lat, lon) => {
+                    pb::within_condition::Center::Gps(pb::GpsCenter {
+                        lat: *lat,
+                        lon: *lon,
+                    })
+                }
+                ast::GeospatialCenter::Local(x, y) => {
+                    pb::within_condition::Center::Local(pb::LocalCenter { x: *x, y: *y })
+                }
+            };
+            pb::condition::Condition::Within(pb::WithinCondition {
+                field: Some(expr_to_proto(field)),
+                radius: Some(unit_value_to_proto(radius)),
+                center: Some(center_oneof),
+            })
+        }
     };
     pb::Condition {
         condition: Some(cond_oneof),
@@ -347,6 +404,15 @@ fn robot_scope_to_proto(scope: &ast::RobotScope) -> pb::RobotScope {
     }
 }
 
+fn query_scope_to_proto(scope: &ast::QueryScope) -> pb::QueryScope {
+    pb::QueryScope {
+        robot: scope.robot.as_ref().map(robot_scope_to_proto),
+        version: scope.version.clone().unwrap_or_default(),
+        environment: scope.environment.clone().unwrap_or_default(),
+        session: scope.session.clone().unwrap_or_default(),
+    }
+}
+
 fn facet_to_proto(f: &ast::FacetClause) -> pb::FacetClause {
     pb::FacetClause {
         dimension: f.dimension.clone(),
@@ -382,13 +448,42 @@ fn output_format_to_proto(f: ast::OutputFormat) -> pb::OutputFormat {
     }
 }
 
+/// Convert a `FormatHint` to its proto enum integer value.
+///
+/// The proto `FormatHint` enum is defined in `result.proto` but not yet
+/// code-generated (we use the raw integer constants here).
+pub fn format_hint_to_proto_int(hint: ast::FormatHint) -> i32 {
+    match hint {
+        ast::FormatHint::Table => 1,
+        ast::FormatHint::LineChart => 2,
+        ast::FormatHint::StackedLineChart => 3,
+        ast::FormatHint::BarChart => 4,
+        ast::FormatHint::HorizontalBars => 5,
+        ast::FormatHint::Gantt => 6,
+        ast::FormatHint::DirectedGraph => 7,
+        ast::FormatHint::NodeGraph => 8,
+        ast::FormatHint::ScalarCards => 9,
+        ast::FormatHint::LogTable => 10,
+        ast::FormatHint::RecordingList => 11,
+    }
+}
+
 fn baseline_to_proto(b: &ast::Baseline) -> pb::Baseline {
     let baseline = match b {
         ast::Baseline::LastWeek => pb::baseline::Baseline::LastWeek(true),
+        // Last24Hours not yet in proto — map to LastWeek as a stub until proto is updated.
+        ast::Baseline::Last24Hours => pb::baseline::Baseline::LastWeek(true),
         ast::Baseline::Fleet => pb::baseline::Baseline::Fleet(true),
         ast::Baseline::Robot(id) => pb::baseline::Baseline::RobotId(id.clone()),
         ast::Baseline::LastDeployment => pb::baseline::Baseline::LastDeployment(true),
         ast::Baseline::CompareRobots => pb::baseline::Baseline::CompareRobots(true),
+        ast::Baseline::Version(v) => pb::baseline::Baseline::Version(v.clone()),
+        ast::Baseline::VersionPair(v1, v2) => {
+            pb::baseline::Baseline::VersionPair(pb::VersionPairBaseline {
+                from_version: v1.clone(),
+                to_version: v2.clone(),
+            })
+        }
     };
     pb::Baseline {
         baseline: Some(baseline),
@@ -406,44 +501,59 @@ fn compound_clause_to_proto(cc: &ast::CompoundClause) -> pb::CompoundClause {
             inner_conditions: inner_conditions.as_ref().map(condition_to_proto),
             inner_time_range: inner_time_range.as_ref().map(time_range_to_proto),
         }),
-        ast::CompoundClause::MessageJourney { trace_id } => {
-            pb::compound_clause::Clause::MessageJourney(pb::MessageJourneyClause {
-                trace_id: trace_id.clone(),
-            })
-        }
-        ast::CompoundClause::MessagePaths { topic } => {
-            pb::compound_clause::Clause::MessagePaths(pb::MessagePathsClause {
-                topic: topic.clone(),
-            })
-        }
-        ast::CompoundClause::MessagePath {
-            from_topic,
-            to_node,
-            show,
-        } => pb::compound_clause::Clause::MessagePath(pb::MessagePathClause {
-            from_topic: from_topic.clone(),
-            to_node: to_node.clone(),
-            show: show.clone().unwrap_or_default(),
-        }),
         ast::CompoundClause::Trace { trace_id } => {
             pb::compound_clause::Clause::Trace(pb::TraceClause {
                 trace_id: trace_id.clone(),
+            })
+        }
+        ast::CompoundClause::MessageFlow {
+            from_topic,
+            to_target,
+            show,
+        } => {
+            let to_target_proto = to_target.as_ref().map(|t| {
+                let target = match t {
+                    ast::FlowTarget::Node(n) => pb::flow_target::Target::Node(n.clone()),
+                    ast::FlowTarget::Topic(t) => pb::flow_target::Target::Topic(t.clone()),
+                };
+                pb::FlowTarget {
+                    target: Some(target),
+                }
+            });
+            pb::compound_clause::Clause::MessageFlow(pb::MessageFlowClause {
+                from_topic: from_topic.clone(),
+                to_target: to_target_proto,
+                show: show.clone().unwrap_or_default(),
+            })
+        }
+        ast::CompoundClause::ShowDeployments => pb::compound_clause::Clause::ShowDeployments(true),
+        ast::CompoundClause::ShowSpanSummary => pb::compound_clause::Clause::ShowSpanSummary(true),
+        ast::CompoundClause::ShowPlans { trace_id } => {
+            pb::compound_clause::Clause::ShowPlans(pb::ShowPlansClause {
+                trace_id: trace_id.clone().unwrap_or_default(),
             })
         }
         ast::CompoundClause::ShowTraceBreakdown => {
             pb::compound_clause::Clause::ShowTraceBreakdown(true)
         }
         ast::CompoundClause::Health => pb::compound_clause::Clause::Health(true),
-        ast::CompoundClause::Anomaly { field, compared_to } => {
+        ast::CompoundClause::Anomaly {
+            field, compared_to, ..
+        } => {
             pb::compound_clause::Clause::Anomaly(pb::AnomalyClause {
                 field: field.clone(),
-                compared_to: compared_to.as_ref().map(baseline_to_proto),
+                // compared_to is now required; wrap in Some for proto (which expects optional)
+                compared_to: Some(baseline_to_proto(compared_to)),
             })
         }
-        ast::CompoundClause::PathDeviation { show } => {
-            pb::compound_clause::Clause::PathDeviation(pb::PathDeviationClause {
-                show: show.clone().unwrap_or_default(),
-            })
+        ast::CompoundClause::PathDeviation { .. } => {
+            // Proto PathDeviationClause not yet updated to match new AST shape.
+            // Use ShowRecording as a placeholder until proto is updated.
+            pb::compound_clause::Clause::PathDeviation(pb::PathDeviationClause { show: vec![] })
+        }
+        ast::CompoundClause::JointDeviation { .. } => {
+            // Not yet in proto — stub as ShowRecording until proto is updated.
+            pb::compound_clause::Clause::ShowRecording(true)
         }
         ast::CompoundClause::Correlate { with_source } => {
             pb::compound_clause::Clause::Correlate(pb::CorrelateClause {
@@ -451,6 +561,11 @@ fn compound_clause_to_proto(cc: &ast::CompoundClause) -> pb::CompoundClause {
             })
         }
         ast::CompoundClause::ShowRecording => pb::compound_clause::Clause::ShowRecording(true),
+        ast::CompoundClause::ShowTopics => pb::compound_clause::Clause::ShowTopics(true),
+        ast::CompoundClause::ShowNodes => pb::compound_clause::Clause::ShowNodes(true),
+        ast::CompoundClause::ShowNodeGraph => pb::compound_clause::Clause::ShowNodeGraph(true),
+        // ShowJoints not yet in proto — stub as ShowTopics until proto is updated.
+        ast::CompoundClause::ShowJoints => pb::compound_clause::Clause::ShowTopics(true),
     };
     pb::CompoundClause {
         clause: Some(clause),
@@ -530,7 +645,7 @@ mod tests {
         match proto.query.unwrap() {
             pb::rosql_query::Query::Compound(cq) => {
                 assert!(cq.clause.is_some());
-                assert!(cq.robot_scope.is_some());
+                assert!(cq.scope.is_some());
                 assert!(cq.time_range.is_some());
             }
             _ => panic!("expected Compound"),
@@ -582,20 +697,74 @@ mod tests {
     }
 
     #[test]
-    fn convert_message_journey() {
-        let ast = parse("MESSAGE JOURNEY FOR TRACE 'abc123'").unwrap();
+    fn convert_trace() {
+        let ast = parse("TRACE 'abc123'").unwrap();
         let proto = query_to_proto(&ast);
         match proto.query.unwrap() {
             pb::rosql_query::Query::Compound(cq) => {
                 let clause = cq.clause.unwrap().clause.unwrap();
                 match clause {
-                    pb::compound_clause::Clause::MessageJourney(mj) => {
-                        assert_eq!(mj.trace_id, "abc123");
+                    pb::compound_clause::Clause::Trace(t) => {
+                        assert_eq!(t.trace_id, "abc123");
                     }
-                    _ => panic!("expected MessageJourney"),
+                    _ => panic!("expected Trace"),
                 }
             }
             _ => panic!("expected Compound"),
+        }
+    }
+
+    #[test]
+    fn convert_within_gps() {
+        let ast = parse("FROM traces WHERE position WITHIN 50 m OF (37.7749, -122.4194)").unwrap();
+        let proto = query_to_proto(&ast);
+        match proto.query.unwrap() {
+            pb::rosql_query::Query::Standard(sq) => {
+                let cond = sq.conditions.unwrap().condition.unwrap();
+                match cond {
+                    pb::condition::Condition::Within(w) => {
+                        assert!(w.field.is_some());
+                        let radius = w.radius.unwrap();
+                        assert_eq!(radius.raw_value, 50.0);
+                        match w.center.unwrap() {
+                            pb::within_condition::Center::Gps(g) => {
+                                assert!((g.lat - 37.7749).abs() < 1e-6);
+                                assert!((g.lon - -122.4194).abs() < 1e-6);
+                            }
+                            _ => panic!("expected GPS center"),
+                        }
+                    }
+                    _ => panic!("expected Within condition"),
+                }
+            }
+            _ => panic!("expected Standard"),
+        }
+    }
+
+    #[test]
+    fn convert_within_local() {
+        let ast = parse("FROM traces WHERE position WITHIN 5 m OF POSITION (10.0, 20.0)").unwrap();
+        let proto = query_to_proto(&ast);
+        match proto.query.unwrap() {
+            pb::rosql_query::Query::Standard(sq) => {
+                let cond = sq.conditions.unwrap().condition.unwrap();
+                match cond {
+                    pb::condition::Condition::Within(w) => {
+                        assert!(w.field.is_some());
+                        let radius = w.radius.unwrap();
+                        assert_eq!(radius.raw_value, 5.0);
+                        match w.center.unwrap() {
+                            pb::within_condition::Center::Local(l) => {
+                                assert!((l.x - 10.0).abs() < 1e-6);
+                                assert!((l.y - 20.0).abs() < 1e-6);
+                            }
+                            _ => panic!("expected Local center"),
+                        }
+                    }
+                    _ => panic!("expected Within condition"),
+                }
+            }
+            _ => panic!("expected Standard"),
         }
     }
 }

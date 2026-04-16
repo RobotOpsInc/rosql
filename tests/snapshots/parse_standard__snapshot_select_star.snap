@@ -6,12 +6,15 @@ Standard:
   selections:
     - Star
   data_source: Traces
-  robot_scope: ~
+  scope: ~
   conditions: ~
   facet: ~
   time_range: ~
   time_basis: ~
   order_by: ~
   limit: ~
+  offset: ~
   output_format: ~
   baseline: ~
+  timeseries: ~
+  enrichments: []

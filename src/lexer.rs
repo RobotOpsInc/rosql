@@ -76,6 +76,8 @@ pub enum Token<'src> {
     Message,
     #[token("JOURNEY", ignore(ascii_case))]
     Journey,
+    #[token("FLOW", ignore(ascii_case))]
+    Flow,
     #[token("PATHS", ignore(ascii_case))]
     Paths,
     #[token("PATH", ignore(ascii_case))]
@@ -100,6 +102,18 @@ pub enum Token<'src> {
     Compared,
     #[token("ROBOTS", ignore(ascii_case))]
     Robots,
+    #[token("JOINT", ignore(ascii_case))]
+    Joint,
+    #[token("JOINTS", ignore(ascii_case))]
+    Joints,
+    #[token("WITHIN", ignore(ascii_case))]
+    Within,
+    #[token("OF", ignore(ascii_case))]
+    Of,
+    #[token("POSITION", ignore(ascii_case))]
+    Position,
+    #[token("PLAN", ignore(ascii_case))]
+    Plan,
 
     // ── Time-related keywords ───────────────────────────────────────
     #[token("AGO", ignore(ascii_case))]
@@ -110,6 +124,8 @@ pub enum Token<'src> {
     Week,
     #[token("DEPLOYMENT", ignore(ascii_case))]
     Deployment,
+    #[token("DEPLOYMENTS", ignore(ascii_case))]
+    Deployments,
     #[token("RESTART", ignore(ascii_case))]
     Restart,
     #[token("FAILURE", ignore(ascii_case))]
@@ -126,6 +142,32 @@ pub enum Token<'src> {
     Topic,
     #[token("NODE", ignore(ascii_case))]
     Node,
+    #[token("VERSION", ignore(ascii_case))]
+    Version,
+    #[token("ENVIRONMENT", ignore(ascii_case))]
+    Environment,
+    #[token("SESSION", ignore(ascii_case))]
+    Session,
+    #[token("PLANS", ignore(ascii_case))]
+    Plans,
+    #[token("SPAN", ignore(ascii_case))]
+    Span,
+    #[token("SUMMARY", ignore(ascii_case))]
+    Summary,
+    #[token("TOPICS", ignore(ascii_case))]
+    Topics,
+    #[token("NODES", ignore(ascii_case))]
+    Nodes,
+    #[token("GRAPH", ignore(ascii_case))]
+    Graph,
+    #[token("TIMESERIES", ignore(ascii_case))]
+    Timeseries,
+    #[token("ENRICH", ignore(ascii_case))]
+    Enrich,
+    #[token("SAMPLE", ignore(ascii_case))]
+    Sample,
+    #[token("FULL", ignore(ascii_case))]
+    Full,
 
     // ── Time basis ──────────────────────────────────────────────────
     #[token("ROS_TIME", ignore(ascii_case))]
@@ -162,6 +204,10 @@ pub enum Token<'src> {
     // ── AT keyword (for PATH DEVIATION ... AT '...') ────────────────
     #[token("AT", ignore(ascii_case))]
     At,
+
+    // ── OFFSET keyword ──────────────────────────────────────────────
+    #[token("OFFSET", ignore(ascii_case))]
+    Offset,
 
     // ── TRACE_BREAKDOWN ─────────────────────────────────────────────
     #[token("TRACE_BREAKDOWN", ignore(ascii_case))]

@@ -7,16 +7,36 @@
 FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 
 -- ============================================================================
--- MESSAGE JOURNEY — trace the full causality chain for the failed action
--- Follow ParentSpanId links to see how the message propagated through nodes.
+-- DURING — cross-signal temporal correlation
+-- Returns otel_traces rows whose timestamp falls within windows where the
+-- subquery matched. No JOINs required.
+-- Standalone compound form: DURING(FROM source WHERE ...) [SINCE ...]
 -- ============================================================================
-MESSAGE JOURNEY FOR TRACE 'trace-002'
+DURING(
+  FROM topics WHERE topic_name = '/battery_state'
+  AND fields['percentage'] < 15
+) SINCE 6 hours ago
+
+-- DURING with metrics subquery
+DURING(FROM metrics WHERE metric_name = 'system.cpu.utilization' AND metric_value > 90)
+SINCE 1 hour ago
 
 -- ============================================================================
--- MESSAGE PATHS — find all message paths for /cmd_vel
+-- TRACE — recursive span tree walk for the full causality chain
+-- Follows ParentSpanId links to show how a message propagated through nodes.
+-- ============================================================================
+TRACE 'trace-002'
+
+-- ============================================================================
+-- MESSAGE FLOW — find all message paths for /cmd_vel
 -- Shows which nodes published and subscribed to velocity commands.
 -- ============================================================================
-MESSAGE PATHS FOR TOPIC '/cmd_vel'
+MESSAGE FLOW FROM TOPIC '/cmd_vel'
+
+-- ============================================================================
+-- MESSAGE FLOW TO NODE — trace messages from a topic to a specific node
+-- ============================================================================
+MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/controller_server'
 
 -- ============================================================================
 -- HEALTH() — derived robot health assessment
@@ -25,23 +45,71 @@ MESSAGE PATHS FOR TOPIC '/cmd_vel'
 HEALTH() FOR ROBOT 'robot_sim_001'
 
 -- ============================================================================
--- PATH DEVIATION — did the robot deviate from its planned path?
--- Queries /odom trajectory data from topic_messages.
+-- PATH DEVIATION — did the robot deviate from its planned path? (v0.4.3+)
+-- Redesigned: FOR TRACE 'id' or FOR ROBOT 'id' required.
+-- Optional PLAN N selects nth plan (0=first, -1=latest, default=-1).
 -- ============================================================================
-PATH DEVIATION FOR ROBOT 'robot_sim_001'
+PATH DEVIATION FOR TRACE 'trace-002'
+PATH DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+PATH DEVIATION PLAN 0 FOR ROBOT 'robot_sim_001' SINCE 6 hours ago
 
 -- ============================================================================
--- SHOW RECORDING — find the MCAP recording that covers the failure window
+-- JOINT DEVIATION — compare planned vs actual joint trajectory (v0.4.3+)
+-- Computes per-joint position error in radians.
+-- ============================================================================
+JOINT DEVIATION FOR TRACE 'trace-002'
+JOINT DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+
+-- ============================================================================
+-- SHOW RECORDING — DEPRECATED. Use FROM recordings instead.
 -- ============================================================================
 SHOW RECORDING
 
 -- ============================================================================
--- ANOMALY — detect statistical anomalies in span duration
--- Uses z-score (AVG/STDDEV) to find outlier spans.
+-- ANOMALY — statistical anomaly detection via two-phase z-score CTE (v0.4.3+)
+-- COMPARED TO is now required. FACET is strongly recommended.
+-- Supported baselines: LAST WEEK, LAST 24 HOURS, FLEET.
 -- ============================================================================
-ANOMALY(duration)
+ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago
+ANOMALY(duration) COMPARED TO fleet SINCE 1 hour ago FACET robot_id
+ANOMALY(duration) FROM traces COMPARED TO last 24 hours FACET robot_id SINCE 12 hours ago
 
 -- ============================================================================
--- TRACE — show all spans for a specific trace
+-- SHOW DEPLOYMENTS — deployment history (version × environment)
 -- ============================================================================
-TRACE 'trace-002'
+SHOW DEPLOYMENTS FOR ROBOT 'robot_sim_001' SINCE 30 days ago
+
+-- ============================================================================
+-- SHOW SPAN SUMMARY — top spans by average duration
+-- ============================================================================
+SHOW SPAN SUMMARY FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+
+-- ============================================================================
+-- SHOW PLANS — navigation/behaviour plan spans for a trace
+-- ============================================================================
+SHOW PLANS FOR TRACE 'trace-002'
+
+-- ============================================================================
+-- SHOW TOPICS — list active ROS2 topics with publish rates (v0.4.2+)
+-- Aggregates span_attributes to show topic_name, message_type, avg_rate_hz,
+-- publisher/subscriber counts, and last_message_age_ms.
+-- ============================================================================
+SHOW TOPICS FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+SHOW TOPICS WHERE topic_name LIKE '/camera%' SINCE 30 minutes ago
+
+-- ============================================================================
+-- SHOW NODES — list active ROS2 nodes with pub/sub counts (v0.4.2+)
+-- ============================================================================
+SHOW NODES FOR ROBOT 'robot_sim_001' SINCE 30 minutes ago
+
+-- ============================================================================
+-- SHOW NODE GRAPH — topic/node edges for graph visualisation (v0.4.2+)
+-- Returns (source_node, topic, target_node) rows for building a network graph.
+-- ============================================================================
+SHOW NODE GRAPH FOR ROBOT 'robot_sim_001' SINCE 30 minutes ago
+
+-- ============================================================================
+-- SHOW JOINTS — robot joint map from URDF mapping (v0.4.3+)
+-- Returns joint_name, index, type, lower/upper limits per robot model.
+-- ============================================================================
+SHOW JOINTS FOR ROBOT 'robot_sim_001'

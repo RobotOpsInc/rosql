@@ -22,15 +22,18 @@ pub enum Query {
 pub struct ROSQLQuery {
     pub selections: Vec<Selection>,
     pub data_source: DataSource,
-    pub robot_scope: Option<RobotScope>,
+    pub scope: Option<QueryScope>,
     pub conditions: Option<Condition>,
     pub facet: Option<FacetClause>,
     pub time_range: Option<TimeRange>,
     pub time_basis: Option<TimeBasis>,
     pub order_by: Option<OrderBy>,
     pub limit: Option<u64>,
+    pub offset: Option<u64>,
     pub output_format: Option<OutputFormat>,
     pub baseline: Option<Baseline>,
+    pub timeseries: Option<TimeseriesClause>,
+    pub enrichments: Vec<EnrichmentClause>,
 }
 
 /// Pipeline query: `FROM source | WHERE ... | FACET ...`
@@ -50,23 +53,27 @@ pub enum PipelineStage {
     Using(TimeBasis),
     OrderBy(OrderBy),
     Limit(u64),
+    Offset(u64),
     Format(OutputFormat),
     CompareTo(Baseline),
-    ForRobot(RobotScope),
+    ForScope(QueryScope),
     CompoundClause(CompoundClause),
+    Timeseries(TimeseriesClause),
+    EnrichWith(EnrichmentClause),
 }
 
-/// A top-level compound query (MESSAGE JOURNEY, HEALTH(), TRACE, etc.).
+/// A top-level compound query (MESSAGE FLOW, HEALTH(), TRACE, etc.).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompoundQuery {
     pub clause: CompoundClause,
-    pub robot_scope: Option<RobotScope>,
+    pub scope: Option<QueryScope>,
     pub time_range: Option<TimeRange>,
     pub time_basis: Option<TimeBasis>,
     pub conditions: Option<Condition>,
     pub facet: Option<FacetClause>,
     pub order_by: Option<OrderBy>,
     pub limit: Option<u64>,
+    pub offset: Option<u64>,
     pub output_format: Option<OutputFormat>,
     pub baseline: Option<Baseline>,
 }
@@ -258,6 +265,21 @@ pub enum Condition {
         low: Box<Expr>,
         high: Box<Expr>,
     },
+    /// `<expr> WITHIN <radius> OF (<lat>, <lon>)` or `OF POSITION (<x>, <y>)`
+    Within {
+        field: Expr,
+        radius: UnitValue,
+        center: GeospatialCenter,
+    },
+}
+
+/// Center point for a WITHIN geospatial condition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum GeospatialCenter {
+    /// GPS coordinates (lat, lon) — Haversine distance.
+    Gps(f64, f64),
+    /// Local frame position (x, y) — Euclidean distance.
+    Local(f64, f64),
 }
 
 /// Comparison operators.
@@ -331,7 +353,7 @@ pub enum TimeBasis {
 }
 
 // ===========================================================================
-// Robot scoping
+// Robot / query scoping
 // ===========================================================================
 
 /// Robot scope (FOR ROBOT / FOR FLEET).
@@ -339,6 +361,43 @@ pub enum TimeBasis {
 pub enum RobotScope {
     Single(String),
     Fleet,
+}
+
+/// Composable query scope — all dimensions are optional and can be combined.
+///
+/// ```sql
+/// FOR ROBOT 'robot_42' FOR VERSION '2.3.1' FOR ENVIRONMENT 'production'
+/// ```
+///
+/// Compile targets:
+/// - `FOR ROBOT`       → `resource_attributes->>'robot.id'`
+/// - `FOR VERSION`     → `resource_attributes->>'service.version'`
+/// - `FOR ENVIRONMENT` → `resource_attributes->>'deployment.environment'`
+/// - `FOR SESSION`     → `resource_attributes->>'ros.session.id'`
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueryScope {
+    pub robot: Option<RobotScope>,
+    pub version: Option<String>,
+    pub environment: Option<String>,
+    pub session: Option<String>,
+}
+
+impl QueryScope {
+    pub fn empty() -> Self {
+        QueryScope {
+            robot: None,
+            version: None,
+            environment: None,
+            session: None,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.robot.is_none()
+            && self.version.is_none()
+            && self.environment.is_none()
+            && self.session.is_none()
+    }
 }
 
 // ===========================================================================
@@ -365,7 +424,7 @@ pub enum SortDirection {
     Desc,
 }
 
-/// Output format (FORMAT clause).
+/// Output format (FORMAT clause) — user-facing keyword after `FORMAT`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OutputFormat {
     Table,
@@ -376,6 +435,66 @@ pub enum OutputFormat {
     Path,
 }
 
+/// Presentation-layer format hint — inferred from query shape for frontends.
+///
+/// Unlike `OutputFormat` (which reflects the user's explicit `FORMAT` clause),
+/// `FormatHint` is automatically inferred from the query structure and tells
+/// consumers how to best visualize the result (e.g. line chart, gantt, etc.).
+/// An explicit `FORMAT` clause overrides inference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FormatHint {
+    /// Generic tabular display (default fallback).
+    Table,
+    /// Time-bucketed line chart (TIMESERIES without FACET).
+    LineChart,
+    /// Multi-series time-bucketed line chart (TIMESERIES with FACET).
+    StackedLineChart,
+    /// Bar chart (FACET without TIMESERIES, or aggregation by category).
+    BarChart,
+    /// Horizontal bar chart (SHOW SPAN SUMMARY).
+    HorizontalBars,
+    /// Gantt / waterfall chart (TRACE 'id').
+    Gantt,
+    /// Directed graph (MESSAGE FLOW).
+    DirectedGraph,
+    /// Undirected node graph (SHOW NODE GRAPH).
+    NodeGraph,
+    /// Metric cards for scalar aggregations.
+    ScalarCards,
+    /// Log viewer with severity coloring (FROM logs).
+    LogTable,
+    /// Recording / bag file list (FROM recordings).
+    RecordingList,
+}
+
+// ===========================================================================
+// Timeseries
+// ===========================================================================
+
+/// TIMESERIES interval — time-bucketed aggregation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TimeseriesClause {
+    /// The bucket width (e.g. `5 min`, `1 hour`).
+    pub interval: UnitValue,
+}
+
+// ===========================================================================
+// Enrichment
+// ===========================================================================
+
+/// ENRICH WITH clause — joins additional data into a primary query result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnrichmentClause {
+    /// The data source to enrich from.
+    pub source: DataSource,
+    /// Explicit join key override (None = infer from source pair).
+    pub join_key: Option<String>,
+    /// Per-primary-row row limit (default 50).
+    pub limit: Option<u64>,
+    /// Disable auto-downsampling for high-frequency topic data.
+    pub sample_full: bool,
+}
+
 // ===========================================================================
 // Baselines
 // ===========================================================================
@@ -384,15 +503,39 @@ pub enum OutputFormat {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Baseline {
     LastWeek,
+    /// `COMPARED TO last 24 hours`
+    Last24Hours,
     Fleet,
     Robot(String),
     LastDeployment,
     CompareRobots,
+    /// `COMPARE TO VERSION 'v1.2.3'`
+    Version(String),
+    /// `COMPARE VERSION 'v1.0' TO VERSION 'v2.0'`
+    VersionPair(String, String),
+}
+
+/// Target selector for PATH DEVIATION and JOINT DEVIATION queries.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DeviationTarget {
+    /// `FOR TRACE 'trace_id'`
+    Trace(String),
+    /// `FOR ROBOT 'robot_id'`
+    Robot(String),
 }
 
 // ===========================================================================
 // Compound clauses
 // ===========================================================================
+
+/// Target qualifier for MESSAGE FLOW.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum FlowTarget {
+    /// `TO NODE '/node_name'`
+    Node(String),
+    /// `TO TOPIC '/topic_name'`
+    Topic(String),
+}
 
 /// Compound clause types — all are open source.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -404,21 +547,15 @@ pub enum CompoundClause {
         inner_time_range: Option<TimeRange>,
     },
 
-    /// `MESSAGE JOURNEY FOR TRACE 'trace_id'`
-    MessageJourney { trace_id: String },
+    /// `TRACE 'trace_id'` — recursive span tree walk.
+    Trace { trace_id: String },
 
-    /// `MESSAGE PATHS FOR TOPIC '/topic' SINCE ...`
-    MessagePaths { topic: String },
-
-    /// `MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst' [SHOW ...]`
-    MessagePath {
+    /// `MESSAGE FLOW FROM TOPIC '/topic' [TO NODE '/node' | TO TOPIC '/topic'] [SHOW ...]`
+    MessageFlow {
         from_topic: String,
-        to_node: String,
+        to_target: Option<FlowTarget>,
         show: Option<String>,
     },
-
-    /// `TRACE 'trace_id'`
-    Trace { trace_id: String },
 
     /// `SHOW TRACE_BREAKDOWN`
     ShowTraceBreakdown,
@@ -426,18 +563,49 @@ pub enum CompoundClause {
     /// `HEALTH() [FOR ROBOT ...]`
     Health,
 
-    /// `ANOMALY(field) [COMPARED TO ...]`
+    /// `ANOMALY(field) [FROM <source>] COMPARED TO <baseline>`
     Anomaly {
         field: String,
-        compared_to: Option<Baseline>,
+        /// Required in v0.5 — COMPARED TO baseline.
+        compared_to: Baseline,
+        /// Optional data source override (defaults to `otel_traces`).
+        data_source: Option<DataSource>,
     },
 
-    /// `PATH DEVIATION [FOR ROBOT ...] [SHOW ...]`
-    PathDeviation { show: Option<Vec<String>> },
+    /// `PATH DEVIATION [PLAN <n>] FOR TRACE|ROBOT ...`
+    PathDeviation {
+        target: DeviationTarget,
+        /// Plan index: 0 = first plan, -1 = latest (default).
+        plan_index: Option<i64>,
+    },
+
+    /// `JOINT DEVIATION FOR TRACE|ROBOT ...`
+    JointDeviation { target: DeviationTarget },
 
     /// `CORRELATE WITH <source>`
     Correlate { with_source: DataSource },
 
     /// `SHOW RECORDING`
     ShowRecording,
+
+    /// `SHOW DEPLOYMENTS [FOR ROBOT ...] [SINCE ...]`
+    ShowDeployments,
+
+    /// `SHOW SPAN SUMMARY [FOR ROBOT ...] [SINCE ...]`
+    ShowSpanSummary,
+
+    /// `SHOW PLANS [FOR TRACE 'trace_id'] [FOR ROBOT ...] [SINCE ...]`
+    ShowPlans { trace_id: Option<String> },
+
+    /// `SHOW TOPICS [FOR ROBOT ...] [SINCE ...]`
+    ShowTopics,
+
+    /// `SHOW NODES [FOR ROBOT ...] [SINCE ...]`
+    ShowNodes,
+
+    /// `SHOW NODE GRAPH [FOR ROBOT ...] [SINCE ...]`
+    ShowNodeGraph,
+
+    /// `SHOW JOINTS [FOR ROBOT ...]`
+    ShowJoints,
 }

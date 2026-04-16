@@ -1,0 +1,39 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Aggregation:
+        function: Count
+        args:
+          - Field: "*"
+  data_source: Traces
+  scope: ~
+  conditions:
+    Comparison:
+      left:
+        Field: status
+      op: Eq
+      right:
+        Literal:
+          String: ERROR
+  facet: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 6
+        unit: hours
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~
+  timeseries:
+    interval:
+      raw_value: 5
+      unit: min
+      si_value: 300
+      si_unit: s
+  enrichments: []

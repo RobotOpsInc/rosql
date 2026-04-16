@@ -46,6 +46,30 @@ FROM traces WHERE node = '/bt_navigator'
 FOR ROBOT 'robot_sim_001' FROM logs WHERE severity = 'ERROR'
 ```
 
+### Scope by version
+
+```sql
+FOR VERSION 'v1.2.3' FROM traces WHERE status = 'ERROR'
+```
+
+### Scope by environment
+
+```sql
+FOR ENVIRONMENT 'production' FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+```
+
+### Scope by session
+
+```sql
+FOR SESSION 'sess_abc123' FROM logs WHERE severity = 'ERROR'
+```
+
+### Compose multiple FOR clauses
+
+```sql
+FOR ROBOT 'robot_42' FOR VERSION 'v1.0.0' FOR ENVIRONMENT 'prod' FROM traces WHERE status = 'ERROR'
+```
+
 ### Read topic messages
 
 ```sql
@@ -94,18 +118,38 @@ SINCE yesterday
 ### Trace full message causality chain
 
 ```sql
-MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
+TRACE 'a3f1c9d2e8b04f7a'
 ```
 
-Returns all spans in the causal chain by walking `parent_span_id → span_id` recursively.
+Returns all spans in the causal chain by walking `parent_span_id → span_id` recursively via a CTE.
 
-### Find message paths for a topic
+:::note Removed in v0.4.1
+`MESSAGE JOURNEY FOR TRACE 'id'` has been removed. Use `TRACE 'id'` instead.
+:::
+
+### Find all message paths for a topic
 
 ```sql
-MESSAGE PATHS FOR TOPIC '/cmd_vel'
+MESSAGE FLOW FROM TOPIC '/cmd_vel'
 ```
 
 Shows which nodes published and subscribed to `/cmd_vel`.
+
+### Filter message flow to a specific destination node
+
+```sql
+MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/motor_driver'
+```
+
+### Filter message flow to a specific destination topic
+
+```sql
+MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
+```
+
+:::note Removed in v0.4.1
+`MESSAGE PATHS FOR TOPIC '/topic'` and `MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst'` have been removed. Use `MESSAGE FLOW FROM TOPIC ...` instead.
+:::
 
 ### All spans for a specific trace
 
@@ -115,9 +159,49 @@ TRACE 'trace-002'
 
 ---
 
+## Composable Health Dashboard
+
+Five focused queries that together cover what `HEALTH()` will do when implemented. Run them individually or wire them into a dashboard.
+
+### Error rate by robot
+
+```sql
+SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET robot_id SINCE 30 minutes ago
+```
+
+### Log severity breakdown
+
+```sql
+SELECT COUNT(*) FROM logs WHERE severity IN ('ERROR', 'WARN') FACET severity SINCE 30 minutes ago
+```
+
+### Action success rates
+
+```sql
+SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces SINCE 30 minutes ago
+```
+
+### Topic publish rates
+
+```sql
+SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 minutes ago
+```
+
+### P95 action latency
+
+```sql
+SELECT APPROX_PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose' SINCE 30 minutes ago
+```
+
+---
+
 ## Robot health and anomaly detection
 
 ### Robot health assessment
+
+:::caution Not implemented in v0.4
+`HEALTH()` is not yet compiled. Use the [Composable Health Dashboard](#composable-health-dashboard) recipes above.
+:::
 
 ```sql
 HEALTH() FOR ROBOT 'robot_sim_001'
@@ -125,27 +209,91 @@ HEALTH() FOR ROBOT 'robot_sim_001'
 
 Fan-out across traces, logs, and metrics to produce an overall health assessment.
 
-### Detect statistical anomalies in span duration
+### Detect statistical anomalies in span duration _(v0.4.3+)_
+
+Uses a two-phase z-score CTE to compare current values against a historical or fleet-wide baseline.
 
 ```sql
-ANOMALY(duration)
+-- Anomalous robots compared to last week
+ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago
+
+-- Anomalies compared to fleet-wide baseline
+ANOMALY(duration) COMPARED TO fleet SINCE 1 hour ago FACET robot_id
 ```
 
-Uses z-score (AVG/STDDEV) to find outlier spans — spans whose duration deviates significantly from the mean.
+Returns `robot_id`, `avg_current`, `avg_baseline`, `z_score`, `is_anomalous`, `direction`.
 
-### Path deviation
+### Finding anomalous robots after deployment _(v0.4.3+)_
+
+Compare post-deployment behaviour against the previous week's baseline to catch regressions:
 
 ```sql
-PATH DEVIATION FOR ROBOT 'robot_sim_001'
+ANOMALY(duration) FROM traces COMPARED TO last week FACET robot_id SINCE 24 hours ago
 ```
 
-Queries `/odom` trajectory data from `topic_messages` to detect if the robot deviated from its planned path.
+Pair with `FOR VERSION` to scope to a specific release:
+
+```sql
+FOR VERSION 'v1.3.0' ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 12 hours ago
+```
+
+### Path deviation analysis _(v0.4.3+)_
+
+Check if a robot deviated from its planned path during a specific trace:
+
+```sql
+PATH DEVIATION FOR TRACE 'trace-002'
+```
+
+Or over a time window for a robot:
+
+```sql
+PATH DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+```
+
+Select a specific plan (0 = first occurrence, -1 = latest, default = -1):
+
+```sql
+PATH DEVIATION PLAN 0 FOR ROBOT 'robot_sim_001' SINCE 6 hours ago
+```
+
+Returns lateral deviation in metres per waypoint plus summary stats.
+
+### Joint trajectory tracking _(v0.4.3+)_
+
+Compare planned vs. actual joint positions to detect mechanical issues or controller errors:
+
+```sql
+JOINT DEVIATION FOR TRACE 'trace-002'
+```
+
+Or across a time window:
+
+```sql
+JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 1 hour ago
+```
+
+Returns per-joint `position_error_rad` and summary statistics.
+
+### Browse robot joint map _(v0.4.3+)_
+
+Inspect the URDF-derived joint map registered for a robot model:
+
+```sql
+SHOW JOINTS FOR ROBOT 'robot_sim_001'
+```
+
+Returns `joint_name`, `joint_index`, `joint_type`, `lower_limit`, `upper_limit`.
 
 ---
 
 ## MCAP recordings
 
 ### Find the recording that covers a time window
+
+:::caution Not implemented in v0.4
+`SHOW RECORDING` is not yet compiled. Use `FROM recordings LIMIT 5` to browse recording metadata directly.
+:::
 
 ```sql
 SHOW RECORDING
@@ -176,6 +324,36 @@ FROM traces
 | WHERE status = 'ERROR'
 | FACET robot_id
 | COMPARE TO last week
+```
+
+### Compare error rate to a previous version
+
+```sql
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago | COMPARE TO VERSION 'v1.0.0'
+```
+
+### Compare two versions head-to-head
+
+```sql
+FROM traces WHERE action_name = '/navigate_to_pose' COMPARE VERSION 'v1.0' TO VERSION 'v2.0'
+```
+
+### Deployment history for a robot
+
+```sql
+SHOW DEPLOYMENTS FOR ROBOT 'robot_42' SINCE 7 days ago
+```
+
+### Top spans by average duration
+
+```sql
+SHOW SPAN SUMMARY FOR ROBOT 'robot_42' SINCE 1 hour ago
+```
+
+### Plan spans for a specific trace
+
+```sql
+SHOW PLANS FOR TRACE 'a3f1c9d2e8b04f7a'
 ```
 
 ### Log analysis with ordering
@@ -215,10 +393,289 @@ SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_po
 SELECT AVG(duration) AS avg_dur, MAX(duration) AS max_dur, COUNT(*) AS total FROM traces
 ```
 
+### Rolling average (MOVING_AVG)
+
+Smooth out spikes in action duration over a 5-row window:
+
+```sql
+SELECT MOVING_AVG(duration, 5) FROM traces WHERE action_name = '/navigate_to_pose'
+```
+
+### Rate of change (DERIVATIVE)
+
+Detect rising metric values — useful for spotting resource exhaustion trends:
+
+```sql
+SELECT DERIVATIVE(metric_value) FROM metrics WHERE metric_name = 'system.cpu.total_usage_pct'
+```
+
+### Approximate distinct count
+
+Count unique action names without a full distinct scan (DuckDB uses HLL; PostgreSQL falls back to exact):
+
+```sql
+SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces SINCE 1 hour ago
+```
+
+---
+
+## Geospatial filtering _(v0.4.3+)_
+
+### Filter by GPS proximity (Haversine)
+
+Find odom messages where the robot was within 500 m of a GPS coordinate:
+
+```sql
+FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago
+```
+
+Uses inline Haversine SQL (great-circle distance) extracting `position.latitude` / `position.longitude` from the `fields` JSONB column.
+
+### Filter by local frame proximity (Euclidean)
+
+Find odom messages within 2 m of a local coordinate using Euclidean distance:
+
+```sql
+FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago
+```
+
+Extracts `pose.pose.position.x` / `pose.pose.position.y` from `fields`.
+
+### Monitoring joint positions during failures
+
+Use array-indexed field access to read individual joint positions from `/joint_states` messages:
+
+```sql
+FROM joint_states
+WHERE fields['position[0]'] > 1.5
+FOR ROBOT 'arm_01'
+SINCE 1 hour ago
+```
+
+`fields['position[0]']` compiles to `"fields"->'position'->>0` on PostgreSQL/DuckDB.
+
+---
+
+## Pagination
+
+### Page through results with LIMIT and OFFSET
+
+```sql
+FROM logs ORDER BY timestamp DESC LIMIT 20 OFFSET 0
+FROM logs ORDER BY timestamp DESC LIMIT 20 OFFSET 20
+FROM logs ORDER BY timestamp DESC LIMIT 20 OFFSET 40
+```
+
+Pipeline form:
+
+```sql
+FROM logs | ORDER BY timestamp DESC | LIMIT 20 | OFFSET 40
+```
+
+---
+
+## Investigating failed navigation with ENRICH WITH
+
+Use `ENRICH WITH` to pull correlated data from a second source alongside your primary query. Here we fetch the error trace and enrich it with log context from the same trace.
+
+### Step 1: find the failed navigation trace
+
+```sql
+FROM traces
+WHERE action_name = '/navigate_to_pose' AND status = 'ERROR'
+SINCE 2 hours ago
+ORDER BY timestamp DESC
+LIMIT 5
+```
+
+### Step 2: enrich with logs for the same trace
+
+```sql
+FROM traces
+WHERE action_name = '/navigate_to_pose' AND status = 'ERROR'
+SINCE 2 hours ago
+ENRICH WITH logs
+```
+
+The result includes all primary trace columns plus `_enriched.logs` — a nested array of log rows sharing the same `trace_id`.
+
+### Step 3: inspect the trace tree
+
+```sql
+TRACE 'a3f1c9d2e8b04f7a'
+```
+
+Returns a nested span tree (`format_hint: Gantt`) showing the full execution timeline for that navigation attempt.
+
+---
+
+## Finding anomalous robots after deployment
+
+### Spot robots behaving differently from the fleet after a code push
+
+```sql
+ANOMALY(duration)
+COMPARED TO fleet
+FACET robot_id
+SINCE 1 hour ago
+```
+
+Returns one row per robot with `z_score`, `is_anomalous`, and `direction` (higher/lower). Robots with `|z_score| > 2` are flagged as anomalous.
+
+:::tip
+Always add `FACET robot_id` or `FACET action_name` to `ANOMALY`. Without a FACET, the comparison mixes heterogeneous spans (heartbeats, navigation, diagnostics) producing meaningless z-scores. ROSQL will warn you if you forget.
+:::
+
+### Compare this version to the previous one
+
+```sql
+FROM traces
+WHERE action_name = '/navigate_to_pose'
+COMPARE VERSION 'v2.3.1' TO VERSION 'v2.3.0'
+```
+
+---
+
+## REPL showcase examples
+
+These six queries illustrate the range of visualizations available. Each uses a distinct `format_hint`.
+
+### 1. Line chart — error rate over time
+
+```sql
+SELECT COUNT(*) FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 6 hours ago
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "LineChart",
+  "visualization": { "x_axis": "time_bucket", "y_axis": "count" }
+}
+```
+
+### 2. Gantt chart — trace waterfall
+
+```sql
+TRACE 'abc123'
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "Gantt",
+  "visualization": null
+}
+```
+
+### 3. Directed graph — pub/sub topology
+
+```sql
+MESSAGE FLOW FROM TOPIC '/cmd_vel'
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "DirectedGraph",
+  "visualization": null
+}
+```
+
+### 4. Severity-colored log table
+
+```sql
+FROM logs WHERE severity IN ('ERROR', 'FATAL') SINCE 1 hour ago
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "LogTable",
+  "visualization": { "color_field": "severity" }
+}
+```
+
+### 5. Scalar cards — KPI summary
+
+```sql
+SELECT COUNT(*) AS total_errors, AVG(duration) AS avg_duration FROM traces SINCE 1 hour ago
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "ScalarCards",
+  "visualization": { "label_field": "total_errors" }
+}
+```
+
+### 6. Bar chart — error count by robot
+
+```sql
+SELECT action_name, COUNT(*) FROM traces FACET action_name SINCE 1 hour ago
+```
+
+**Response metadata:**
+```json
+{
+  "format_hint": "BarChart",
+  "visualization": { "x_axis": "action_name", "y_axis": "count" }
+}
+```
+
+---
+
+## Session and mission data model
+
+A ROSQL *session* corresponds to a ROS2 run scoped by `ros.session.id`. All spans, logs, and metrics emitted during a single robot operation (delivery, inspection, etc.) share this attribute.
+
+### Setting session attributes (Python)
+
+```python
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.resources import Resource
+
+resource = Resource.create({
+    "robot.id": "robot_42",
+    "ros.session.id": "delivery_042",
+    "ros.session.type": "delivery",
+    "service.version": "2.3.1",
+    "deployment.environment": "production",
+})
+
+provider = TracerProvider(resource=resource)
+trace.set_tracer_provider(provider)
+```
+
+### Setting session attributes (C++)
+
+```cpp
+#include "opentelemetry/sdk/resource/resource.h"
+
+auto resource = opentelemetry::sdk::resource::Resource::Create({
+    {"robot.id", "robot_42"},
+    {"ros.session.id", "delivery_042"},
+    {"ros.session.type", "delivery"},
+    {"service.version", "2.3.1"},
+    {"deployment.environment", "production"},
+});
+```
+
+### Querying by session
+
+```sql
+FOR SESSION 'delivery_042' FROM traces WHERE status = 'ERROR'
+FOR SESSION 'delivery_042' FROM logs ORDER BY timestamp DESC
+```
+
 ---
 
 ## See also
 
 - [Command Reference →](./command-reference) — full syntax for every ROSQL statement
+- [Schema Reference →](./schema-reference) — tables, fields, and OTel conventions
+- [Concepts →](./concepts) — SHOW vs FROM, scoping, joint indexing
 - [Schema Reference →](./schema-reference) — table structure ROSQL expects
 - [Examples page →](/examples) — killer demos with detailed explanations

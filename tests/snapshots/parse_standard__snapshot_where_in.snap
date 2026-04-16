@@ -6,7 +6,7 @@ Standard:
   selections:
     - Star
   data_source: Logs
-  robot_scope: ~
+  scope: ~
   conditions:
     In:
       expr:
@@ -21,5 +21,8 @@ Standard:
   time_basis: ~
   order_by: ~
   limit: ~
+  offset: ~
   output_format: ~
   baseline: ~
+  timeseries: ~
+  enrichments: []

@@ -1,0 +1,24 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause:
+    Anomaly:
+      field: duration
+      compared_to: Last24Hours
+      data_source: ~
+  scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

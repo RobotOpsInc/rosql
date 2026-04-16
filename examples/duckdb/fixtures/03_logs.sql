@@ -1,43 +1,170 @@
--- Fixture: otel_logs — /rosout logs for the 3 navigation actions
+-- Fixture: otel_logs — /rosout logs for all 3 robots across all 9 missions
+--
+-- Every trace_id here exists in otel_traces (referential integrity requirement).
+-- Severity distribution: mostly INFO, WARN/ERROR only for trace-amr02-m3 failure.
+-- Timestamps match their parent trace windows (within same NOW()::TIMESTAMP-relative frame).
 
--- Action 1: Success logs
-INSERT INTO otel_logs (timestamp, trace_id, span_id, severity_text, severity_number, service_name, body, log_attributes) VALUES
-('2026-03-24T10:00:01Z', 'trace-001', 'span-001-root', 'INFO', 9, 'robot_sim_001',
- 'Navigation goal received: navigate to waypoint A (x=5.0, y=3.0)',
+-- ============================================================================
+-- robot-amr-01 — missions 1-3 (all OK, INFO only)
+-- ============================================================================
+
+INSERT INTO otel_logs (timestamp, trace_id, span_id, severity_text, severity_number, service_name, body, resource_attributes, log_attributes) VALUES
+-- Mission 1
+(NOW()::TIMESTAMP - INTERVAL '57 minutes' + INTERVAL '1 second',
+ 'trace-amr01-m1', 'span-a01-m1-root', 'INFO', 9, 'robot-amr-01',
+ 'Navigation goal received: navigate to zone A (x=8.0, y=4.0)',
+ '{"robot.id": "robot-amr-01"}',
  '{"ros.node": "/bt_navigator"}'),
-('2026-03-24T10:04:00Z', 'trace-001', 'span-001-ctrl', 'INFO', 9, 'robot_sim_001',
- 'Following path: 12 waypoints, estimated 8.0s',
+(NOW()::TIMESTAMP - INTERVAL '57 minutes' + INTERVAL '3 seconds',
+ 'trace-amr01-m1', 'span-a01-m1-ctrl', 'INFO', 9, 'robot-amr-01',
+ 'Following planned path: 14 waypoints, estimated 7.0s',
+ '{"robot.id": "robot-amr-01"}',
  '{"ros.node": "/controller_server"}'),
-('2026-03-24T10:08:00Z', 'trace-001', 'span-001-root', 'INFO', 9, 'robot_sim_001',
+(NOW()::TIMESTAMP - INTERVAL '57 minutes' + INTERVAL '7 seconds',
+ 'trace-amr01-m1', 'span-a01-m1-root', 'INFO', 9, 'robot-amr-01',
  'Navigation goal reached successfully',
+ '{"robot.id": "robot-amr-01"}',
+ '{"ros.node": "/bt_navigator"}'),
+-- Mission 2
+(NOW()::TIMESTAMP - INTERVAL '43 minutes' + INTERVAL '1 second',
+ 'trace-amr01-m2', 'span-a01-m2-root', 'INFO', 9, 'robot-amr-01',
+ 'Navigation goal received: navigate to zone B (x=12.0, y=6.0)',
+ '{"robot.id": "robot-amr-01"}',
+ '{"ros.node": "/bt_navigator"}'),
+(NOW()::TIMESTAMP - INTERVAL '43 minutes' + INTERVAL '8 seconds',
+ 'trace-amr01-m2', 'span-a01-m2-root', 'INFO', 9, 'robot-amr-01',
+ 'Navigation goal reached successfully',
+ '{"robot.id": "robot-amr-01"}',
+ '{"ros.node": "/bt_navigator"}'),
+-- Mission 3
+(NOW()::TIMESTAMP - INTERVAL '27 minutes' + INTERVAL '1 second',
+ 'trace-amr01-m3', 'span-a01-m3-root', 'INFO', 9, 'robot-amr-01',
+ 'Navigation goal received: navigate to zone C (x=5.0, y=9.0)',
+ '{"robot.id": "robot-amr-01"}',
+ '{"ros.node": "/bt_navigator"}'),
+(NOW()::TIMESTAMP - INTERVAL '27 minutes' + INTERVAL '9 seconds',
+ 'trace-amr01-m3', 'span-a01-m3-root', 'INFO', 9, 'robot-amr-01',
+ 'Navigation goal reached successfully',
+ '{"robot.id": "robot-amr-01"}',
  '{"ros.node": "/bt_navigator"}');
 
--- Action 2: Battery warning + abort
-INSERT INTO otel_logs (timestamp, trace_id, span_id, severity_text, severity_number, service_name, body, log_attributes) VALUES
-('2026-03-24T10:09:01Z', 'trace-002', 'span-002-root', 'INFO', 9, 'robot_sim_001',
- 'Navigation goal received: navigate to waypoint B (x=10.0, y=7.0)',
- '{"ros.node": "/bt_navigator"}'),
-('2026-03-24T10:12:00Z', 'trace-002', 'span-002-bt', 'WARN', 13, 'robot_sim_001',
- 'Battery level low: 18%. Consider returning to charging station.',
- '{"ros.node": "/battery_monitor", "battery_pct": "18"}'),
-('2026-03-24T10:15:00Z', 'trace-002', 'span-002-bt', 'WARN', 13, 'robot_sim_001',
- 'Battery level critical: 15%. Aborting navigation.',
- '{"ros.node": "/battery_monitor", "battery_pct": "15"}'),
-('2026-03-24T10:15:01Z', 'trace-002', 'span-002-root', 'ERROR', 17, 'robot_sim_001',
- 'Navigation aborted: battery critical (15%). Action goal_id=goal-002 failed.',
- '{"ros.node": "/bt_navigator", "ros.action.name": "/navigate_to_pose"}'),
-('2026-03-24T10:15:02Z', 'trace-002', 'span-002-ctrl', 'ERROR', 17, 'robot_sim_001',
- 'Controller stopped: navigation aborted by behavior tree',
- '{"ros.node": "/controller_server"}');
+-- ============================================================================
+-- robot-amr-02 — Mission 1 (OK, INFO only)
+-- ============================================================================
 
--- Action 3: Timeout
-INSERT INTO otel_logs (timestamp, trace_id, span_id, severity_text, severity_number, service_name, body, log_attributes) VALUES
-('2026-03-24T10:25:01Z', 'trace-003', 'span-003-root', 'INFO', 9, 'robot_sim_001',
- 'Navigation goal received: navigate to waypoint C (x=15.0, y=2.0)',
+INSERT INTO otel_logs (timestamp, trace_id, span_id, severity_text, severity_number, service_name, body, resource_attributes, log_attributes) VALUES
+(NOW()::TIMESTAMP - INTERVAL '56 minutes' + INTERVAL '1 second',
+ 'trace-amr02-m1', 'span-a02-m1-root', 'INFO', 9, 'robot-amr-02',
+ 'Navigation goal received: navigate to drop-off A (x=10.0, y=5.0)',
+ '{"robot.id": "robot-amr-02"}',
  '{"ros.node": "/bt_navigator"}'),
-('2026-03-24T10:45:00Z', 'trace-003', 'span-003-ctrl', 'WARN', 13, 'robot_sim_001',
- 'Controller timeout approaching: no progress for 20s',
- '{"ros.node": "/controller_server"}'),
-('2026-03-24T10:55:00Z', 'trace-003', 'span-003-root', 'ERROR', 17, 'robot_sim_001',
- 'Navigation timed out after 30s. Action goal_id=goal-003 failed.',
+(NOW()::TIMESTAMP - INTERVAL '56 minutes' + INTERVAL '7 seconds',
+ 'trace-amr02-m1', 'span-a02-m1-root', 'INFO', 9, 'robot-amr-02',
+ 'Navigation goal reached successfully',
+ '{"robot.id": "robot-amr-02"}',
+ '{"ros.node": "/bt_navigator"}');
+
+-- ============================================================================
+-- robot-amr-02 — Mission 2 (OK, INFO only)
+-- ============================================================================
+
+INSERT INTO otel_logs (timestamp, trace_id, span_id, severity_text, severity_number, service_name, body, resource_attributes, log_attributes) VALUES
+(NOW()::TIMESTAMP - INTERVAL '42 minutes' + INTERVAL '1 second',
+ 'trace-amr02-m2', 'span-a02-m2-root', 'INFO', 9, 'robot-amr-02',
+ 'Navigation goal received: navigate to pick-up B (x=14.0, y=3.0)',
+ '{"robot.id": "robot-amr-02"}',
+ '{"ros.node": "/bt_navigator"}'),
+(NOW()::TIMESTAMP - INTERVAL '42 minutes' + INTERVAL '8 seconds',
+ 'trace-amr02-m2', 'span-a02-m2-root', 'INFO', 9, 'robot-amr-02',
+ 'Navigation goal reached successfully',
+ '{"robot.id": "robot-amr-02"}',
+ '{"ros.node": "/bt_navigator"}');
+
+-- ============================================================================
+-- robot-amr-02 — Mission 3 (FAILURE) — ERROR and WARN logs  ← ENRICH target
+--
+-- These logs are what "TRACE 'trace-amr02-m3' ENRICH WITH logs LIMIT 5" returns.
+-- severity_number: 9=INFO, 13=WARN, 17=ERROR
+-- ============================================================================
+
+INSERT INTO otel_logs (timestamp, trace_id, span_id, severity_text, severity_number, service_name, body, resource_attributes, log_attributes) VALUES
+-- Initial goal accepted
+(NOW()::TIMESTAMP - INTERVAL '26 minutes' + INTERVAL '1 second',
+ 'trace-amr02-m3', 'span-a02-m3-root', 'INFO', 9, 'robot-amr-02',
+ 'Navigation goal received: navigate to dock C (x=18.0, y=8.0)',
+ '{"robot.id": "robot-amr-02"}',
+ '{"ros.node": "/bt_navigator"}'),
+-- Plan computed OK
+(NOW()::TIMESTAMP - INTERVAL '26 minutes' + INTERVAL '2 seconds',
+ 'trace-amr02-m3', 'span-a02-m3-plan', 'INFO', 9, 'robot-amr-02',
+ 'Global plan computed: 22 waypoints, 18.0m estimated distance',
+ '{"robot.id": "robot-amr-02"}',
+ '{"ros.node": "/global_planner"}'),
+-- *** First WARNING: costmap update is taking longer than expected
+(NOW()::TIMESTAMP - INTERVAL '26 minutes' + INTERVAL '3 seconds',
+ 'trace-amr02-m3', 'span-a02-m3-costmap', 'WARN', 13, 'robot-amr-02',
+ 'Costmap update taking longer than expected: 1.5s elapsed (threshold: 1.0s)',
+ '{"robot.id": "robot-amr-02"}',
+ '{"ros.node": "/local_costmap_node", "elapsed_ms": "1500"}'),
+-- *** Second WARNING: recovery behavior triggered
+(NOW()::TIMESTAMP - INTERVAL '26 minutes' + INTERVAL '7 seconds',
+ 'trace-amr02-m3', 'span-a02-m3-bt', 'WARN', 13, 'robot-amr-02',
+ 'Recovery behavior triggered: ClearCostmapService (costmap stale, timeout=8.0s)',
+ '{"robot.id": "robot-amr-02"}',
+ '{"ros.node": "/bt_navigator", "recovery_type": "ClearCostmapService"}'),
+-- *** ERROR: costmap update timed out — the root cause
+(NOW()::TIMESTAMP - INTERVAL '26 minutes' + INTERVAL '8300 milliseconds',
+ 'trace-amr02-m3', 'span-a02-m3-costmap', 'ERROR', 17, 'robot-amr-02',
+ 'Costmap update timed out after 8.0s — /scan topic not publishing (subscriber lag). This may indicate a node lifecycle issue following the v2.4.0 firmware upgrade.',
+ '{"robot.id": "robot-amr-02"}',
+ '{"ros.node": "/local_costmap_node", "timeout_ms": "8000", "topic": "/scan"}'),
+-- *** ERROR: navigation aborted
+(NOW()::TIMESTAMP - INTERVAL '26 minutes' + INTERVAL '17 seconds',
+ 'trace-amr02-m3', 'span-a02-m3-root', 'ERROR', 17, 'robot-amr-02',
+ 'Navigation aborted: controller failed to compute velocity after costmap timeout. Goal goal-a02-m3 failed.',
+ '{"robot.id": "robot-amr-02"}',
  '{"ros.node": "/bt_navigator", "ros.action.name": "/navigate_to_pose"}');
+
+-- ============================================================================
+-- robot-amr-03 — missions 1-3 (all OK, some INFO/WARN for slow mission 3)
+-- ============================================================================
+
+INSERT INTO otel_logs (timestamp, trace_id, span_id, severity_text, severity_number, service_name, body, resource_attributes, log_attributes) VALUES
+-- Mission 1
+(NOW()::TIMESTAMP - INTERVAL '55 minutes' + INTERVAL '1 second',
+ 'trace-amr03-m1', 'span-a03-m1-root', 'INFO', 9, 'robot-amr-03',
+ 'Navigation goal received: navigate to shelf A (x=6.0, y=3.0)',
+ '{"robot.id": "robot-amr-03"}',
+ '{"ros.node": "/bt_navigator"}'),
+(NOW()::TIMESTAMP - INTERVAL '55 minutes' + INTERVAL '10 seconds',
+ 'trace-amr03-m1', 'span-a03-m1-root', 'INFO', 9, 'robot-amr-03',
+ 'Navigation goal reached successfully',
+ '{"robot.id": "robot-amr-03"}',
+ '{"ros.node": "/bt_navigator"}'),
+-- Mission 2
+(NOW()::TIMESTAMP - INTERVAL '41 minutes' + INTERVAL '1 second',
+ 'trace-amr03-m2', 'span-a03-m2-root', 'INFO', 9, 'robot-amr-03',
+ 'Navigation goal received: navigate to shelf B (x=11.0, y=7.0)',
+ '{"robot.id": "robot-amr-03"}',
+ '{"ros.node": "/bt_navigator"}'),
+(NOW()::TIMESTAMP - INTERVAL '41 minutes' + INTERVAL '11 seconds',
+ 'trace-amr03-m2', 'span-a03-m2-root', 'INFO', 9, 'robot-amr-03',
+ 'Navigation goal reached successfully',
+ '{"robot.id": "robot-amr-03"}',
+ '{"ros.node": "/bt_navigator"}'),
+-- Mission 3 (slow — elevated costmap lag)
+(NOW()::TIMESTAMP - INTERVAL '25 minutes' + INTERVAL '1 second',
+ 'trace-amr03-m3', 'span-a03-m3-root', 'INFO', 9, 'robot-amr-03',
+ 'Navigation goal received: navigate to charging station (x=2.0, y=1.0)',
+ '{"robot.id": "robot-amr-03"}',
+ '{"ros.node": "/bt_navigator"}'),
+(NOW()::TIMESTAMP - INTERVAL '25 minutes' + INTERVAL '2 seconds',
+ 'trace-amr03-m3', 'span-a03-m3-costmap', 'WARN', 13, 'robot-amr-03',
+ 'Costmap update slower than nominal: 1.8s (hardware may be degrading)',
+ '{"robot.id": "robot-amr-03"}',
+ '{"ros.node": "/local_costmap_node", "elapsed_ms": "1800"}'),
+(NOW()::TIMESTAMP - INTERVAL '25 minutes' + INTERVAL '13 seconds',
+ 'trace-amr03-m3', 'span-a03-m3-root', 'INFO', 9, 'robot-amr-03',
+ 'Navigation goal reached successfully (slow path due to elevated costmap lag)',
+ '{"robot.id": "robot-amr-03"}',
+ '{"ros.node": "/bt_navigator"}');

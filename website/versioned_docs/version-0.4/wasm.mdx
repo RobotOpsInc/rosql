@@ -1,0 +1,173 @@
+---
+title: WASM / Browser
+description: Use the @robotops/rosql npm package to parse and validate ROSQL queries in the browser
+sidebar_position: 4
+keywords: [rosql, wasm, webassembly, browser, npm, typescript, javascript]
+---
+
+# WASM / Browser
+
+The `@robotops/rosql` npm package exposes the ROSQL parser and validator for browser environments. Use it to build editor integrations, live query validation, or custom UIs.
+
+## Install
+
+```bash
+npm install @robotops/rosql
+# or
+pnpm add @robotops/rosql
+```
+
+## Usage
+
+```typescript
+import init, { parse, validate, compile, get_completions } from '@robotops/rosql';
+
+// Initialize the WASM module (call once before using other functions)
+await init();
+
+// Parse a query — returns a JS object (not a string)
+const result = parse('FROM traces WHERE duration > 500 ms SINCE 1 hour ago');
+// { ok: true, ast: { ... } }  or  { ok: false, error: { message, line, column, suggestion } }
+
+// Validate syntax — returns { valid: boolean, errors: [...], warnings: [...] }
+const validation = validate('INSERT INTO logs');
+// { valid: false, errors: [{ message, line, column, suggestion }], warnings: [] }
+
+// Compile to SQL — returns a JS object
+const compiled = compile('FROM traces WHERE duration > 500 ms');
+// { ok: true, sql: "SELECT ...", default_limit_applied: true, format_hint: "Table", visualization: null, warnings: [] }
+
+// Get autocomplete suggestions at cursor position
+const completions = get_completions('FROM ', 5);
+// [{ "label": "traces", "kind": "DataSource" }, { "label": "logs", ... }, ...]
+```
+
+## API reference
+
+All functions return JavaScript objects directly (not JSON strings). They never throw — errors are returned as structured objects.
+
+### `init(url?: string): Promise<void>`
+
+Initializes the WASM module. Must be called before using any other function.
+
+Optionally accepts a URL to the `.wasm` file. If omitted, the module is resolved relative to the package.
+
+### `parse(query: string): object`
+
+Parses a ROSQL query and returns an object:
+
+```typescript
+// Success
+{ ok: true; ast: object }
+
+// Failure
+{ ok: false; error: { message: string; line: number; column: number; suggestion: string | null } }
+```
+
+### `validate(query: string): object`
+
+Validates a ROSQL query. Also runs a compilation pass to surface `NotImplemented` warnings. Returns:
+
+```typescript
+{
+  valid: boolean;
+  errors: Array<{ message: string; line: number; column: number; suggestion?: string }>;
+  warnings: Array<{ code: string; message: string; suggestion: string | null }>;
+}
+```
+
+Use this for live editor feedback. `warnings` includes non-fatal issues such as `ANOMALY` without `FACET`, or reserved features like `HEALTH()`.
+
+### `compile(query: string): object`
+
+Compiles a ROSQL query to SQL (DuckDB dialect). Returns:
+
+```typescript
+// Success
+{
+  ok: true;
+  sql: string;
+  default_limit_applied: boolean;
+  format_hint: string;         // e.g. "Table", "LineChart", "Gantt"
+  visualization: object | null; // axis and series hints for charting
+  warnings: Array<{ code: string; message: string; suggestion: string | null }>;
+}
+
+// Failure
+{ ok: false; error: { message: string } }
+```
+
+### `get_completions(query: string, cursor: number): Array<object>`
+
+Returns autocomplete suggestions for an in-progress query at the given cursor position.
+
+```typescript
+Array<{
+  label: string;
+  kind: 'DataSource' | 'Keyword' | 'Field' | 'Function';
+}>
+```
+
+## React editor integration
+
+Example using `validate` for live error highlighting in a `<textarea>`:
+
+```tsx
+import { useState, useEffect } from 'react';
+import init, { validate } from '@robotops/rosql';
+
+export function RosqlEditor() {
+  const [query, setQuery] = useState('FROM traces WHERE status = \'ERROR\'');
+  const [errors, setErrors] = useState<string[]>([]);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    init().then(() => setReady(true));
+  }, []);
+
+  const handleChange = (value: string) => {
+    setQuery(value);
+    if (ready) {
+      const result = validate(value);
+      setErrors(result.errors.map((e: { message: string }) => e.message));
+    }
+  };
+
+  return (
+    <div>
+      <textarea
+        value={query}
+        onChange={(e) => handleChange(e.target.value)}
+        rows={6}
+        style={{ width: '100%', fontFamily: 'monospace' }}
+      />
+      {errors.length > 0 && (
+        <ul style={{ color: 'red' }}>
+          {errors.map((err, i) => <li key={i}>{err}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+```
+
+## Bundle size
+
+The WASM binary adds approximately ~500KB to your bundle (gzipped). To avoid impacting initial load time, load it lazily:
+
+```typescript
+// Lazy load on first use
+let rosql: typeof import('@robotops/rosql') | null = null;
+
+async function getRosql() {
+  if (!rosql) {
+    rosql = await import('@robotops/rosql');
+    await rosql.default();
+  }
+  return rosql;
+}
+```
+
+## Try it live
+
+→ [Try ROSQL in your browser](/playground)

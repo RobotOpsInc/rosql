@@ -1,0 +1,25 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause: ShowDeployments
+  scope:
+    robot:
+      Single: robot_42
+    version: ~
+    environment: ~
+    session: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 30
+        unit: days
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

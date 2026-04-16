@@ -1,15 +1,20 @@
 ---
 title: Schema Reference
 description: Complete OTel schema reference for ROSQL — table definitions, field mappings, span attributes, and profiles
-sidebar_position: 6
-keywords: [rosql, schema, opentelemetry, otel, ros2, tables, postgresql, ddl, span attributes]
+sidebar_position: 7
+keywords: [rosql, schema, opentelemetry, otel, ros2, tables, postgresql, clickhouse, parquet, ddl, span attributes]
 ---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
 
 # Schema Reference
 
 ROSQL expects telemetry data in the OpenTelemetry schema conventions for ROS2. This document defines the complete schema: table definitions, span attributes, field mappings, and schema profiles.
 
 If you're building a ROS2-to-OTel bridge or setting up your own telemetry storage, implement these conventions to get full ROSQL feature support.
+
+The **table names** are the same across all backends. What differs is the physical layout — column naming conventions for SQL databases, or directory structure for the Parquet backend.
 
 ---
 
@@ -29,14 +34,26 @@ If you're building a ROS2-to-OTel bridge or setting up your own telemetry storag
 
 | Attribute | Type | Example | Used by ROSQL for |
 |-----------|------|---------|-------------------|
-| `ros.topic` | string | `/cmd_vel` | Topic filtering, `MESSAGE PATHS` |
+| `ros.topic` | string | `/cmd_vel` | Topic filtering, `MESSAGE FLOW` |
 | `ros.message_type` | string | `geometry_msgs/msg/Twist` | Message type filtering |
 | `ros.publisher_node` | string | `/controller_server` | Publisher attribution |
 | `ros.subscriber_node` | string | `/motor_driver` | Subscriber attribution |
+| `ros.session.id` | string | `sess_abc123` | `FOR SESSION` scoping |
 
-### ParentSpanId convention for MESSAGE JOURNEY
+### Universal scope resource attributes
 
-The publish span's `SpanId` must be set as the `ParentSpanId` of the corresponding subscribe span. This creates the causal chain that `MESSAGE JOURNEY` traverses.
+These resource attributes are set at the SDK/bridge level and enable `FOR` clause scoping across all query types.
+
+| Attribute | Type | Example | Used by ROSQL for |
+|-----------|------|---------|-------------------|
+| `robot.id` | string | `robot_42` | `FOR ROBOT` scoping |
+| `service.version` | string | `v1.2.3` | `FOR VERSION` scoping |
+| `deployment.environment` | string | `production` | `FOR ENVIRONMENT` scoping |
+| `ros.session.id` | string | `sess_abc123` | `FOR SESSION` scoping |
+
+### ParentSpanId convention for `TRACE`
+
+The publish span's `SpanId` must be set as the `ParentSpanId` of the corresponding subscribe span. This creates the causal chain that `TRACE` traverses recursively via a CTE.
 
 ```
 Publisher span (SpanId: "abc")
@@ -52,11 +69,35 @@ Implementing this correctly requires middleware-level instrumentation — it can
 
 | Metric name | Unit | Description |
 |-------------|------|-------------|
-| `ros2.topic.rx_rate_hz` | Hz | Topic receive rate |
-| `ros2.topic.rx_bandwidth_bps` | B/s | Topic bandwidth |
-| `ros2.topic.last_message_age_ms` | ms | Age of last received message |
-| `system.cpu.total_usage_pct` | % | Total CPU usage |
-| `system.memory.usage_pct` | % | Memory usage |
+| `ros2.topic.message_rate` | Hz | Topic publish rate |
+| `ros2.topic.bandwidth` | B/s | Topic bandwidth |
+| `ros2.topic.messages_received` | — | Messages received by subscribers |
+| `ros2.topic.messages_captured` | — | Messages captured (e.g. by recorder) |
+| `ros2.topic.messages_filtered` | — | Messages filtered/dropped |
+| `ros2.action_servers.count` | — | Active action server count |
+| `ros2.services.count` | — | Active service count |
+| `ros2.action.queued_goals` | — | Queued action goals |
+| `ros2.action.active_goals` | — | Active action goals |
+| `ros2.action.completion_rate` | Hz | Action completion rate |
+| `system.cpu.utilization` | % | Total CPU utilization |
+| `system.memory.utilization` | % | Memory utilization |
+| `system.memory.usage` | B | Memory usage in bytes |
+| `system.filesystem.utilization` | % | Disk utilization |
+| `system.filesystem.usage` | B | Disk usage in bytes |
+| `system.disk.io` | B/s | Disk I/O throughput |
+| `system.disk.operations` | ops/s | Disk IOPS |
+| `system.network.io` | B/s | Network I/O throughput |
+| `system.network.packets` | packets/s | Network packet rate |
+| `system.network.latency` | ms | Network latency |
+| `system.network.jitter` | ms | Network jitter |
+| `system.network.packet_loss` | % | Packet loss rate |
+| `system.temperature` | °C | System temperature |
+| `system.battery.charge` | % | Battery state of charge |
+| `system.battery.voltage` | V | Battery voltage |
+| `system.battery.current` | A | Battery current draw |
+| `system.battery.temperature` | °C | Battery temperature |
+| `process.cpu.utilization` | % | Per-process CPU utilization |
+| `process.memory.usage` | B | Per-process memory usage |
 
 ---
 
@@ -65,6 +106,11 @@ Implementing this correctly requires middleware-level instrumentation — it can
 These three tables are required for basic ROSQL functionality.
 
 ### `otel_traces`
+
+Used by: `FROM traces`, `TRACE`, `MESSAGE FLOW`, `DURING()`, `ACTION_SUCCESS_RATE`, `MOVING_AVG`, `DERIVATIVE`, `SHOW DEPLOYMENTS`, `SHOW SPAN SUMMARY`, `SHOW PLANS`
+
+<Tabs>
+  <TabItem value="postgres" label="PostgreSQL" default>
 
 ```sql
 CREATE TABLE otel_traces (
@@ -82,9 +128,68 @@ CREATE TABLE otel_traces (
 );
 ```
 
-Used by: `FROM traces`, `MESSAGE JOURNEY`, `MESSAGE PATHS`, `TRACE`, `HEALTH()`, `ANOMALY()`, `DURING()`, `CORRELATE`, `SINCE last action failure`
+Use `--schema otel-postgres` (default for PostgreSQL and MySQL).
+
+  </TabItem>
+  <TabItem value="clickhouse" label="ClickHouse">
+
+```sql
+CREATE TABLE otel_traces (
+    Timestamp            DateTime64(9) NOT NULL,
+    TraceId              String NOT NULL,
+    SpanId               String NOT NULL,
+    ParentSpanId         String NOT NULL DEFAULT '',
+    SpanName             String NOT NULL,
+    SpanKind             String NOT NULL DEFAULT 'INTERNAL',
+    ServiceName          String NOT NULL DEFAULT '',
+    Duration             Int64 NOT NULL,           -- nanoseconds
+    StatusCode           String NOT NULL DEFAULT 'OK',
+    SpanAttributes       Map(String, String) NOT NULL,
+    ResourceAttributes   Map(String, String) NOT NULL
+) ENGINE = MergeTree()
+ORDER BY (Timestamp, TraceId, SpanId);
+```
+
+Use `--schema otel-clickhouse`.
+
+  </TabItem>
+  <TabItem value="parquet" label="Parquet">
+
+Create a `traces/` subdirectory under your base URL. ROSQL creates a DuckDB view over `traces/**/*.parquet`.
+
+```
+<url>/
+  traces/
+    *.parquet    ← or any nested structure, e.g. date=2026-04-11/*.parquet
+```
+
+Required Parquet columns (snake_case, matching the `otel-postgres` profile):
+
+| Column | Parquet type |
+|--------|-------------|
+| `timestamp` | TIMESTAMP (UTC) |
+| `trace_id` | STRING |
+| `span_id` | STRING |
+| `parent_span_id` | STRING |
+| `span_name_col` | STRING |
+| `span_kind` | STRING |
+| `service_name` | STRING |
+| `duration` | INT64 (nanoseconds) |
+| `status_code` | STRING |
+| `span_attributes` | STRING (JSON) |
+| `resource_attributes` | STRING (JSON) |
+
+If the `traces/` subdirectory is absent or contains no `.parquet` files, ROSQL silently skips the view and reports `FROM traces` as unavailable.
+
+  </TabItem>
+</Tabs>
 
 ### `otel_logs`
+
+Used by: `FROM logs`
+
+<Tabs>
+  <TabItem value="postgres" label="PostgreSQL" default>
 
 ```sql
 CREATE TABLE otel_logs (
@@ -100,9 +205,50 @@ CREATE TABLE otel_logs (
 );
 ```
 
-Used by: `FROM logs`, `HEALTH()`
+  </TabItem>
+  <TabItem value="clickhouse" label="ClickHouse">
+
+```sql
+CREATE TABLE otel_logs (
+    Timestamp            DateTime64(9) NOT NULL,
+    TraceId              String NOT NULL DEFAULT '',
+    SpanId               String NOT NULL DEFAULT '',
+    SeverityText         String NOT NULL DEFAULT 'INFO',
+    SeverityNumber       UInt8 NOT NULL DEFAULT 9,
+    ServiceName          String NOT NULL DEFAULT '',
+    Body                 String NOT NULL DEFAULT '',
+    ResourceAttributes   Map(String, String) NOT NULL,
+    LogAttributes        Map(String, String) NOT NULL
+) ENGINE = MergeTree()
+ORDER BY Timestamp;
+```
+
+  </TabItem>
+  <TabItem value="parquet" label="Parquet">
+
+Subdirectory: `logs/`. ROSQL creates a view over `logs/**/*.parquet`.
+
+| Column | Parquet type |
+|--------|-------------|
+| `timestamp` | TIMESTAMP (UTC) |
+| `trace_id` | STRING |
+| `span_id` | STRING |
+| `severity_text` | STRING |
+| `severity_number` | INT32 |
+| `service_name` | STRING |
+| `body` | STRING |
+| `resource_attributes` | STRING (JSON) |
+| `log_attributes` | STRING (JSON) |
+
+  </TabItem>
+</Tabs>
 
 ### `otel_metrics`
+
+Used by: `FROM metrics`, `TOPIC_RATE`
+
+<Tabs>
+  <TabItem value="postgres" label="PostgreSQL" default>
 
 ```sql
 CREATE TABLE otel_metrics (
@@ -114,7 +260,35 @@ CREATE TABLE otel_metrics (
 );
 ```
 
-Used by: `FROM metrics`, `HEALTH()`, `CORRELATE`
+  </TabItem>
+  <TabItem value="clickhouse" label="ClickHouse">
+
+```sql
+CREATE TABLE otel_metrics (
+    Timestamp            DateTime64(9) NOT NULL,
+    MetricName           String NOT NULL,
+    Value                Float64 NOT NULL,
+    Attributes           Map(String, String) NOT NULL,
+    ServiceName          String NOT NULL DEFAULT ''
+) ENGINE = MergeTree()
+ORDER BY (Timestamp, MetricName);
+```
+
+  </TabItem>
+  <TabItem value="parquet" label="Parquet">
+
+Subdirectory: `metrics/`. ROSQL creates a view over `metrics/**/*.parquet`.
+
+| Column | Parquet type |
+|--------|-------------|
+| `timestamp` | TIMESTAMP (UTC) |
+| `metric_name` | STRING |
+| `value` | DOUBLE |
+| `attributes` | STRING (JSON) |
+| `service_name` | STRING |
+
+  </TabItem>
+</Tabs>
 
 ---
 
@@ -123,6 +297,11 @@ Used by: `FROM metrics`, `HEALTH()`, `CORRELATE`
 These tables enable additional ROSQL features. If absent, ROSQL returns a clear `DataSourceUnavailable` error with guidance.
 
 ### `topic_messages`
+
+Used by: `FROM topics`, `FROM odom` (and other topic aliases)
+
+<Tabs>
+  <TabItem value="postgres" label="PostgreSQL" default>
 
 ```sql
 CREATE TABLE topic_messages (
@@ -134,9 +313,42 @@ CREATE TABLE topic_messages (
 );
 ```
 
-Used by: `FROM topics`, `FROM odom` (and other topic aliases), `PATH DEVIATION`
+  </TabItem>
+  <TabItem value="clickhouse" label="ClickHouse">
+
+```sql
+CREATE TABLE topic_messages (
+    robot_id             String NOT NULL,
+    topic_name           String NOT NULL,
+    Timestamp            DateTime64(9) NOT NULL,
+    fields               String NOT NULL DEFAULT '{}',
+    message_type         String NOT NULL DEFAULT ''
+) ENGINE = MergeTree()
+ORDER BY (Timestamp, topic_name, robot_id);
+```
+
+  </TabItem>
+  <TabItem value="parquet" label="Parquet">
+
+Subdirectory: `topic_messages/`. ROSQL creates a view over `topic_messages/**/*.parquet`.
+
+| Column | Parquet type |
+|--------|-------------|
+| `robot_id` | STRING |
+| `topic_name` | STRING |
+| `timestamp` | TIMESTAMP (UTC) |
+| `fields` | STRING (JSON) |
+| `message_type` | STRING |
+
+  </TabItem>
+</Tabs>
 
 ### `mcap_metadata`
+
+Used by: `FROM recordings`, `FROM recordings WHERE topic = '...'`
+
+<Tabs>
+  <TabItem value="postgres" label="PostgreSQL" default>
 
 ```sql
 CREATE TABLE mcap_metadata (
@@ -145,17 +357,128 @@ CREATE TABLE mcap_metadata (
     start_time           TIMESTAMPTZ NOT NULL,
     end_time             TIMESTAMPTZ NOT NULL,
     s3_key               TEXT NOT NULL,
-    topics               TEXT[] NOT NULL DEFAULT '{}'
+    topics               TEXT[] NOT NULL DEFAULT '{}',
+    message_types        JSONB NOT NULL DEFAULT '{}'  -- topic → message_type map
 );
 ```
 
-Used by: `FROM recordings`, `SHOW RECORDING`
+  </TabItem>
+  <TabItem value="clickhouse" label="ClickHouse">
+
+```sql
+CREATE TABLE mcap_metadata (
+    robot_id             String NOT NULL,
+    session_id           String NOT NULL,
+    start_time           DateTime64(9) NOT NULL,
+    end_time             DateTime64(9) NOT NULL,
+    s3_key               String NOT NULL,
+    topics               Array(String) NOT NULL DEFAULT [],
+    message_types        String NOT NULL DEFAULT '{}'  -- topic → message_type JSON
+) ENGINE = MergeTree()
+ORDER BY (start_time, robot_id);
+```
+
+  </TabItem>
+  <TabItem value="parquet" label="Parquet">
+
+Subdirectory: `mcap_metadata/`. ROSQL creates a view over `mcap_metadata/**/*.parquet`.
+
+| Column | Parquet type |
+|--------|-------------|
+| `robot_id` | STRING |
+| `session_id` | STRING |
+| `start_time` | TIMESTAMP (UTC) |
+| `end_time` | TIMESTAMP (UTC) |
+| `s3_key` | STRING |
+| `topics` | LIST\<STRING\> |
+| `message_types` | STRING (JSON) |
+
+  </TabItem>
+</Tabs>
+
+### `robot_joint_map` _(v0.4.3+)_
+
+Stores URDF-derived joint metadata per robot model. Required for `SHOW JOINTS`.
+
+:::note
+Not available in the Parquet backend — requires a persistent database table.
+:::
+
+<Tabs>
+  <TabItem value="postgres" label="PostgreSQL" default>
+
+```sql
+CREATE TABLE robot_joint_map (
+    robot_model          TEXT NOT NULL,
+    valid_from           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    valid_to             TIMESTAMPTZ,                          -- NULL = currently active
+    version              TEXT NOT NULL DEFAULT '',
+    robot_ids            TEXT[] NOT NULL DEFAULT '{}',         -- robots using this model
+    joint_map            JSONB NOT NULL DEFAULT '[]'           -- array of joint descriptors
+);
+```
+
+  </TabItem>
+  <TabItem value="clickhouse" label="ClickHouse">
+
+```sql
+CREATE TABLE robot_joint_map (
+    robot_model          String NOT NULL,
+    valid_from           DateTime64(9) NOT NULL,
+    valid_to             Nullable(DateTime64(9)),
+    version              String NOT NULL DEFAULT '',
+    robot_ids            Array(String) NOT NULL DEFAULT [],
+    joint_map            String NOT NULL DEFAULT '[]'          -- JSON array of joint descriptors
+) ENGINE = ReplacingMergeTree(valid_from)
+ORDER BY (robot_model, valid_from);
+```
+
+  </TabItem>
+</Tabs>
+
+`joint_map` element schema:
+```json
+{
+  "joint_name": "shoulder_pan_joint",
+  "joint_index": 0,
+  "joint_type": "revolute",
+  "lower_limit": -3.14159,
+  "upper_limit": 3.14159
+}
+```
+
+Used by: `SHOW JOINTS`, `JOINT DEVIATION`
+
+---
+
+### Additional tables (optional)
+
+These tables power the additional data sources. If absent, ROSQL returns a `DataSourceUnavailable` error.
+
+:::note
+These tables are supported in PostgreSQL and MySQL only. They are not part of the standard Parquet directory layout.
+:::
+
+| ROSQL source | Table | Description |
+|---|---|---|
+| `FROM tf` | `tf_states` | ROS2 TF transform data |
+| `FROM heartbeats` | `robot_heartbeats` | Robot heartbeat / liveness data |
+| `FROM system_logs` | `system_logs` | System-level log events (OS/kernel) |
+| `FROM diagnostics` | `otel_metrics` | ROS2 diagnostic messages (maps to metrics) |
+| `FROM events` | `ros2_events` | ROS2 lifecycle and state machine events |
 
 ---
 
 ## ROSQL field mappings
 
+ROSQL field names are resolved to physical column names based on the active schema profile. Use `--schema otel-postgres` (default) or `--schema otel-clickhouse`.
+
+The Parquet backend uses `otel-postgres` column names.
+
 ### From `otel_traces`
+
+<Tabs>
+  <TabItem value="otel-postgres" label="otel-postgres" default>
 
 | ROSQL field | Column | Storage unit |
 |-------------|--------|-------------|
@@ -170,19 +493,39 @@ Used by: `FROM recordings`, `SHOW RECORDING`
 | `action_name` | `span_attributes->>'ros.action.name'` | — |
 | `action_status` | `span_attributes->>'ros.action.status'` | — |
 | `topic` | `span_attributes->>'ros.topic'` | — |
+| `robot_id` | `resource_attributes->>'robot.id'` | — |
+| `version` | `resource_attributes->>'service.version'` | — |
+| `environment` | `resource_attributes->>'deployment.environment'` | — |
+| `session_id` | `resource_attributes->>'ros.session.id'` | — |
 
-### From `otel_metrics`
+  </TabItem>
+  <TabItem value="otel-clickhouse" label="otel-clickhouse">
 
-| ROSQL field | Resolved as | Storage unit |
-|-------------|------------|-------------|
-| `metric_name` | `metric_name` | — |
-| `metric_value` | `value` | varies |
-| `publish_rate` | `value` WHERE `metric_name = 'ros2.topic.rx_rate_hz'` | Hz |
-| `bandwidth` | `value` WHERE `metric_name = 'ros2.topic.rx_bandwidth_bps'` | B/s |
-| `cpu_usage` | `value` WHERE `metric_name = 'system.cpu.total_usage_pct'` | % |
-| `memory_usage` | `value` WHERE `metric_name = 'system.memory.usage_pct'` | % |
+| ROSQL field | Column | Storage unit |
+|-------------|--------|-------------|
+| `trace_id` | `TraceId` | — |
+| `span_id` | `SpanId` | — |
+| `parent_span_id` | `ParentSpanId` | — |
+| `span_name` | `SpanName` | — |
+| `service` | `ServiceName` | — |
+| `duration` | `Duration` | nanoseconds |
+| `status` | `StatusCode` | OK / ERROR |
+| `node` | `SpanAttributes['ros.node']` | — |
+| `action_name` | `SpanAttributes['ros.action.name']` | — |
+| `action_status` | `SpanAttributes['ros.action.status']` | — |
+| `topic` | `SpanAttributes['ros.topic']` | — |
+| `robot_id` | `ResourceAttributes['robot.id']` | — |
+| `version` | `ResourceAttributes['service.version']` | — |
+| `environment` | `ResourceAttributes['deployment.environment']` | — |
+| `session_id` | `ResourceAttributes['ros.session.id']` | — |
+
+  </TabItem>
+</Tabs>
 
 ### From `otel_logs`
+
+<Tabs>
+  <TabItem value="otel-postgres" label="otel-postgres" default>
 
 | ROSQL field | Column |
 |-------------|--------|
@@ -190,22 +533,119 @@ Used by: `FROM recordings`, `SHOW RECORDING`
 | `severity` | `severity_text` |
 | `severity_number` | `severity_number` |
 
----
+  </TabItem>
+  <TabItem value="otel-clickhouse" label="otel-clickhouse">
 
-## Schema profiles
+| ROSQL field | Column |
+|-------------|--------|
+| `message` | `Body` |
+| `severity` | `SeverityText` |
+| `severity_number` | `SeverityNumber` |
 
-| Profile | Convention | Example | Default for |
-|---------|-----------|---------|-------------|
-| `otel-postgres` | Lowercase | `trace_id`, `status_code` | PostgreSQL, MySQL |
-| `otel-clickhouse` | PascalCase | `TraceId`, `StatusCode` | ClickHouse |
+  </TabItem>
+</Tabs>
 
-```bash
-rosql compile "FROM traces WHERE status = 'ERROR'" \
-  --backend postgres \
-  --schema otel-postgres
-```
+### From `otel_metrics`
 
-Custom schema profiles: tracked in [#22](https://github.com/RobotOpsInc/rosql/issues/22).
+<Tabs>
+  <TabItem value="otel-postgres" label="otel-postgres" default>
+
+| ROSQL field | Resolved as | Storage unit |
+|-------------|------------|-------------|
+| `metric_name` | `metric_name` | — |
+| `metric_value` | `value` | varies |
+| `publish_rate` | `value` WHERE `metric_name = 'ros2.topic.message_rate'` | Hz |
+| `bandwidth` | `value` WHERE `metric_name = 'ros2.topic.bandwidth'` | B/s |
+| `messages_received` | `value` WHERE `metric_name = 'ros2.topic.messages_received'` | — |
+| `messages_captured` | `value` WHERE `metric_name = 'ros2.topic.messages_captured'` | — |
+| `messages_filtered` | `value` WHERE `metric_name = 'ros2.topic.messages_filtered'` | — |
+| `action_servers_count` | `value` WHERE `metric_name = 'ros2.action_servers.count'` | — |
+| `services_count` | `value` WHERE `metric_name = 'ros2.services.count'` | — |
+| `queued_goals` | `value` WHERE `metric_name = 'ros2.action.queued_goals'` | — |
+| `active_goals` | `value` WHERE `metric_name = 'ros2.action.active_goals'` | — |
+| `completion_rate` | `value` WHERE `metric_name = 'ros2.action.completion_rate'` | Hz |
+| `cpu_usage` | `value` WHERE `metric_name = 'system.cpu.utilization'` | % |
+| `memory_usage` | `value` WHERE `metric_name = 'system.memory.utilization'` | % |
+| `memory_bytes` | `value` WHERE `metric_name = 'system.memory.usage'` | B |
+| `disk_usage` | `value` WHERE `metric_name = 'system.filesystem.utilization'` | % |
+| `disk_bytes` | `value` WHERE `metric_name = 'system.filesystem.usage'` | B |
+| `disk_io` | `value` WHERE `metric_name = 'system.disk.io'` | B/s |
+| `disk_iops` | `value` WHERE `metric_name = 'system.disk.operations'` | ops/s |
+| `network_io` | `value` WHERE `metric_name = 'system.network.io'` | B/s |
+| `network_packets` | `value` WHERE `metric_name = 'system.network.packets'` | packets/s |
+| `network_latency` | `value` WHERE `metric_name = 'system.network.latency'` | ms |
+| `network_jitter` | `value` WHERE `metric_name = 'system.network.jitter'` | ms |
+| `packet_loss` | `value` WHERE `metric_name = 'system.network.packet_loss'` | % |
+| `temperature` | `value` WHERE `metric_name = 'system.temperature'` | °C |
+| `battery_charge` | `value` WHERE `metric_name = 'system.battery.charge'` | % |
+| `battery_voltage` | `value` WHERE `metric_name = 'system.battery.voltage'` | V |
+| `battery_current` | `value` WHERE `metric_name = 'system.battery.current'` | A |
+| `battery_temperature` | `value` WHERE `metric_name = 'system.battery.temperature'` | °C |
+| `process_cpu` | `value` WHERE `metric_name = 'process.cpu.utilization'` | % |
+| `process_memory` | `value` WHERE `metric_name = 'process.memory.usage'` | B |
+
+  </TabItem>
+  <TabItem value="otel-clickhouse" label="otel-clickhouse">
+
+| ROSQL field | Resolved as | Storage unit |
+|-------------|------------|-------------|
+| `metric_name` | `MetricName` | — |
+| `metric_value` | `Value` | varies |
+| `publish_rate` | `Value` WHERE `MetricName = 'ros2.topic.message_rate'` | Hz |
+| `bandwidth` | `Value` WHERE `MetricName = 'ros2.topic.bandwidth'` | B/s |
+| `messages_received` | `Value` WHERE `MetricName = 'ros2.topic.messages_received'` | — |
+| `messages_captured` | `Value` WHERE `MetricName = 'ros2.topic.messages_captured'` | — |
+| `messages_filtered` | `Value` WHERE `MetricName = 'ros2.topic.messages_filtered'` | — |
+| `action_servers_count` | `Value` WHERE `MetricName = 'ros2.action_servers.count'` | — |
+| `services_count` | `Value` WHERE `MetricName = 'ros2.services.count'` | — |
+| `queued_goals` | `Value` WHERE `MetricName = 'ros2.action.queued_goals'` | — |
+| `active_goals` | `Value` WHERE `MetricName = 'ros2.action.active_goals'` | — |
+| `completion_rate` | `Value` WHERE `MetricName = 'ros2.action.completion_rate'` | Hz |
+| `cpu_usage` | `Value` WHERE `MetricName = 'system.cpu.utilization'` | % |
+| `memory_usage` | `Value` WHERE `MetricName = 'system.memory.utilization'` | % |
+| `memory_bytes` | `Value` WHERE `MetricName = 'system.memory.usage'` | B |
+| `disk_usage` | `Value` WHERE `MetricName = 'system.filesystem.utilization'` | % |
+| `disk_bytes` | `Value` WHERE `MetricName = 'system.filesystem.usage'` | B |
+| `disk_io` | `Value` WHERE `MetricName = 'system.disk.io'` | B/s |
+| `disk_iops` | `Value` WHERE `MetricName = 'system.disk.operations'` | ops/s |
+| `network_io` | `Value` WHERE `MetricName = 'system.network.io'` | B/s |
+| `network_packets` | `Value` WHERE `MetricName = 'system.network.packets'` | packets/s |
+| `network_latency` | `Value` WHERE `MetricName = 'system.network.latency'` | ms |
+| `network_jitter` | `Value` WHERE `MetricName = 'system.network.jitter'` | ms |
+| `packet_loss` | `Value` WHERE `MetricName = 'system.network.packet_loss'` | % |
+| `temperature` | `Value` WHERE `MetricName = 'system.temperature'` | °C |
+| `battery_charge` | `Value` WHERE `MetricName = 'system.battery.charge'` | % |
+| `battery_voltage` | `Value` WHERE `MetricName = 'system.battery.voltage'` | V |
+| `battery_current` | `Value` WHERE `MetricName = 'system.battery.current'` | A |
+| `battery_temperature` | `Value` WHERE `MetricName = 'system.battery.temperature'` | °C |
+| `process_cpu` | `Value` WHERE `MetricName = 'process.cpu.utilization'` | % |
+| `process_memory` | `Value` WHERE `MetricName = 'process.memory.usage'` | B |
+
+  </TabItem>
+</Tabs>
+
+### From `topic_messages` (odom / position data)
+
+ROSQL geospatial operators (`WITHIN`) and `JOINT DEVIATION` extract nested values from the `fields` JSONB column using these conventions:
+
+| ROSQL path | `fields` JSON path | ROS2 type | Description |
+|---|---|---|---|
+| `position.latitude` | `fields->>'position.latitude'` | `sensor_msgs/NavSatFix` | GPS latitude (degrees) |
+| `position.longitude` | `fields->>'position.longitude'` | `sensor_msgs/NavSatFix` | GPS longitude (degrees) |
+| `gps.lat` | `fields->>'position.latitude'` | `sensor_msgs/NavSatFix` | GPS latitude alias |
+| `gps.lon` | `fields->>'position.longitude'` | `sensor_msgs/NavSatFix` | GPS longitude alias |
+| `pose.pose.position.x` | `fields->>'pose.pose.position.x'` | `nav_msgs/Odometry` | Local frame X (metres) |
+| `pose.pose.position.y` | `fields->>'pose.pose.position.y'` | `nav_msgs/Odometry` | Local frame Y (metres) |
+| `position.x` | `fields->>'pose.pose.position.x'` | `nav_msgs/Odometry` | Local X alias |
+| `position.y` | `fields->>'pose.pose.position.y'` | `nav_msgs/Odometry` | Local Y alias |
+| `orientation.yaw` | computed from quaternion | `nav_msgs/Odometry` | Yaw angle (radians) |
+| `position[N]` | `fields->'position'->>N` | `sensor_msgs/JointState` | Joint position at index N (radians) |
+| `velocity[N]` | `fields->'velocity'->>N` | `sensor_msgs/JointState` | Joint velocity at index N (rad/s) |
+| `effort[N]` | `fields->'effort'->>N` | `sensor_msgs/JointState` | Joint effort at index N (Nm) |
+
+`orientation.yaw` is derived from the Odometry quaternion via `atan2(2*(qw·qz + qx·qy), 1 − 2*(qy² + qz²))`.
+
+For `JointState` fields, `N` is the zero-based array index. To access joints by name instead of index, use `SHOW JOINTS FOR ROBOT '...'` to inspect the robot's joint map, then use the named index. See [Joint state array indexing](/docs/concepts#joint-state-array-indexing).
 
 ---
 
@@ -218,3 +658,28 @@ Custom schema profiles: tracked in [#22](https://github.com/RobotOpsInc/rosql/is
 | `FROM battery` | `FROM topics WHERE topic_name = '/battery_state'` |
 | `FROM cmd_vel` | `FROM topics WHERE topic_name = '/cmd_vel'` |
 | `FROM imu` | `FROM topics WHERE topic_name = '/imu/data'` |
+
+---
+
+## Error taxonomy
+
+ROSQL produces structured errors with actionable messages. No raw SQL or database error text is ever surfaced to the user.
+
+| Error type | When raised | What to do |
+|---|---|---|
+| `ParseError` | Syntax or grammar error in the query | Fix the query syntax. The error includes a `suggestion` field with a "did you mean?" hint. |
+| `UnitError` | Invalid unit or incompatible unit comparison | Use a compatible unit (e.g. `500 ms` not `500 kg`). |
+| `NotImplemented` | Feature parses correctly but is not yet implemented | Check the docs for the current feature set. A cookbook link is included in the error message. |
+| `ReservedSyntax` | A reserved keyword is used (e.g. `ALERT`, `DEFINE`) | These keywords are reserved for the Robot Ops platform, not the open-source ROSQL layer. |
+| `DataSourceUnavailable` | A required table is missing from the database | Verify the table exists and telemetry is being ingested. The error names the exact missing table. |
+| `MutationRejected` | `INSERT`, `UPDATE`, `DELETE`, or `DROP` attempted | ROSQL is read-only. |
+| `CompilationError` | Valid syntax but cannot be compiled (e.g. scope mismatch) | Read the error message — it describes the specific constraint. |
+| `ExecutionError` | Database execution failed | The error names the data source and includes an actionable suggestion. Never leaks raw driver text. |
+
+### Warnings (non-fatal)
+
+Some queries compile and execute successfully but include `warnings` alongside the result. Each warning has a `code`, `message`, and `suggestion`:
+
+| Code | Raised when | Suggestion |
+|---|---|---|
+| `ANOMALY_NO_FACET` | `ANOMALY(...)` is used without `FACET` | Add `FACET robot_id` or `FACET action_name` to compare like-for-like spans |

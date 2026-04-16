@@ -90,10 +90,10 @@ SINCE 6 hours ago
 
 > `duration` is stored as nanoseconds (`BIGINT`). 1423187000 ns ≈ 1.42 s.
 
-Or trace the full message causality chain from a single span — something SQL has no primitive for. `MESSAGE JOURNEY` walks `parent_span_id → span_id` recursively and returns all columns from `otel_traces`:
+Or trace the full message causality chain from a single span — something SQL has no primitive for. `TRACE 'id'` walks `parent_span_id → span_id` recursively and returns all columns from `otel_traces`:
 
 ```sql
-MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
+TRACE 'a3f1c9d2e8b04f7a'
 ```
 
 ```json
@@ -112,18 +112,31 @@ MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'
 ### As a CLI
 
 ```sh
-# Install
-cargo install rosql --features server,postgres
+# Install (Linux x86_64 / arm64, macOS Intel & Apple Silicon)
+curl -fsSL https://rosql.org/install.sh | sh
+# Or on macOS via Homebrew (supports brew upgrade)
+brew install robotopsinc/tap/rosql
 
-# Execute a query against your database
+# Or build from source (all platforms)
+cargo install rosql --features server,duckdb
+
+# Query local Parquet telemetry files
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend parquet --url ./telemetry/robotops_demo_agent/20260403-141530/
+
+# Query Parquet files on S3
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend parquet --url s3://my-bucket/robot-01/robotops_demo_agent/20260403-141530/
+
+# Query a PostgreSQL database
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
   --backend postgres --url postgresql://user:pass@localhost:5432/telemetry
 
-# Compile to SQL (inspect what ROSQL generates — no DB needed)
-rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
+# Compile to SQL (inspect what ROSQL generates — no DB or --url needed)
+rosql compile "FROM traces WHERE duration > 500 ms" --backend parquet
 
 # Trace a message causality chain
-rosql query "MESSAGE JOURNEY FOR TRACE 'a3f1c9d2e8b04f7a'" \
+rosql query "TRACE 'a3f1c9d2e8b04f7a'" \
   --backend postgres --url postgresql://user:pass@localhost:5432/telemetry
 ```
 
@@ -159,7 +172,7 @@ async fn main() -> anyhow::Result<()> {
 |---------|-------------|--------|
 | <img src="https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL" height="20"> PostgreSQL / TimescaleDB | `postgres` | ![v0.1](https://img.shields.io/badge/v0.1-green) |
 | <img src="https://img.shields.io/badge/MySQL-4479A1?logo=mysql&logoColor=white" alt="MySQL" height="20"> MySQL / MariaDB | `mysql` | ![v0.1](https://img.shields.io/badge/v0.1-green) |
-| <img src="https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black" alt="DuckDB" height="20"> DuckDB (embedded) | `duckdb` | ![v0.2](https://img.shields.io/badge/v0.2-green) |
+| <img src="https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black" alt="DuckDB" height="20"> Parquet (local / S3) powered by DuckDB | `duckdb` | ![v0.4.5](https://img.shields.io/badge/v0.4.5-green) |
 | <img src="https://img.shields.io/badge/AWS_Athena-232F3E?logo=amazonaws&logoColor=white" alt="Athena" height="20"> AWS Athena | `athena` | [![Future](https://img.shields.io/badge/future-lightgrey)](https://github.com/RobotOpsInc/rosql/issues/9) |
 | <img src="https://img.shields.io/badge/BigQuery-4285F4?logo=googlebigquery&logoColor=white" alt="BigQuery" height="20"> Google BigQuery | `bigquery` | [![Future](https://img.shields.io/badge/future-lightgrey)](https://github.com/RobotOpsInc/rosql/issues/10) |
 
@@ -170,7 +183,7 @@ async fn main() -> anyhow::Result<()> {
 | *(default)* | Parser, AST, unit system, SQL compiler, proto types | logos, serde, prost |
 | `postgres` | PostgreSQL / TimescaleDB driver | sqlx, tokio |
 | `mysql` | MySQL / MariaDB driver | sqlx, tokio |
-| `duckdb` | DuckDB embedded driver | duckdb (bundled), tokio |
+| `duckdb` | Parquet file backend (local + S3) powered by DuckDB — use with `--backend parquet` | duckdb (bundled), tokio |
 | `server` | `rosql` CLI binary + gRPC server | tonic, tokio, clap |
 | `wasm` | WASM exports for frontend editors | wasm-bindgen |
 
@@ -180,10 +193,18 @@ async fn main() -> anyhow::Result<()> {
 # Parse → JSON AST
 rosql parse "FROM traces WHERE duration > 500 ms SINCE 1 hour ago"
 
-# Compile → SQL (shows what SQL ROSQL generates)
+# Compile → SQL (shows what SQL ROSQL generates — no DB or --url needed)
+rosql compile "FROM traces WHERE duration > 500 ms" --backend parquet
 rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
 
-# Execute → query results as JSON
+# Execute → query results as JSON (Parquet backend — local or S3)
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend parquet --url ./telemetry/robotops_demo_agent/20260403-141530/
+
+rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
+  --backend parquet --url s3://my-bucket/robot-01/robotops_demo_agent/20260403-141530/
+
+# Execute → query results as JSON (PostgreSQL)
 rosql query "FROM traces WHERE status = 'ERROR'" \
   --backend postgres --url postgresql://user:pass@localhost:5432/db
 
@@ -200,6 +221,33 @@ rosql serve --socket /tmp/rosql.sock
 #   --schema otel-postgres    (lowercase columns, default)
 #   --schema otel-clickhouse  (PascalCase columns)
 ```
+
+### Parquet backend: expected directory layout
+
+The `--backend parquet --url <path>` option expects the following directory structure (matching the [demo-agent output format](https://github.com/RobotOpsInc/rmw_robotops/tree/development/demo-agent#output-format)):
+
+```
+<url>/
+  traces/          *.parquet  →  otel_traces view
+  logs/            *.parquet  →  otel_logs view
+  metrics/         *.parquet  →  otel_metrics view
+  topic_messages/  *.parquet  →  topic_messages view
+  mcap_metadata/   *.parquet  →  mcap_metadata view
+```
+
+Files are discovered recursively via `**/*.parquet` globs. Missing subdirectories are silently skipped — queries against absent tables return a `DataSourceUnavailable` error.
+
+### S3 credentials for the Parquet backend
+
+When `--url s3://...` is used, ROSQL loads the DuckDB `httpfs` extension and reads credentials from standard AWS environment variables:
+
+| Variable | Description |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | Static access key |
+| `AWS_SECRET_ACCESS_KEY` | Static secret key |
+| `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS region (e.g. `us-east-1`) |
+| `AWS_PROFILE` | Named credentials profile |
+| `AWS_ENDPOINT_URL` | Override endpoint for S3-compatible storage (MinIO, Ceph, etc.) |
 
 ## Examples
 
@@ -220,20 +268,63 @@ DURING(
 )
 SINCE yesterday
 
--- Message causality graph
-MESSAGE JOURNEY FOR TRACE 'abc123def456'
+-- Time-bucketed error rate dashboard (TIMESERIES)
+SELECT COUNT(*) AS errors FROM traces WHERE status = 'ERROR'
+TIMESERIES 5 min
+SINCE 1 hour ago
+FACET robot_id
 
--- Robot health assessment
-HEALTH() FOR ROBOT 'robot_42' SINCE 30 minutes ago
+-- Enrich failed navigation traces with log context (ENRICH WITH)
+SELECT * FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+SINCE 1 hour ago
+ENRICH WITH logs LIMIT 20
+
+-- System topology: active topics and nodes
+SHOW TOPICS FOR ROBOT 'robot_42' SINCE 30 minutes ago
+SHOW NODES FOR ROBOT 'robot_42' SINCE 30 minutes ago
+SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 minutes ago
+
+-- Trace span tree walk
+TRACE 'abc123def456'
 
 -- Pipeline syntax
 FROM traces
 | WHERE duration > 500 ms
+| TIMESERIES 1 min
 | FACET robot_id
-| COMPARE TO last week
 ```
 
 See [`examples/`](examples/) for a full walkthrough with Docker Compose, PostgreSQL fixture data, and runnable queries.
+
+### Cookbook: Investigating a failed navigation with enriched logs
+
+When a navigation action fails, the recommended workflow is:
+
+```sql
+-- 1. Find the failing trace
+SELECT trace_id, span_name, duration
+FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+SINCE 30 min ago
+ORDER BY duration DESC
+LIMIT 5
+
+-- 2. Walk the full causality chain for the worst offender
+TRACE 'your-trace-id-here'
+
+-- 3. Correlate with log output for that same window
+SELECT * FROM traces
+WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+SINCE 30 min ago
+ENRICH WITH logs LIMIT 50
+
+-- 4. Check which topics were active during the failure
+SHOW TOPICS FOR ROBOT 'robot_42' SINCE 30 min ago
+
+-- 5. See the node graph to spot missing pub/sub edges
+SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 min ago
+```
 
 ## WASM API
 
@@ -262,16 +353,41 @@ ROSQL expects telemetry data in the [OpenTelemetry schema conventions for ROS2](
 
 See [BENCHMARKS.md](BENCHMARKS.md) for performance data (coming soon — [#35](https://github.com/RobotOpsInc/rosql/issues/35)).
 
-## Pre-built binaries
+## Installation
 
-| Platform | Architecture | Download |
-|----------|-------------|----------|
-| Linux | x86_64 | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
-| Linux | aarch64 | [GitHub Releases](https://github.com/RobotOpsInc/rosql/releases) |
+### One-liner (Linux x86_64 / arm64, macOS Intel &amp; Apple Silicon)
 
-Other platforms: build from source.
+```sh
+curl -fsSL https://rosql.org/install.sh | sh
+```
 
-### Building from source
+### Homebrew (macOS)
+
+```sh
+brew install robotopsinc/tap/rosql
+```
+
+Supports `brew upgrade rosql` and `brew uninstall rosql`.
+
+Pre-built binaries include the Parquet backend (`--backend parquet`) and are available for:
+
+| Platform | Architecture | Notes |
+|----------|-------------|-------|
+| Linux | x86_64 | — |
+| Linux | aarch64 | — |
+| macOS | arm64 (Apple Silicon) | — |
+| macOS | x86_64 (Intel) | — |
+| Windows | any | Build from source (see below) |
+
+### Build from source
+
+```sh
+cargo install rosql --features server,duckdb   # Parquet + CLI (recommended)
+cargo install rosql --features server,postgres  # PostgreSQL + CLI
+cargo install rosql --features server           # CLI only (compile/parse/validate)
+```
+
+Or clone and build locally:
 
 ```sh
 git clone https://github.com/RobotOpsInc/rosql
@@ -280,10 +396,10 @@ cd rosql
 # Library only (default)
 cargo build --release
 
-# CLI binary
-cargo build --release --features server --bin rosql
+# CLI with Parquet backend (--backend parquet)
+cargo build --release --features server,duckdb --bin rosql
 
-# CLI with PostgreSQL query execution
+# CLI with PostgreSQL
 cargo build --release --features server,postgres --bin rosql
 ```
 

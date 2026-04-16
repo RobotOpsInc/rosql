@@ -1,0 +1,32 @@
+---
+source: tests/parse_compound.rs
+assertion_line: 60
+expression: ast
+---
+Compound:
+  clause:
+    During:
+      inner_source: Metrics
+      inner_conditions:
+        Comparison:
+          left:
+            Field: metric_name
+          op: Eq
+          right:
+            Literal:
+              String: system.cpu.utilization
+      inner_time_range:
+        Since:
+          Relative:
+            amount: 1
+            unit: hour
+  scope: ~
+  time_range: ~
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

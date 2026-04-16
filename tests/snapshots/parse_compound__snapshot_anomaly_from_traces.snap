@@ -1,0 +1,25 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause:
+    Anomaly:
+      field: duration
+      compared_to: LastWeek
+      data_source: Traces
+  scope: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 7
+        unit: days
+  time_basis: ~
+  conditions: ~
+  facet:
+    dimension: robot_id
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

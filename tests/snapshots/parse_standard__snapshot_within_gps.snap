@@ -1,0 +1,37 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source:
+    TopicAlias: Odom
+  scope: ~
+  conditions:
+    Within:
+      field:
+        Field: position
+      radius:
+        raw_value: 500
+        unit: m
+        si_value: 500
+        si_unit: m
+      center:
+        Gps:
+          - 37.7749
+          - -122.4194
+  facet: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~
+  timeseries: ~
+  enrichments: []

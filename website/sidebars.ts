@@ -7,8 +7,10 @@ const sidebars: SidebarsConfig = {
     'cli',
     'wasm',
     'cookbook',
+    'syntax',
     'schema-reference',
     'command-reference',
+    'repl-dataset',
   ],
 };
 

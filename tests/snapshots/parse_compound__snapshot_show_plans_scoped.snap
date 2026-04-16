@@ -4,11 +4,14 @@ expression: ast
 ---
 Compound:
   clause:
-    MessagePath:
-      from_topic: /scan
-      to_node: /local_costmap_node
-      show: ~
-  robot_scope: ~
+    ShowPlans:
+      trace_id: ~
+  scope:
+    robot:
+      Single: robot_42
+    version: ~
+    environment: ~
+    session: ~
   time_range:
     Since:
       Relative:
@@ -19,5 +22,6 @@ Compound:
   facet: ~
   order_by: ~
   limit: ~
+  offset: ~
   output_format: ~
   baseline: ~

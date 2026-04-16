@@ -1,0 +1,29 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source: Logs
+  scope:
+    robot:
+      Single: robot_sim_001
+    version: v2.3.1
+    environment: production
+    session: ~
+  conditions: ~
+  facet: ~
+  time_range:
+    Since:
+      Relative:
+        amount: 1
+        unit: hour
+  time_basis: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~
+  timeseries: ~
+  enrichments: []

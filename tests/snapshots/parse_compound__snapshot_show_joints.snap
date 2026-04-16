@@ -1,0 +1,21 @@
+---
+source: tests/parse_compound.rs
+expression: ast
+---
+Compound:
+  clause: ShowJoints
+  scope:
+    robot:
+      Single: arm_01
+    version: ~
+    environment: ~
+    session: ~
+  time_range: ~
+  time_basis: ~
+  conditions: ~
+  facet: ~
+  order_by: ~
+  limit: ~
+  offset: ~
+  output_format: ~
+  baseline: ~

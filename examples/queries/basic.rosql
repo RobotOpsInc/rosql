@@ -23,3 +23,25 @@ FROM odom LIMIT 5
 
 -- Robot scoping
 FOR ROBOT 'robot_sim_001' FROM logs WHERE severity = 'ERROR'
+
+-- ============================================================================
+-- Universal scoping — FOR VERSION / FOR ENVIRONMENT / FOR SESSION
+-- All FOR dimensions are optional and compose freely.
+-- ============================================================================
+
+-- Filter by software version
+FOR VERSION 'v2.3.1' FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+
+-- Filter by deployment environment
+FOR ENVIRONMENT 'production' FROM logs WHERE severity = 'ERROR'
+
+-- Filter by ROS session ID
+FOR SESSION 'sess_abc123' FROM traces SINCE 30 minutes ago
+
+-- Compose multiple FOR clauses on one query
+FOR ROBOT 'robot_sim_001' FOR VERSION 'v2.3.1' FOR ENVIRONMENT 'production'
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+
+-- Composable scoping also works on pipeline queries
+FOR ROBOT 'robot_sim_001' FOR ENVIRONMENT 'production'
+FROM logs | WHERE severity = 'ERROR' | FACET ros.node

@@ -29,6 +29,13 @@
   --rosql-repl-output-bg: #0F0F0F;
 }
 
+/* Light mode — keep REPL panes dark regardless of page background */
+[data-theme='light'] {
+  --rosql-repl-bg: #1A1A1A;
+  --rosql-repl-border: #2A2A2A;
+  --rosql-repl-output-bg: #0F0F0F;
+}
+
 [data-theme='dark'] {
   /* Lighter red for readability on dark backgrounds */
   --ifm-color-primary: #F07067;
@@ -153,7 +160,7 @@
 }
 
 .rosql-repl-output {
-  background: var(--rosql-repl-output-bg);
+  background: #0F0F0F;
   padding: 12px;
   overflow: auto;
 }

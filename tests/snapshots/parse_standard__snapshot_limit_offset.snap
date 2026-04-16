@@ -1,0 +1,20 @@
+---
+source: tests/parse_standard.rs
+expression: ast
+---
+Standard:
+  selections:
+    - Star
+  data_source: Logs
+  scope: ~
+  conditions: ~
+  facet: ~
+  time_range: ~
+  time_basis: ~
+  order_by: ~
+  limit: 20
+  offset: 40
+  output_format: ~
+  baseline: ~
+  timeseries: ~
+  enrichments: []

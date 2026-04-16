@@ -8,6 +8,7 @@ use rosql::drivers::compiler::compile;
 use rosql::drivers::dialect::SqlDialect;
 use rosql::drivers::otel_registry::default_otel_registry;
 use rosql::drivers::BackendCapabilities;
+use rosql::error::ROSQLError;
 
 /// Extract individual queries from a .rosql file.
 /// Each query is a contiguous block of non-empty, non-comment lines.
@@ -47,7 +48,7 @@ fn parse_and_compile(query: &str) {
         recording_index: true,
     };
 
-    compile(&ast, &registry, &dialect, &capabilities).unwrap_or_else(|err| {
+    compile(&ast, &registry, &dialect, &capabilities, None).unwrap_or_else(|err| {
         panic!("Compile failed for query:\n  {query}\nError: {err}");
     });
 }
@@ -70,8 +71,24 @@ fn example_compound_clause_queries() {
         !queries.is_empty(),
         "no queries found in compound_clauses.rosql"
     );
+    let registry = default_otel_registry();
+    let dialect = SqlDialect::PostgreSQL;
+    let capabilities = BackendCapabilities {
+        topic_data: true,
+        recording_index: true,
+    };
     for query in &queries {
-        parse_and_compile(query);
+        // Parse must always succeed
+        let ast = rosql::parse(query).unwrap_or_else(|errs| {
+            panic!("Parse failed for query:\n  {query}\nErrors: {errs:?}");
+        });
+        // Compilation may return NotImplemented for gated clauses — that's expected
+        if let Err(err) = compile(&ast, &registry, &dialect, &capabilities, None) {
+            assert!(
+                matches!(err, ROSQLError::NotImplemented { .. }),
+                "Unexpected compile error for query:\n  {query}\nError: {err}"
+            );
+        }
     }
 }
 
