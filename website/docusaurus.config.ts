@@ -166,7 +166,7 @@ const config: Config = {
     algolia: {
       appId: 'BLRB7LR8ZX',
       apiKey: '71bcf104dcb7767e7f38986714f0756c',
-      indexName: 'rosql',
+      indexName: 'Rosql.org Crawler',
       contextualSearch: true,
     },
     prism: {
