@@ -66,10 +66,15 @@ jobs:
           - target: aarch64-apple-darwin
             runner: macos-latest
           - target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-latest
+            cross_target: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add cross-compile target (Intel Mac)
+        if: matrix.cross_target != ''
+        run: rustup target add ${{ matrix.cross_target }}
 
       - name: Install protoc (Linux)
         if: runner.os == 'Linux'
@@ -80,7 +85,7 @@ jobs:
         run: brew install protobuf
 
       - name: Build
-        run: cargo build --release --features server,duckdb --bin rosql
+        run: cargo build --release --features server,duckdb --bin rosql ${{ matrix.cross_target != '' && format('--target {0}', matrix.cross_target) || '' }}
 
       - name: Install cargo-about
         run: cargo install cargo-about --locked
@@ -91,7 +96,8 @@ jobs:
       - name: Package
         run: |
           mkdir -p staging
-          cp target/release/rosql staging/
+          BIN_DIR=${{ matrix.cross_target != '' && format('target/{0}/release', matrix.cross_target) || 'target/release' }}
+          cp "$BIN_DIR/rosql" staging/
           cp NOTICE LICENSE THIRD_PARTY_NOTICES staging/
           tar czf rosql-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz \
             -C staging .
@@ -208,9 +214,6 @@ jobs:
 
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler
-
-      - name: Ensure latest npm (>= 11.5.1 for OIDC)
-        run: npm install -g npm@latest
 
       - name: Install wasm-pack
         run: cargo install wasm-pack
