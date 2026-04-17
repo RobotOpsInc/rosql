@@ -175,8 +175,16 @@ fn build_unit_table() -> HashMap<&'static str, UnitDef> {
         // °C → K: K = C * 1.0 + 273.15
         // °F → K: K = F * (5/9) + (−32 * 5/9 + 273.15) = F * 5/9 + 255.372…
         affine("\u{00b0}C", Temperature, "K", 1.0, 273.15),
+        affine("degC", Temperature, "K", 1.0, 273.15),
         affine(
             "\u{00b0}F",
+            Temperature,
+            "K",
+            5.0 / 9.0,
+            -32.0 * 5.0 / 9.0 + 273.15,
+        ),
+        affine(
+            "degF",
             Temperature,
             "K",
             5.0 / 9.0,
@@ -462,6 +470,22 @@ mod tests {
     #[test]
     fn kelvin() {
         assert_si("K", 300.0, 300.0, "K");
+    }
+    #[test]
+    fn degc_alias_zero() {
+        assert_si("degC", 0.0, 273.15, "K");
+    }
+    #[test]
+    fn degc_alias_100() {
+        assert_si("degC", 100.0, 373.15, "K");
+    }
+    #[test]
+    fn degf_alias_32() {
+        assert_si("degF", 32.0, 273.15, "K");
+    }
+    #[test]
+    fn degf_alias_212() {
+        assert_si("degF", 212.0, 373.15, "K");
     }
 
     // ── Memory ──────────────────────────────────────────────────────
