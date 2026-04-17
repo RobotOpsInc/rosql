@@ -20,6 +20,8 @@ The **table names** are the same across all backends. What differs is the physic
 
 ## Span attributes
 
+Span attributes are key-value pairs stored in the `span_attributes` column of `otel_traces`. They carry ROS2-specific context — which node ran, which action was executing, which topic was published — and are what ROSQL's field names like `action_name`, `topic`, and `node` resolve to at query time. Getting these right is what makes distributed tracing across a ROS2 system actually queryable.
+
 ### ROS2 action executions
 
 | Attribute | Type | Example | Used by ROSQL for |
