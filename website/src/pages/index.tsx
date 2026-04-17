@@ -46,7 +46,7 @@ const ARCH_DIAGRAM = `  ROS2 System
        │
        │  OTLP gRPC
        ▼
-  Datastore (PostgreSQL, MySQL, Parquet/S3 …)
+  Datastore (PostgreSQL, Clickhouse, Parquet/S3 …)
        │
        │  OTel standard schema
        ▼
@@ -174,7 +174,7 @@ export default function Home(): ReactNode {
               <div className="unified-flow-node unified-flow-node--db">
                 <Database size={26} strokeWidth={1.5} className="unified-flow-icon" />
                 <span className="unified-flow-label">Robot Telemetry</span>
-                <span className="unified-flow-sub">PostgreSQL · MySQL · Parquet (S3/local)</span>
+                <span className="unified-flow-sub">PostgreSQL + TimescaleDB · Clickhouse · Parquet (S3/local)</span>
               </div>
 
               <ArrowRight size={20} className="unified-flow-arrow" />

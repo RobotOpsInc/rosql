@@ -12,7 +12,7 @@ export default function Contributing(): ReactNode {
         <div style={{ maxWidth: 760, margin: '0 auto' }}>
           <h1>Contributing to ROSQL</h1>
           <p style={{ fontSize: '1.1rem', color: 'var(--ifm-color-emphasis-700)', marginBottom: '2rem' }}>
-            ROSQL is in early development (v0.1) and contributions are very welcome.
+            ROSQL is in early development and contributions are very welcome.
             Whether you're fixing a bug, adding a feature, improving docs, or just kicking the tires — thank you.
           </p>
 

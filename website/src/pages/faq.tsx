@@ -136,7 +136,7 @@ const FAQS: FaqItem[] = [
         ROSQL is the query layer that Robot Ops, Inc. built and uses internally to power the{' '}
         <a href="https://robotops.com">Robot Ops observability platform</a>. The open source crate includes
         the full language, compiler, and open source drivers (PostgreSQL, MySQL). The Robot Ops platform adds
-        managed ingestion, fleet-scale storage (ClickHouse), lifecycle anchors, fleet-wide anomaly detection,
+        managed ingestion, fleet-scale storage, lifecycle anchors, fleet-wide anomaly detection,
         and dashboards. Think of ROSQL as the query language, and Robot Ops as one platform that uses it.
       </>
     ),
