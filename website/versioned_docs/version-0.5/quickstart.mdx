@@ -65,25 +65,39 @@ cargo build --release --features server,postgres --bin rosql
   </TabItem>
 </Tabs>
 
-## Your first query — local Parquet files
+## Your first query — no setup required
 
-No database server required. Point ROSQL at a directory of Parquet files from the [demo-agent](https://github.com/RobotOpsInc/rmw_robotops/tree/development/demo-agent) or any OTel exporter:
+Query our public demo dataset instantly. No data source, no credentials, no configuration:
+
+```bash
+rosql query "FROM traces WHERE status = 'ERROR' LIMIT 5" \
+  --backend parquet \
+  --url s3://robotops-production-rosql-demo/data
+```
+
+```
+╭──────────────────┬────────────────┬──────────────────┬────────────────────────────────┬──────────────┬────────────┬─────────────╮
+│ timestamp        │ trace_id       │ span_id          │ span_name_col                  │ service_name │ duration   │ status_code │
+├──────────────────┼────────────────┼──────────────────┼────────────────────────────────┼──────────────┼────────────┼─────────────┤
+│ 1776452455875402 │ trace-amr01-m1 │ span-a01-m1-root │ /navigate_to_pose              │ robot-amr-01 │ 7000000000 │ OK          │
+│ 1776452455975402 │ trace-amr01-m1 │ span-a01-m1-bt   │ /bt_navigator/navigate         │ robot-amr-01 │ 6900000000 │ OK          │
+│ 1776452456075402 │ trace-amr01-m1 │ span-a01-m1-ctrl │ /controller_server/follow_path │ robot-amr-01 │ 6800000000 │ OK          │
+╰──────────────────┴────────────────┴──────────────────┴────────────────────────────────┴──────────────┴────────────┴─────────────╯
+```
+
+The demo dataset is a simulated AMR (robot-amr-01) running three navigation missions — one successful, one battery-critical abort, one timeout. Updated on every ROSQL release.
+
+Use `--format json` for programmatic consumption, or `--format csv` for export.
+
+## Query your own data — local Parquet files
+
+Point ROSQL at a directory of Parquet files from the [demo-agent](https://github.com/RobotOpsInc/rmw_robotops/tree/development/demo-agent) or any OTel exporter:
 
 ```bash
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
   --backend parquet \
   --url ./telemetry/robotops_demo_agent/20260403-141530/
 ```
-
-```
-╭──────────────────────────────┬──────────────────┬──────────────────┬──────────────────────┬───────────────┬────────────┬─────────────╮
-│ timestamp                    │ trace_id         │ span_id          │ span_name_col        │ service_name  │ duration   │ status_code │
-├──────────────────────────────┼──────────────────┼──────────────────┼──────────────────────┼───────────────┼────────────┼─────────────┤
-│ 2026-04-03T14:32:11.012Z     │ a3f1c9d2...      │ f0e1d2c3...      │ navigate_to_pose     │ bt_navigator  │ 1423187000 │ ERROR       │
-╰──────────────────────────────┴──────────────────┴──────────────────┴──────────────────────┴───────────────┴────────────┴─────────────╯
-```
-
-Use `--format json` for programmatic consumption, or `--format csv` for export.
 
 The `--url` directory must follow the demo-agent output layout:
 
@@ -96,7 +110,7 @@ The `--url` directory must follow the demo-agent output layout:
   mcap_metadata/   *.parquet  →  mcap_metadata
 ```
 
-### Query from S3
+### Query a private S3 bucket
 
 ```bash
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \

@@ -217,6 +217,29 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
         run: cargo publish --no-verify --allow-dirty
 
+  upload-demo-data:
+    name: Upload demo dataset to S3
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::189676910689:role/github-actions-deploy-production
+          aws-region: us-east-1
+
+      - name: Upload Parquet fixtures
+        run: |
+          aws s3 sync examples/parquet/fixtures/ \
+            s3://robotops-production-rosql-demo/data/ \
+            --delete \
+            --no-progress
+
   publish-npm:
     name: Publish to npm
     needs: create-release

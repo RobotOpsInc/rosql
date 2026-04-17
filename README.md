@@ -120,11 +120,15 @@ brew install robotopsinc/tap/rosql
 # Or build from source (all platforms)
 cargo install rosql --features server,duckdb
 
-# Query local Parquet telemetry files
+# Try the public demo dataset instantly — no setup, no credentials
+rosql query "FROM traces WHERE status = 'ERROR' LIMIT 5" \
+  --backend parquet --url s3://robotops-production-rosql-demo/data
+
+# Query your own local Parquet telemetry files
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
   --backend parquet --url ./telemetry/robotops_demo_agent/20260403-141530/
 
-# Query Parquet files on S3
+# Query Parquet files on a private S3 bucket
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
   --backend parquet --url s3://my-bucket/robot-01/robotops_demo_agent/20260403-141530/
 
@@ -196,6 +200,10 @@ rosql parse "FROM traces WHERE duration > 500 ms SINCE 1 hour ago"
 # Compile → SQL (shows what SQL ROSQL generates — no DB or --url needed)
 rosql compile "FROM traces WHERE duration > 500 ms" --backend parquet
 rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
+
+# Execute → query results as JSON (public demo dataset — no credentials needed)
+rosql query "FROM traces WHERE status = 'ERROR' LIMIT 5" \
+  --backend parquet --url s3://robotops-production-rosql-demo/data
 
 # Execute → query results as JSON (Parquet backend — local or S3)
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
