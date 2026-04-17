@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS mcap_metadata (
     message_types      JSONB NOT NULL DEFAULT '{}'  -- topic → message_type map
 );
 
--- Optional: URDF-derived joint map for SHOW JOINTS / JOINT DEVIATION (v0.4.3+)
+-- Optional: URDF-derived joint map for SHOW JOINTS / JOINT DEVIATION
 CREATE TABLE IF NOT EXISTS robot_joint_map (
     robot_model        TEXT NOT NULL,
     valid_from         TIMESTAMPTZ NOT NULL DEFAULT NOW(),

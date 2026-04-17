@@ -400,10 +400,6 @@ Subdirectory: `mcap_metadata/`. ROSQL creates a view over `mcap_metadata/**/*.pa
 
 Stores URDF-derived joint metadata per robot model. Required for `SHOW JOINTS`.
 
-:::note
-Not available in the Parquet backend — requires a persistent database table.
-:::
-
 <Tabs>
   <TabItem value="postgres" label="PostgreSQL" default>
 
@@ -415,6 +411,23 @@ CREATE TABLE robot_joint_map (
     version              TEXT NOT NULL DEFAULT '',
     robot_ids            TEXT[] NOT NULL DEFAULT '{}',         -- robots using this model
     joint_map            JSONB NOT NULL DEFAULT '[]'           -- array of joint descriptors
+);
+```
+
+  </TabItem>
+  <TabItem value="duckdb" label="DuckDB / Parquet">
+
+Provide as a Parquet file registered under the name `robot_joint_map`. A sample fixture is included at [`examples/parquet/fixtures/robot_joint_map/robot_joint_map.parquet`](https://github.com/RobotOpsInc/rosql/tree/main/examples/parquet/fixtures/robot_joint_map).
+
+```sql
+-- DuckDB schema (used by generate_fixtures.sh)
+CREATE TABLE robot_joint_map (
+    robot_model  TEXT NOT NULL,
+    valid_from   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    valid_to     TIMESTAMPTZ,
+    version      TEXT NOT NULL DEFAULT '',
+    robot_ids    VARCHAR[] NOT NULL DEFAULT [],
+    joint_map    JSON NOT NULL DEFAULT '[]'
 );
 ```
 

@@ -65,3 +65,13 @@ CREATE TABLE IF NOT EXISTS ros2_events (
     version      TEXT NOT NULL DEFAULT '',
     payload      JSON NOT NULL DEFAULT '{}'
 );
+
+-- Optional: URDF-derived joint map for SHOW JOINTS / JOINT DEVIATION
+CREATE TABLE IF NOT EXISTS robot_joint_map (
+    robot_model  TEXT NOT NULL,
+    valid_from   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    valid_to     TIMESTAMPTZ,                        -- NULL = currently active
+    version      TEXT NOT NULL DEFAULT '',
+    robot_ids    VARCHAR[] NOT NULL DEFAULT [],
+    joint_map    JSON NOT NULL DEFAULT '[]'          -- array of joint descriptors
+);
