@@ -228,11 +228,13 @@ The `--backend parquet --url <path>` option expects the following directory stru
 
 ```
 <url>/
-  traces/          *.parquet  →  otel_traces view
-  logs/            *.parquet  →  otel_logs view
-  metrics/         *.parquet  →  otel_metrics view
-  topic_messages/  *.parquet  →  topic_messages view
-  mcap_metadata/   *.parquet  →  mcap_metadata view
+  traces/            *.parquet  →  otel_traces view
+  logs/              *.parquet  →  otel_logs view
+  metrics/           *.parquet  →  otel_metrics view
+  topic_messages/    *.parquet  →  topic_messages view
+  mcap_metadata/     *.parquet  →  mcap_metadata view
+  robot_joint_map/   *.parquet  →  robot_joint_map view  (optional — needed for SHOW JOINTS / JOINT DEVIATION)
+  ros2_events/       *.parquet  →  ros2_events view      (optional — needed for SHOW DEPLOYMENTS)
 ```
 
 Files are discovered recursively via `**/*.parquet` globs. Missing subdirectories are silently skipped — queries against absent tables return a `DataSourceUnavailable` error.
