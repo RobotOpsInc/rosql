@@ -470,11 +470,77 @@ These tables power the additional data sources. If absent, ROSQL returns a `Data
 
 | ROSQL source | Table | Description |
 |---|---|---|
-| `FROM tf` | `tf_states` | ROS2 TF transform data |
-| `FROM heartbeats` | `robot_heartbeats` | Robot heartbeat / liveness data |
-| `FROM system_logs` | `system_logs` | System-level log events (OS/kernel) |
-| `FROM diagnostics` | `otel_metrics` | ROS2 diagnostic messages (maps to metrics) |
-| `FROM events` | `ros2_events` | ROS2 lifecycle and state machine events |
+| `FROM tf` | `tf_states` | ROS2 TF2 coordinate frame transforms |
+| `FROM heartbeats` | `robot_heartbeats` | Robot liveness and status heartbeats |
+| `FROM system_logs` | `system_logs` | OS/kernel-level log events |
+| `FROM diagnostics` | `otel_metrics` | ROS2 diagnostic messages (maps to the `otel_metrics` table) |
+| `FROM events` | `ros2_events` | ROS2 lifecycle and deployment events |
+
+#### `tf_states`
+
+Stores ROS2 TF2 transform broadcasts — one row per transform stamped message.
+
+```sql
+CREATE TABLE tf_states (
+    timestamp      TIMESTAMPTZ NOT NULL,
+    robot_id       TEXT NOT NULL,
+    parent_frame   TEXT NOT NULL,          -- e.g. 'map', 'odom'
+    child_frame    TEXT NOT NULL,          -- e.g. 'base_link', 'camera_link'
+    translation_x  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    translation_y  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    translation_z  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    rotation_x     DOUBLE PRECISION NOT NULL DEFAULT 0,  -- quaternion x
+    rotation_y     DOUBLE PRECISION NOT NULL DEFAULT 0,
+    rotation_z     DOUBLE PRECISION NOT NULL DEFAULT 0,
+    rotation_w     DOUBLE PRECISION NOT NULL DEFAULT 1
+);
+```
+
+#### `robot_heartbeats`
+
+Stores periodic liveness signals from each robot. Used by lifecycle anchors (`SINCE last robot restart`).
+
+```sql
+CREATE TABLE robot_heartbeats (
+    timestamp          TIMESTAMPTZ NOT NULL,
+    robot_id           TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'online',  -- 'online' | 'degraded' | 'offline'
+    uptime_ns          BIGINT NOT NULL DEFAULT 0,       -- robot uptime in nanoseconds
+    battery_percentage DOUBLE PRECISION,
+    attributes         JSONB NOT NULL DEFAULT '{}'      -- platform-specific metadata
+);
+```
+
+#### `system_logs`
+
+Stores OS/kernel-level log events alongside ROS2 data — CPU, memory, network, systemd events.
+
+```sql
+CREATE TABLE system_logs (
+    timestamp        TIMESTAMPTZ NOT NULL,
+    robot_id         TEXT NOT NULL,
+    severity_text    TEXT NOT NULL DEFAULT 'INFO',
+    severity_number  INTEGER NOT NULL DEFAULT 9,
+    host             TEXT NOT NULL DEFAULT '',
+    body             TEXT NOT NULL DEFAULT '',
+    log_attributes   JSONB NOT NULL DEFAULT '{}'
+);
+```
+
+#### `ros2_events`
+
+Stores deployment rollouts and ROS2 node lifecycle events. Powers `SHOW DEPLOYMENTS` and deployment-scoped lifecycle anchors.
+
+```sql
+CREATE TABLE ros2_events (
+    timestamp   TIMESTAMPTZ NOT NULL,
+    robot_id    TEXT NOT NULL,
+    event_type  TEXT NOT NULL,          -- 'deployment' | 'node_started' | 'node_error' | ...
+    node_name   TEXT NOT NULL DEFAULT '',
+    version     TEXT NOT NULL DEFAULT '',
+    payload     JSONB NOT NULL DEFAULT '{}'
+);
+```
 
 ---
 
