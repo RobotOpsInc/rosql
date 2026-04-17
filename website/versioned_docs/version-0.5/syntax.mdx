@@ -80,22 +80,7 @@ Every clause is optional except `FROM` in standard/pipeline form. Clauses compos
 
 ---
 
-## Data sources
-
-| Source | Underlying table | Notes |
-|---|---|---|
-| `traces` | `otel_traces` | |
-| `logs` | `otel_logs` | |
-| `metrics` | `otel_metrics` | |
-| `topics` | `topic_messages` | |
-| `recordings` | `mcap_metadata` | |
-| `odom` | `topic_messages` | alias — filters `topic_name = '/odom'` |
-| `joint_states` | `topic_messages` | alias — filters `topic_name = '/joint_states'` |
-| `battery` | `topic_messages` | alias — filters `topic_name = '/battery_state'` |
-| `cmd_vel` | `topic_messages` | alias — filters `topic_name = '/cmd_vel'` |
-| `imu` | `topic_messages` | alias — filters `topic_name = '/imu/data'` |
-
-Custom topic aliases can also be defined in your [schema profile](./schema-reference#topic-aliases).
+See [`FROM <source>`](./command-reference#from-source) in the Command Reference for the full list of data sources and topic aliases.
 
 ---
 
@@ -302,6 +287,66 @@ SINCE 1 hour ago
 | Data source names (`traces`, `logs`, …) | No |
 | String values (`'ERROR'`, `'robot_1'`, …) | Yes |
 | Field names (`duration`, `robot_id`, …) | Yes |
+
+---
+
+## Aggregate functions
+
+Aggregate functions appear in `SELECT` expressions. ROSQL extends standard SQL aggregates with robot-specific functions.
+
+### Standard aggregates
+
+`AVG`, `COUNT`, `MAX`, `MIN`, `SUM`, `PERCENTILE` — standard SQL semantics.
+
+### `TOPIC_RATE([topic_name])`
+
+Average publish rate for a topic (or all topics) in Hz, from the `otel_metrics` table.
+
+```sql
+SELECT TOPIC_RATE() FROM metrics
+SELECT TOPIC_RATE('/cmd_vel') FROM metrics
+```
+
+### `ACTION_SUCCESS_RATE([action_name])`
+
+Ratio of succeeded action spans to total action spans. Returns a value between 0 and 1.
+
+```sql
+SELECT ACTION_SUCCESS_RATE() FROM traces
+SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces
+```
+
+### `MOVING_AVG(field, window)`
+
+Rolling average over a sliding window of `window` rows. Compiles to `AVG(...) OVER (ROWS BETWEEN N PRECEDING AND CURRENT ROW)`.
+
+```sql
+SELECT MOVING_AVG(duration, 5) FROM traces
+```
+
+### `DERIVATIVE(field)`
+
+Rate of change between consecutive rows (LAG-based).
+
+```sql
+SELECT DERIVATIVE(metric_value) FROM metrics
+```
+
+### `APPROX_COUNT_DISTINCT(field)`
+
+Approximate distinct count. Uses `approx_count_distinct()` on DuckDB; falls back to `COUNT(DISTINCT ...)` on PostgreSQL.
+
+```sql
+SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces
+```
+
+### `APPROX_PERCENTILE(field, percentile)`
+
+Approximate percentile. Uses `approx_quantile()` on DuckDB; falls back to `PERCENTILE_CONT` on PostgreSQL.
+
+```sql
+SELECT APPROX_PERCENTILE(duration, 95) FROM traces
+```
 
 ---
 
