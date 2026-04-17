@@ -440,7 +440,7 @@ export default function Home(): ReactNode {
               <div className="benefit-card">
                 <Ruler size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
                 <h3>Unit-aware filtering</h3>
-                <p>Use any unit inline — <code>fields['distance'] &lt; 24 in</code> or <code>fields['joint_angle'] &gt; 30 deg</code>. ROSQL auto-converts to SI before querying. No manual conversion.</p>
+                <p>Write physical quantities in any unit — <code>fields['joint_angle'] &gt; 30 deg</code>, <code>position WITHIN 500 m OF (lat, lon)</code>, <code>fields['torque'] &gt; 12 Nm</code>. ROSQL auto-converts to SI for geospatial, kinematic, and sensor queries alike. No manual conversion.</p>
               </div>
 
               <div className="benefit-card">
