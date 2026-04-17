@@ -13,17 +13,23 @@ Practical query recipes for common ROS2 observability tasks. Copy, adapt, and ru
 
 ### Find all error spans
 
+Returns every span with a non-OK status code — the fastest way to triage what broke.
+
 ```sql
 FROM traces WHERE status = 'ERROR'
 ```
 
 ### Error logs at a specific severity
 
+Fetch log entries at ERROR level across all services.
+
 ```sql
 FROM logs WHERE severity = 'ERROR'
 ```
 
 ### Slowest actions (last hour)
+
+Find navigation actions that exceeded a duration threshold, ranked slowest first.
 
 ```sql
 SELECT span_name, duration
@@ -36,11 +42,15 @@ LIMIT 20
 
 ### Filter by ROS2 node
 
+Scope traces to a single ROS2 node by its fully-qualified name.
+
 ```sql
 FROM traces WHERE node = '/bt_navigator'
 ```
 
 ### Robot-scoped query
+
+Prefix any query with `FOR ROBOT` to filter by `robot.id` resource attribute.
 
 ```sql
 FOR ROBOT 'robot_sim_001' FROM logs WHERE severity = 'ERROR'
@@ -48,11 +58,15 @@ FOR ROBOT 'robot_sim_001' FROM logs WHERE severity = 'ERROR'
 
 ### Scope by version
 
+Narrows results to a specific firmware or software version via the `service.version` resource attribute.
+
 ```sql
 FOR VERSION 'v1.2.3' FROM traces WHERE status = 'ERROR'
 ```
 
 ### Scope by environment
+
+Filter to a specific deployment environment such as `production` or `staging`.
 
 ```sql
 FOR ENVIRONMENT 'production' FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
@@ -60,11 +74,15 @@ FOR ENVIRONMENT 'production' FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
 
 ### Scope by session
 
+Scope to a single ROS2 run identified by `ros.session.id`.
+
 ```sql
 FOR SESSION 'sess_abc123' FROM logs WHERE severity = 'ERROR'
 ```
 
 ### Compose multiple FOR clauses
+
+Stack multiple `FOR` clauses to intersect any combination of robot, version, environment, and session.
 
 ```sql
 FOR ROBOT 'robot_42' FOR VERSION 'v1.0.0' FOR ENVIRONMENT 'prod' FROM traces WHERE status = 'ERROR'
@@ -72,11 +90,15 @@ FOR ROBOT 'robot_42' FOR VERSION 'v1.0.0' FOR ENVIRONMENT 'prod' FROM traces WHE
 
 ### Read topic messages
 
+Query raw message data from the `topic_messages` table, with access to `fields` for any message field.
+
 ```sql
 FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
 ```
 
 ### Topic alias
+
+ROSQL provides shorthand aliases for common ROS2 topics so you don't have to type the full topic name.
 
 ```sql
 -- Shorthand for: FROM topics WHERE topic_name = '/odom'
@@ -88,6 +110,8 @@ FROM odom LIMIT 5
 ## Cross-signal correlation
 
 ### Navigation failures during low battery
+
+Find error traces that occurred while battery percentage was below a threshold — `DURING()` handles the time-window correlation automatically.
 
 ```sql
 SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
@@ -101,6 +125,8 @@ SINCE 6 hours ago
 ```
 
 ### Errors during high CPU load
+
+Correlate trace failures with periods of CPU saturation — useful for distinguishing software bugs from resource exhaustion.
 
 ```sql
 FROM traces WHERE status = 'ERROR'
@@ -125,6 +151,8 @@ Returns all spans in the causal chain by walking `parent_span_id → span_id` re
 
 ### Find all message paths for a topic
 
+Shows every node that published or subscribed to a topic, derived from span attributes.
+
 ```sql
 MESSAGE FLOW FROM TOPIC '/cmd_vel'
 ```
@@ -133,17 +161,23 @@ Shows which nodes published and subscribed to `/cmd_vel`.
 
 ### Filter message flow to a specific destination node
 
+Narrows the flow graph to paths that terminate at a specific subscriber node.
+
 ```sql
 MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/motor_driver'
 ```
 
 ### Filter message flow to a specific destination topic
 
+Narrows the flow graph to paths that terminate at a specific downstream topic.
+
 ```sql
 MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
 ```
 
 ### All spans for a specific trace
+
+Returns every span belonging to a trace, ordered by timestamp.
 
 ```sql
 TRACE 'trace-002'
@@ -157,11 +191,15 @@ Five focused queries that together give a complete picture of robot health. Run 
 
 ### Error rate by robot
 
+Count errors per robot over the last 30 minutes — the headline metric for a health dashboard.
+
 ```sql
 SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET robot_id SINCE 30 minutes ago
 ```
 
 ### Log severity breakdown
+
+Break down log volume by severity to spot warn/error spikes.
 
 ```sql
 SELECT COUNT(*) FROM logs WHERE severity IN ('ERROR', 'WARN') FACET severity SINCE 30 minutes ago
@@ -169,17 +207,23 @@ SELECT COUNT(*) FROM logs WHERE severity IN ('ERROR', 'WARN') FACET severity SIN
 
 ### Action success rates
 
+Compute the ratio of succeeded to total executions for an action server.
+
 ```sql
 SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces SINCE 30 minutes ago
 ```
 
 ### Topic publish rates
 
+Check the current publish rate for a topic in Hz.
+
 ```sql
 SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 minutes ago
 ```
 
 ### P95 action latency
+
+95th-percentile latency for a navigation or manipulation action — catches tail-latency regressions.
 
 ```sql
 SELECT APPROX_PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose' SINCE 30 minutes ago
@@ -318,11 +362,15 @@ FROM traces
 
 ### Compare error rate to a previous version
 
+Compare current error volume against a historical version baseline.
+
 ```sql
 FROM traces WHERE status = 'ERROR' SINCE 1 hour ago | COMPARE TO VERSION 'v1.0.0'
 ```
 
 ### Compare two versions head-to-head
+
+Side-by-side comparison of an action's behaviour across two specific firmware versions.
 
 ```sql
 FROM traces WHERE action_name = '/navigate_to_pose' COMPARE VERSION 'v1.0' TO VERSION 'v2.0'
@@ -330,11 +378,15 @@ FROM traces WHERE action_name = '/navigate_to_pose' COMPARE VERSION 'v1.0' TO VE
 
 ### Deployment history for a robot
 
+List every firmware version and environment combination the robot has been seen with.
+
 ```sql
 SHOW DEPLOYMENTS FOR ROBOT 'robot_42' SINCE 7 days ago
 ```
 
 ### Top spans by average duration
+
+Rank all span types by mean duration — useful for spotting slow nodes at a glance.
 
 ```sql
 SHOW SPAN SUMMARY FOR ROBOT 'robot_42' SINCE 1 hour ago
@@ -356,6 +408,8 @@ SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 hour ago
 
 ### Log analysis with ordering
 
+Fetch recent warning and error logs sorted by severity.
+
 ```sql
 FROM logs
 | WHERE severity IN ('ERROR', 'WARN')
@@ -369,11 +423,15 @@ FROM logs
 
 ### Average span duration per robot
 
+Mean action duration faceted by robot — compare fleet-wide performance in one query.
+
 ```sql
 SELECT AVG(duration) FROM traces FACET robot_id
 ```
 
 ### Error count by severity
+
+Log volume grouped by severity across robots.
 
 ```sql
 SELECT COUNT(*) FROM logs WHERE severity = 'ERROR' FACET robot_id
@@ -381,11 +439,15 @@ SELECT COUNT(*) FROM logs WHERE severity = 'ERROR' FACET robot_id
 
 ### Percentile latency for navigation
 
+p95 latency for a specific action across all robots and sessions.
+
 ```sql
 SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose'
 ```
 
 ### Multiple aggregations
+
+Compute several aggregate statistics in a single query.
 
 ```sql
 SELECT AVG(duration) AS avg_dur, MAX(duration) AS max_dur, COUNT(*) AS total FROM traces
@@ -457,6 +519,8 @@ SINCE 1 hour ago
 ## Pagination
 
 ### Page through results with LIMIT and OFFSET
+
+Standard keyset-less pagination — useful for UI tables that load results in pages.
 
 ```sql
 FROM logs ORDER BY timestamp DESC LIMIT 20 OFFSET 0
