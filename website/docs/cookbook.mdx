@@ -151,9 +151,9 @@ TRACE 'trace-002'
 
 ---
 
-## Composable Health Dashboard
+## Robot health dashboard
 
-Five focused queries that together cover what `HEALTH()` will do when implemented. Run them individually or wire them into a dashboard.
+Five focused queries that together give a complete picture of robot health. Run them individually or wire them into a dashboard.
 
 ### Error rate by robot
 
@@ -187,19 +187,7 @@ SELECT APPROX_PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigat
 
 ---
 
-## Robot health and anomaly detection
-
-### Robot health assessment
-
-:::caution Not yet implemented
-`HEALTH()` is not yet compiled. Use the [Composable Health Dashboard](#composable-health-dashboard) recipes above.
-:::
-
-```sql
-HEALTH() FOR ROBOT 'robot_sim_001'
-```
-
-Fan-out across traces, logs, and metrics to produce an overall health assessment.
+## Anomaly detection
 
 ### Detect statistical anomalies in span duration
 
@@ -354,8 +342,16 @@ SHOW SPAN SUMMARY FOR ROBOT 'robot_42' SINCE 1 hour ago
 
 ### Plan spans for a specific trace
 
+Returns all spans in a trace that carry a `ros.plan.id` attribute — i.e. planning spans emitted by Nav2 or a custom motion planner. Useful for inspecting how long path planning took within a navigation action.
+
 ```sql
 SHOW PLANS FOR TRACE 'a3f1c9d2e8b04f7a'
+```
+
+Also works scoped to a robot or time window:
+
+```sql
+SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 hour ago
 ```
 
 ### Log analysis with ordering
@@ -679,5 +675,4 @@ FOR SESSION 'delivery_042' FROM logs ORDER BY timestamp DESC
 - [Command Reference →](./command-reference) — full syntax for every ROSQL statement
 - [Schema Reference →](./schema-reference) — tables, fields, and OTel conventions
 - [Concepts →](./concepts) — SHOW vs FROM, scoping, joint indexing
-- [Schema Reference →](./schema-reference) — table structure ROSQL expects
-- [Examples page →](/examples) — killer demos with detailed explanations
+- [Examples page →](/examples) — detailed worked examples

@@ -123,10 +123,6 @@ TRACE 'a3f1c9d2e8b04f7a'
 
 Returns all spans in the causal chain by walking `parent_span_id → span_id` recursively via a CTE.
 
-:::note Removed in v0.4.1
-`MESSAGE JOURNEY FOR TRACE 'id'` has been removed. Use `TRACE 'id'` instead.
-:::
-
 ### Find all message paths for a topic
 
 ```sql
@@ -147,10 +143,6 @@ MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/motor_driver'
 MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
 ```
 
-:::note Removed in v0.4.1
-`MESSAGE PATHS FOR TOPIC '/topic'` and `MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst'` have been removed. Use `MESSAGE FLOW FROM TOPIC ...` instead.
-:::
-
 ### All spans for a specific trace
 
 ```sql
@@ -159,9 +151,9 @@ TRACE 'trace-002'
 
 ---
 
-## Composable Health Dashboard
+## Robot health dashboard
 
-Five focused queries that together cover what `HEALTH()` will do when implemented. Run them individually or wire them into a dashboard.
+Five focused queries that together give a complete picture of robot health. Run them individually or wire them into a dashboard.
 
 ### Error rate by robot
 
@@ -195,21 +187,9 @@ SELECT APPROX_PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigat
 
 ---
 
-## Robot health and anomaly detection
+## Anomaly detection
 
-### Robot health assessment
-
-:::caution Not implemented in v0.4
-`HEALTH()` is not yet compiled. Use the [Composable Health Dashboard](#composable-health-dashboard) recipes above.
-:::
-
-```sql
-HEALTH() FOR ROBOT 'robot_sim_001'
-```
-
-Fan-out across traces, logs, and metrics to produce an overall health assessment.
-
-### Detect statistical anomalies in span duration _(v0.4.3+)_
+### Detect statistical anomalies in span duration
 
 Uses a two-phase z-score CTE to compare current values against a historical or fleet-wide baseline.
 
@@ -223,7 +203,7 @@ ANOMALY(duration) COMPARED TO fleet SINCE 1 hour ago FACET robot_id
 
 Returns `robot_id`, `avg_current`, `avg_baseline`, `z_score`, `is_anomalous`, `direction`.
 
-### Finding anomalous robots after deployment _(v0.4.3+)_
+### Finding anomalous robots after deployment
 
 Compare post-deployment behaviour against the previous week's baseline to catch regressions:
 
@@ -237,7 +217,7 @@ Pair with `FOR VERSION` to scope to a specific release:
 FOR VERSION 'v1.3.0' ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 12 hours ago
 ```
 
-### Path deviation analysis _(v0.4.3+)_
+### Path deviation analysis
 
 Check if a robot deviated from its planned path during a specific trace:
 
@@ -259,7 +239,7 @@ PATH DEVIATION PLAN 0 FOR ROBOT 'robot_sim_001' SINCE 6 hours ago
 
 Returns lateral deviation in metres per waypoint plus summary stats.
 
-### Joint trajectory tracking _(v0.4.3+)_
+### Joint trajectory tracking
 
 Compare planned vs. actual joint positions to detect mechanical issues or controller errors:
 
@@ -275,7 +255,7 @@ JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 1 hour ago
 
 Returns per-joint `position_error_rad` and summary statistics.
 
-### Browse robot joint map _(v0.4.3+)_
+### Browse robot joint map
 
 Inspect the URDF-derived joint map registered for a robot model:
 
@@ -362,8 +342,16 @@ SHOW SPAN SUMMARY FOR ROBOT 'robot_42' SINCE 1 hour ago
 
 ### Plan spans for a specific trace
 
+Returns all spans in a trace that carry a `ros.plan.id` attribute — i.e. planning spans emitted by Nav2 or a custom motion planner. Useful for inspecting how long path planning took within a navigation action.
+
 ```sql
 SHOW PLANS FOR TRACE 'a3f1c9d2e8b04f7a'
+```
+
+Also works scoped to a robot or time window:
+
+```sql
+SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 hour ago
 ```
 
 ### Log analysis with ordering
@@ -429,7 +417,7 @@ SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces SINCE 1 hour ago
 
 ---
 
-## Geospatial filtering _(v0.4.3+)_
+## Geospatial filtering
 
 ### Filter by GPS proximity (Haversine)
 
@@ -687,5 +675,4 @@ FOR SESSION 'delivery_042' FROM logs ORDER BY timestamp DESC
 - [Command Reference →](./command-reference) — full syntax for every ROSQL statement
 - [Schema Reference →](./schema-reference) — tables, fields, and OTel conventions
 - [Concepts →](./concepts) — SHOW vs FROM, scoping, joint indexing
-- [Schema Reference →](./schema-reference) — table structure ROSQL expects
-- [Examples page →](/examples) — killer demos with detailed explanations
+- [Examples page →](/examples) — detailed worked examples
