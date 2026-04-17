@@ -144,7 +144,6 @@ DURING(
   FROM topics WHERE topic_name = '/battery_state'
   AND fields['percentage'] < 15
 )
-SINCE 6 hours ago
 ```
 
 ```bash
@@ -154,10 +153,9 @@ WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 DURING(
   FROM topics WHERE topic_name = '/battery_state'
   AND fields['percentage'] < 15
-)
-SINCE 6 hours ago" \
+)" \
   --backend parquet \
-  --url ./telemetry/robotops_demo_agent/20260403-141530/
+  --url s3://robotops-production-rosql-demo/data
 ```
 
 ## Message causality
@@ -208,7 +206,7 @@ use rosql::{parse, drivers::{sql::SqlBackend, ExecOptions}};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Parquet backend — local or S3
-    let backend = SqlBackend::from_parquet("./telemetry/robotops_demo_agent/20260403-141530/").await?;
+    let backend = SqlBackend::from_parquet("s3://robotops-production-rosql-demo/data").await?;
 
     // Or PostgreSQL
     // let backend = SqlBackend::new("postgresql://user:pass@localhost/telemetry").await?;
@@ -219,7 +217,6 @@ async fn main() -> anyhow::Result<()> {
         DURING(
           FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15
         )
-        SINCE 6 hours ago
     ")?;
     let result = backend.execute(&query, &ExecOptions::default()).await?;
     println!("{}", serde_json::to_string_pretty(&result)?);
