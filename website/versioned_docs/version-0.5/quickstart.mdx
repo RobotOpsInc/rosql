@@ -118,7 +118,7 @@ rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
 
 ## Cross-signal correlation
 
-The killer feature: `DURING` correlates events across data sources in a single query.
+`DURING` correlates events across data sources in a single query.
 
 Find navigation failures that happened while the battery was critically low:
 
@@ -151,10 +151,19 @@ SINCE 6 hours ago" \
 Trace the full causality chain from any span ID:
 
 ```sql
-TRACE 'a3f1c9d2e8b04f7a'
+TRACE 'trace-001'
 ```
 
-This walks `parent_span_id → span_id` recursively and returns all spans in the causality chain — something plain SQL has no primitive for.
+This walks `parent_span_id → span_id` recursively via a CTE and returns all spans in the causality chain in traversal order — something plain SQL has no primitive for.
+
+```json
+[
+  { "span_id": "span-001-root",    "span_name_col": "/navigate_to_pose",           "ros.node": "/bt_navigator",        "duration": 8000000000 },
+  { "span_id": "span-001-bt",      "span_name_col": "/bt_navigator/navigate",       "ros.node": "/bt_navigator",        "duration": 7900000000 },
+  { "span_id": "span-001-ctrl",    "span_name_col": "/controller_server/follow_path","ros.node": "/controller_server",   "duration": 7800000000 },
+  { "span_id": "span-001-costmap", "span_name_col": "/local_costmap_node/update",   "ros.node": "/local_costmap_node",  "duration":  500000000 }
+]
+```
 
 ## Compile to SQL
 
