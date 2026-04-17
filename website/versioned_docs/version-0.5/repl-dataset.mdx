@@ -29,7 +29,7 @@ The showcase queries follow a real diagnostic workflow:
 
 5. **Inspect the ROS2 topology** — The node graph shows the full Nav2 computation graph for `robot-amr-02`: the `/scan` path goes through `/lidar_node → /local_costmap_node → /controller_server`.
 
-The raw SQL that builds this dataset is in [`website/static/fixtures/`](https://github.com/RobotOpsInc/rosql/tree/main/website/static/fixtures) — eight files loaded sequentially into an in-browser DuckDB instance each time you open the REPL.
+**Raw data:** The raw SQL that builds this dataset can be found [`here`](https://github.com/RobotOpsInc/rosql/tree/main/website/static/fixtures) — eight files loaded sequentially into an in-browser DuckDB instance each time you open the REPL.
 
 ## Tables in the Dataset
 
