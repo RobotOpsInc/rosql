@@ -466,11 +466,7 @@ Used by: `SHOW JOINTS`, `JOINT DEVIATION`
 
 ### Additional tables (optional)
 
-These tables power the additional data sources. If absent, ROSQL returns a `DataSourceUnavailable` error.
-
-:::note
-These tables are supported in PostgreSQL and MySQL only. They are not part of the standard Parquet directory layout.
-:::
+These tables power the additional data sources. If absent, ROSQL returns a `DataSourceUnavailable` error. For DuckDB/Parquet, provide each as a `.parquet` file registered under the table name — the same pattern as `robot_joint_map`.
 
 | ROSQL source | Table | Description |
 |---|---|---|
