@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-17
+
+### Fixed
+
+- **`FROM recordings SINCE`** — `SINCE` now correctly filters by `end_time` overlap semantics on `mcap_metadata` instead of generating a broken `"timestamp"` predicate against a non-existent column. `BETWEEN` uses full interval-overlap logic (`start_time <= end AND end_time >= start`).
+
+### Changed
+
+- Versioned docs snapshot for v0.5 created. The `website/docs/` (next) baseline has been cleaned of v0.4.x migration notes, removed-syntax warnings, and `_(v0.4.x+)_` version markers — all documented syntax is now current and fully supported.
+
 ## [0.4.13] - 2026-04-16
 
 ### Fixed

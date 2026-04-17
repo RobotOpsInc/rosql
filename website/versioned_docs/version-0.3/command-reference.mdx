@@ -224,13 +224,9 @@ Requires the `topic_messages` table with `/odom` data.
 
 ### `SHOW RECORDING`
 
-Find MCAP recordings that cover the most recent event window.
-
-```sql
-SHOW RECORDING
-```
-
-Returns `robot_id`, `session_id`, `start_time`, `end_time`, `s3_key`, `topics` from `mcap_metadata`.
+:::caution Reserved syntax — never implemented
+`SHOW RECORDING` was reserved in v0.3 but never compiled. Use `FROM recordings` (v0.4+) to query recording metadata.
+:::
 
 ---
 

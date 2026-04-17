@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" aria-label="TimescaleDB">
+  <!-- Clock face -->
+  <circle cx="30" cy="30" r="26" fill="#FDB515"/>
+  <circle cx="30" cy="30" r="22" fill="#fff"/>
+  <!-- Clock hands -->
+  <line x1="30" y1="30" x2="30" y2="13" stroke="#FDB515" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="30" y1="30" x2="42" y2="37" stroke="#FDB515" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="30" cy="30" r="3" fill="#FDB515"/>
+  <!-- Tick marks -->
+  <line x1="30" y1="9" x2="30" y2="12" stroke="#FDB515" stroke-width="2"/>
+  <line x1="30" y1="48" x2="30" y2="51" stroke="#FDB515" stroke-width="2"/>
+  <line x1="9" y1="30" x2="12" y2="30" stroke="#FDB515" stroke-width="2"/>
+  <line x1="48" y1="30" x2="51" y2="30" stroke="#FDB515" stroke-width="2"/>
+</svg>

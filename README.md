@@ -228,11 +228,13 @@ The `--backend parquet --url <path>` option expects the following directory stru
 
 ```
 <url>/
-  traces/          *.parquet  →  otel_traces view
-  logs/            *.parquet  →  otel_logs view
-  metrics/         *.parquet  →  otel_metrics view
-  topic_messages/  *.parquet  →  topic_messages view
-  mcap_metadata/   *.parquet  →  mcap_metadata view
+  traces/            *.parquet  →  otel_traces view
+  logs/              *.parquet  →  otel_logs view
+  metrics/           *.parquet  →  otel_metrics view
+  topic_messages/    *.parquet  →  topic_messages view
+  mcap_metadata/     *.parquet  →  mcap_metadata view
+  robot_joint_map/   *.parquet  →  robot_joint_map view  (optional — needed for SHOW JOINTS / JOINT DEVIATION)
+  ros2_events/       *.parquet  →  ros2_events view      (optional — needed for SHOW DEPLOYMENTS)
 ```
 
 Files are discovered recursively via `**/*.parquet` globs. Missing subdirectories are silently skipped — queries against absent tables return a `DataSourceUnavailable` error.
@@ -247,7 +249,7 @@ When `--url s3://...` is used, ROSQL loads the DuckDB `httpfs` extension and rea
 | `AWS_SECRET_ACCESS_KEY` | Static secret key |
 | `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS region (e.g. `us-east-1`) |
 | `AWS_PROFILE` | Named credentials profile |
-| `AWS_ENDPOINT_URL` | Override endpoint for S3-compatible storage (MinIO, Ceph, etc.) |
+| `AWS_ENDPOINT_URL` | Override endpoint for S3-compatible storage (MinIO, Cloudflare R2 etc.) |
 
 ## Examples
 
@@ -418,7 +420,7 @@ Prerequisites: Rust (stable, 1.80+), protoc, buf (optional). See [CONTRIBUTING.m
 
 ## Contributing
 
-ROSQL is in early development (v0.1) and contributions are welcome.
+ROSQL is in early development and contributions are welcome.
 
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, build variants, and release process
 - File bugs and feature requests in the [issue tracker](https://github.com/RobotOpsInc/rosql/issues)

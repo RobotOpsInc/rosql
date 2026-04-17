@@ -145,13 +145,9 @@ Queries `/odom` trajectory data from `topic_messages` to detect if the robot dev
 
 ## MCAP recordings
 
-### Find the recording that covers a time window
-
-```sql
-SHOW RECORDING
-```
-
-Returns MCAP recording metadata (`s3_key`, time range, topics) that covers the most recent event window.
+:::caution `SHOW RECORDING` was never implemented
+`SHOW RECORDING` was reserved syntax in v0.3 but the compiler never supported it. Use `FROM recordings` (available in v0.4+) to query recording metadata.
+:::
 
 ---
 

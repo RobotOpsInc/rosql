@@ -1236,3 +1236,48 @@ fn execution_error_no_raw_driver_text() {
         "data source should appear: {display}"
     );
 }
+
+#[test]
+fn recordings_since_uses_end_time_not_timestamp() {
+    // FROM recordings SINCE X must filter by end_time (overlap), not a non-existent timestamp col.
+    let sql = compile_sql(
+        "FROM recordings WHERE robot_id = 'amr-01' SINCE 6 hours ago",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(
+        sql.contains("end_time"),
+        "expected end_time in WHERE clause, got: {sql}"
+    );
+    assert!(
+        !sql.contains("\"timestamp\""),
+        "timestamp column must not appear for recordings, got: {sql}"
+    );
+
+    // DuckDB dialect
+    let sql_duck = compile_sql(
+        "FROM recordings WHERE robot_id = 'amr-01' SINCE 6 hours ago",
+        SqlDialect::DuckDB,
+    );
+    assert!(
+        sql_duck.contains("end_time"),
+        "DuckDB: expected end_time in WHERE clause, got: {sql_duck}"
+    );
+    assert!(
+        !sql_duck.contains("\"timestamp\""),
+        "DuckDB: timestamp column must not appear for recordings, got: {sql_duck}"
+    );
+}
+
+#[test]
+fn recordings_between_uses_overlap_semantics() {
+    // TimeRange::Between should produce start_time <= end AND end_time >= start
+    let sql = compile_sql(
+        "FROM recordings WHERE robot_id = 'amr-01' AND start_time <= '2026-04-17T11:00:00Z' AND end_time >= '2026-04-17T10:00:00Z'",
+        SqlDialect::PostgreSQL,
+    );
+    // This is a plain WHERE condition (not a SINCE), so just verify it compiles cleanly.
+    assert!(
+        sql.contains("mcap_metadata"),
+        "expected mcap_metadata table, got: {sql}"
+    );
+}

@@ -47,7 +47,7 @@ SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_po
 
 Aggregate functions: `AVG`, `COUNT`, `MAX`, `MIN`, `SUM`, `PERCENTILE`, `TOPIC_RATE`, `ACTION_SUCCESS_RATE`, `MOVING_AVG`, `DERIVATIVE`, `APPROX_COUNT_DISTINCT`, `APPROX_PERCENTILE`
 
-See [Aggregate function reference](#aggregate-function-reference) for syntax and examples.
+See [Aggregate functions](./syntax#aggregate-functions) in the Syntax reference for syntax and examples.
 
 ---
 
@@ -64,10 +64,7 @@ FROM logs WHERE severity IN ('ERROR', 'WARN')
 FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
 ```
 
-**Duration units** — ROSQL automatically converts to nanoseconds:
-- `500 ms` → `500000000`
-- `2 s` → `2000000000`
-- `1 min` → `60000000000`
+**Unit values** (e.g. `500 ms`, `2 km`, `45 deg`) are automatically converted to SI at parse time — see [Physical units](./syntax#physical-units).
 
 **JSON field access**: `fields['key']` on `topic_messages.fields` (JSONB)
 
@@ -75,7 +72,7 @@ FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
 
 ---
 
-### `WHERE position WITHIN <radius> OF <center>` _(v0.4.3+)_
+### `WHERE position WITHIN <radius> OF <center>`
 
 Geospatial filter. Returns rows where the `position` field falls within `radius` of `center`.
 
@@ -248,10 +245,6 @@ TRACE 'trace-002'
 
 Returns all columns from `otel_traces` for every span in the causal chain, in traversal order.
 
-:::note Removed in v0.4.1
-`MESSAGE JOURNEY FOR TRACE 'id'` has been removed. Use `TRACE 'id'` instead.
-:::
-
 ---
 
 ### `MESSAGE FLOW FROM TOPIC <topic> [TO NODE|TOPIC <dest>]`
@@ -271,19 +264,13 @@ MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
 
 Returns publisher/subscriber node pairs for the specified path.
 
-:::note Removed in v0.4.1
-`MESSAGE PATHS FOR TOPIC '/topic'` has been removed. Use `MESSAGE FLOW FROM TOPIC '/topic'` instead.
-
-`MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst'` has been removed. Use `MESSAGE FLOW FROM TOPIC '/src' TO NODE '/dst'` instead.
-:::
-
 ---
 
 ## Health and anomaly
 
 ### `HEALTH() [FOR ROBOT <robot_id>] [SINCE <time>]`
 
-:::caution Not implemented in v0.4
+:::caution Not yet implemented
 `HEALTH()` is reserved syntax and is not yet compiled. Use the [Composable Health Dashboard](./cookbook#composable-health-dashboard) recipes as a working alternative.
 :::
 
@@ -298,7 +285,7 @@ Returns a structured health report including error rates, log severity counts, a
 
 ---
 
-### `ANOMALY(<field>) COMPARED TO <baseline>` _(v0.4.3+)_
+### `ANOMALY(<field>) COMPARED TO <baseline>`
 
 Detect statistical anomalies in a field using a two-phase z-score CTE. `COMPARED TO` is required. `FACET` is strongly recommended to get per-robot breakdown.
 
@@ -321,7 +308,7 @@ Requires the [`robot_joint_map`](#robot_joint_map) and `otel_traces` tables.
 
 ---
 
-### `PATH DEVIATION` _(v0.4.3+)_
+### `PATH DEVIATION`
 
 Compare actual robot trajectory (from `/odom` topic messages) against the planned path (from `/plan` topic messages). Computes lateral deviation in metres at each waypoint.
 
@@ -343,7 +330,7 @@ Requires the `topic_messages` table with `/odom` and `/plan` data.
 
 ---
 
-### `JOINT DEVIATION` _(v0.4.3+)_
+### `JOINT DEVIATION`
 
 Compare planned joint trajectory (from `/joint_trajectory` topic messages) against actual joint states (from `/joint_states` topic messages). Computes per-joint position error in radians.
 
@@ -363,19 +350,35 @@ Requires the `topic_messages` table with `/joint_trajectory` and `/joint_states`
 
 ## Recordings
 
-### `SHOW RECORDING`
+### `FROM recordings`
 
-:::caution Not implemented in v0.4
-`SHOW RECORDING` is reserved syntax and is not yet compiled. Use `FROM recordings LIMIT 5` to browse recording metadata directly.
-:::
-
-Find MCAP recordings that cover the most recent event window.
+Queries the `mcap_metadata` index table — one row per MCAP file. Returns file-level metadata: which robot, which time window, which topics, and where the file lives (`s3_key`). It does **not** slice into the MCAP content; use `s3_key` along with the returned `start_time`/`end_time` to fetch and seek into the file client-side.
 
 ```sql
-SHOW RECORDING
+-- Browse all recordings
+FROM recordings LIMIT 10
+
+-- Filter by robot
+FROM recordings WHERE robot_id = 'amr-01' LIMIT 10
+
+-- Find recordings covering a time window (use start_time / end_time explicitly)
+FROM recordings
+WHERE end_time >= NOW() - INTERVAL '2 hours'
+  AND start_time <= NOW()
+
+-- Find recordings that contain a specific topic
+FROM recordings WHERE '/camera/image_raw' = ANY(topics)
+
+-- Combine filters
+FROM recordings
+WHERE robot_id = 'amr-01'
+  AND end_time >= NOW() - INTERVAL '6 hours'
+  AND '/joint_states' = ANY(topics)
+LIMIT 5
 ```
 
-Returns `robot_id`, `session_id`, `start_time`, `end_time`, `s3_key`, `topics` from `mcap_metadata`.
+Returns `robot_id`, `session_id`, `start_time`, `end_time`, `s3_key`, `topics`, `message_types` from `mcap_metadata`.
+
 
 ---
 
@@ -426,7 +429,7 @@ Returns plan spans with timing, robot, and trace context.
 
 ---
 
-### `SHOW JOINTS` _(v0.4.3+)_
+### `SHOW JOINTS`
 
 Return the joint map for a robot from the `robot_joint_map` table. Queries the URDF-derived joint metadata registered for that robot model.
 
@@ -443,17 +446,7 @@ Requires the optional [`robot_joint_map`](#robot_joint_map) table.
 
 ## Pipeline syntax
 
-Use `|` to chain query stages, making complex queries more readable.
-
-```sql
-FROM traces
-| WHERE duration > 500 ms
-| WHERE status = 'ERROR'
-| FACET robot_id
-| COMPARE TO last week
-```
-
-Each stage receives the output of the previous stage. Equivalent to nesting clauses.
+See [Pipeline syntax](./syntax#pipeline-form) in the Syntax reference for the full grammar and equivalence rules.
 
 ---
 
@@ -504,57 +497,7 @@ Returns results for each version side by side.
 
 ## Aggregate function reference
 
-### `TOPIC_RATE([topic_name])`
-
-Average publish rate for a topic (or all topics) from the `otel_metrics` table.
-
-```sql
-SELECT TOPIC_RATE() FROM metrics
-SELECT TOPIC_RATE('/cmd_vel') FROM metrics
-```
-
-### `ACTION_SUCCESS_RATE([action_name])`
-
-Ratio of succeeded action spans to total action spans. Returns a value between 0 and 1.
-
-```sql
-SELECT ACTION_SUCCESS_RATE() FROM traces
-SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces
-```
-
-### `MOVING_AVG(field, window)`
-
-Rolling average over a sliding window of `window` rows.
-
-```sql
-SELECT MOVING_AVG(duration, 5) FROM traces
-```
-
-Compiles to `AVG(...) OVER (ROWS BETWEEN N PRECEDING AND CURRENT ROW)`.
-
-### `DERIVATIVE(field)`
-
-Rate of change between consecutive rows (LAG-based).
-
-```sql
-SELECT DERIVATIVE(metric_value) FROM metrics
-```
-
-### `APPROX_COUNT_DISTINCT(field)`
-
-Approximate distinct count. Uses `approx_count_distinct()` on DuckDB; falls back to `COUNT(DISTINCT ...)` on PostgreSQL.
-
-```sql
-SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces
-```
-
-### `APPROX_PERCENTILE(field, percentile)`
-
-Approximate percentile. Uses `approx_quantile()` on DuckDB; falls back to `PERCENTILE_CONT` on PostgreSQL.
-
-```sql
-SELECT APPROX_PERCENTILE(duration, 95) FROM traces
-```
+See [Aggregate functions](./syntax#aggregate-functions) in the Syntax reference.
 
 ---
 
@@ -578,7 +521,7 @@ ROSQL infers the appropriate hint from the query shape:
 | `ANOMALY(...)` | `Table` (with `color_field: is_anomalous`) | Highlighted anomaly rows |
 | Scalar aggregation only | `ScalarCards` | KPI metric cards |
 | `FROM logs` / `FROM system_logs` | `LogTable` (with `color_field: severity`) | Severity-colored log viewer |
-| `FROM recordings` / `SHOW RECORDING` | `RecordingList` | Recording file list |
+| `FROM recordings` | `RecordingList` | Recording file list |
 | Everything else | `Table` | Generic tabular display |
 
 ### Visualization config
@@ -627,8 +570,6 @@ ROSQL produces structured errors — no raw SQL or database error text is ever s
 ## Notes
 
 - All timestamps in results are UTC ISO 8601
-- `duration` is stored as nanoseconds (`BIGINT`); ROSQL expressions like `500 ms` are automatically converted
 - Default `LIMIT` is 100 if not specified. Exempt query types: scalar aggregations, `FACET`, `TRACE`, `MESSAGE FLOW`, `PATH DEVIATION`, `JOINT DEVIATION`, `ANOMALY`, `SHOW JOINTS`
-- `SINCE` is always relative to query execution time
 - FOR clauses filter on resource attributes: `FOR ROBOT` → `robot_id`, `FOR VERSION` → `service.version`, `FOR ENVIRONMENT` → `deployment.environment`, `FOR SESSION` → `ros.session.id`
-- **Removed in v0.4.1**: `MESSAGE JOURNEY FOR TRACE`, `MESSAGE PATHS FOR TOPIC`, `MESSAGE PATH FROM TOPIC ... TO NODE` — see [Message causality](#message-causality) for replacements
+

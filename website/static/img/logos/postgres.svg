@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" aria-label="PostgreSQL">
+  <!-- Simplified Slonik elephant head in PostgreSQL blue -->
+  <ellipse cx="30" cy="32" rx="18" ry="20" fill="#336791"/>
+  <!-- ears -->
+  <ellipse cx="14" cy="22" rx="7" ry="9" fill="#336791"/>
+  <ellipse cx="46" cy="22" rx="7" ry="9" fill="#336791"/>
+  <!-- inner ear highlights -->
+  <ellipse cx="14" cy="22" rx="4" ry="6" fill="#5a9fd4"/>
+  <ellipse cx="46" cy="22" rx="4" ry="6" fill="#5a9fd4"/>
+  <!-- face highlight -->
+  <ellipse cx="30" cy="35" rx="11" ry="13" fill="#5a9fd4"/>
+  <!-- eyes -->
+  <circle cx="24" cy="27" r="2.5" fill="#fff"/>
+  <circle cx="36" cy="27" r="2.5" fill="#fff"/>
+  <circle cx="24.8" cy="27.5" r="1.2" fill="#336791"/>
+  <circle cx="36.8" cy="27.5" r="1.2" fill="#336791"/>
+  <!-- trunk -->
+  <path d="M28 44 Q24 50 20 53 Q16 55 15 52 Q14 49 17 47 Q21 45 24 42" fill="none" stroke="#336791" stroke-width="4" stroke-linecap="round"/>
+  <!-- tusk -->
+  <path d="M26 44 Q23 48 25 51" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

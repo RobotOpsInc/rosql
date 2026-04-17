@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" aria-label="ClickHouse">
+  <!-- ClickHouse stepped-column logo pattern in yellow -->
+  <!-- 3 columns of decreasing height forming a "C" shape -->
+  <rect x="7"  y="10" width="10" height="40" rx="2" fill="#FAFF69"/>
+  <rect x="21" y="18" width="10" height="32" rx="2" fill="#FAFF69"/>
+  <rect x="35" y="26" width="10" height="24" rx="2" fill="#FAFF69"/>
+  <!-- Right edge column (back) -->
+  <rect x="49" y="10" width="5"  height="40" rx="2" fill="#FAFF69" opacity="0.5"/>
+</svg>

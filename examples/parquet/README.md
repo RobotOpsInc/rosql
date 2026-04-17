@@ -75,7 +75,7 @@ rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
   --url s3://my-bucket/robot-01/robotops_demo_agent/20260403-141530/
 ```
 
-S3-compatible storage (MinIO, Ceph, etc.) is also supported via `AWS_ENDPOINT_URL`:
+S3-compatible storage (MinIO, Cloudflare R2 etc.) is also supported via `AWS_ENDPOINT_URL`:
 
 ```bash
 export AWS_ENDPOINT_URL=http://localhost:9000
