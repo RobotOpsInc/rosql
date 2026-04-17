@@ -75,7 +75,7 @@ FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
 
 ---
 
-### `WHERE position WITHIN <radius> OF <center>`
+### `WHERE position WITHIN <radius> OF <center>` _(v0.4.3+)_
 
 Geospatial filter. Returns rows where the `position` field falls within `radius` of `center`.
 
@@ -248,6 +248,10 @@ TRACE 'trace-002'
 
 Returns all columns from `otel_traces` for every span in the causal chain, in traversal order.
 
+:::note Removed in v0.4.1
+`MESSAGE JOURNEY FOR TRACE 'id'` has been removed. Use `TRACE 'id'` instead.
+:::
+
 ---
 
 ### `MESSAGE FLOW FROM TOPIC <topic> [TO NODE|TOPIC <dest>]`
@@ -267,13 +271,19 @@ MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
 
 Returns publisher/subscriber node pairs for the specified path.
 
+:::note Removed in v0.4.1
+`MESSAGE PATHS FOR TOPIC '/topic'` has been removed. Use `MESSAGE FLOW FROM TOPIC '/topic'` instead.
+
+`MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst'` has been removed. Use `MESSAGE FLOW FROM TOPIC '/src' TO NODE '/dst'` instead.
+:::
+
 ---
 
 ## Health and anomaly
 
 ### `HEALTH() [FOR ROBOT <robot_id>] [SINCE <time>]`
 
-:::caution Not yet implemented
+:::caution Not implemented in v0.4
 `HEALTH()` is reserved syntax and is not yet compiled. Use the [Composable Health Dashboard](./cookbook#composable-health-dashboard) recipes as a working alternative.
 :::
 
@@ -288,7 +298,7 @@ Returns a structured health report including error rates, log severity counts, a
 
 ---
 
-### `ANOMALY(<field>) COMPARED TO <baseline>`
+### `ANOMALY(<field>) COMPARED TO <baseline>` _(v0.4.3+)_
 
 Detect statistical anomalies in a field using a two-phase z-score CTE. `COMPARED TO` is required. `FACET` is strongly recommended to get per-robot breakdown.
 
@@ -311,7 +321,7 @@ Requires the [`robot_joint_map`](#robot_joint_map) and `otel_traces` tables.
 
 ---
 
-### `PATH DEVIATION`
+### `PATH DEVIATION` _(v0.4.3+)_
 
 Compare actual robot trajectory (from `/odom` topic messages) against the planned path (from `/plan` topic messages). Computes lateral deviation in metres at each waypoint.
 
@@ -333,7 +343,7 @@ Requires the `topic_messages` table with `/odom` and `/plan` data.
 
 ---
 
-### `JOINT DEVIATION`
+### `JOINT DEVIATION` _(v0.4.3+)_
 
 Compare planned joint trajectory (from `/joint_trajectory` topic messages) against actual joint states (from `/joint_states` topic messages). Computes per-joint position error in radians.
 
@@ -382,6 +392,10 @@ LIMIT 5
 
 Returns `robot_id`, `session_id`, `start_time`, `end_time`, `s3_key`, `topics`, `message_types` from `mcap_metadata`.
 
+
+:::note `SHOW RECORDING`
+`SHOW RECORDING` is reserved but deprecated syntax — the compiler rejects it. Use `FROM recordings` instead.
+:::
 
 ---
 
@@ -432,7 +446,7 @@ Returns plan spans with timing, robot, and trace context.
 
 ---
 
-### `SHOW JOINTS`
+### `SHOW JOINTS` _(v0.4.3+)_
 
 Return the joint map for a robot from the `robot_joint_map` table. Queries the URDF-derived joint metadata registered for that robot model.
 
@@ -637,4 +651,4 @@ ROSQL produces structured errors — no raw SQL or database error text is ever s
 - Default `LIMIT` is 100 if not specified. Exempt query types: scalar aggregations, `FACET`, `TRACE`, `MESSAGE FLOW`, `PATH DEVIATION`, `JOINT DEVIATION`, `ANOMALY`, `SHOW JOINTS`
 - `SINCE` is always relative to query execution time
 - FOR clauses filter on resource attributes: `FOR ROBOT` → `robot_id`, `FOR VERSION` → `service.version`, `FOR ENVIRONMENT` → `deployment.environment`, `FOR SESSION` → `ros.session.id`
-
+- **Removed in v0.4.1**: `MESSAGE JOURNEY FOR TRACE`, `MESSAGE PATHS FOR TOPIC`, `MESSAGE PATH FROM TOPIC ... TO NODE` — see [Message causality](#message-causality) for replacements

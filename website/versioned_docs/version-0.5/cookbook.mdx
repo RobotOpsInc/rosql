@@ -123,6 +123,10 @@ TRACE 'a3f1c9d2e8b04f7a'
 
 Returns all spans in the causal chain by walking `parent_span_id → span_id` recursively via a CTE.
 
+:::note Removed in v0.4.1
+`MESSAGE JOURNEY FOR TRACE 'id'` has been removed. Use `TRACE 'id'` instead.
+:::
+
 ### Find all message paths for a topic
 
 ```sql
@@ -142,6 +146,10 @@ MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/motor_driver'
 ```sql
 MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
 ```
+
+:::note Removed in v0.4.1
+`MESSAGE PATHS FOR TOPIC '/topic'` and `MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst'` have been removed. Use `MESSAGE FLOW FROM TOPIC ...` instead.
+:::
 
 ### All spans for a specific trace
 
@@ -191,7 +199,7 @@ SELECT APPROX_PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigat
 
 ### Robot health assessment
 
-:::caution Not yet implemented
+:::caution Not implemented in v0.4
 `HEALTH()` is not yet compiled. Use the [Composable Health Dashboard](#composable-health-dashboard) recipes above.
 :::
 
@@ -201,7 +209,7 @@ HEALTH() FOR ROBOT 'robot_sim_001'
 
 Fan-out across traces, logs, and metrics to produce an overall health assessment.
 
-### Detect statistical anomalies in span duration
+### Detect statistical anomalies in span duration _(v0.4.3+)_
 
 Uses a two-phase z-score CTE to compare current values against a historical or fleet-wide baseline.
 
@@ -215,7 +223,7 @@ ANOMALY(duration) COMPARED TO fleet SINCE 1 hour ago FACET robot_id
 
 Returns `robot_id`, `avg_current`, `avg_baseline`, `z_score`, `is_anomalous`, `direction`.
 
-### Finding anomalous robots after deployment
+### Finding anomalous robots after deployment _(v0.4.3+)_
 
 Compare post-deployment behaviour against the previous week's baseline to catch regressions:
 
@@ -229,7 +237,7 @@ Pair with `FOR VERSION` to scope to a specific release:
 FOR VERSION 'v1.3.0' ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 12 hours ago
 ```
 
-### Path deviation analysis
+### Path deviation analysis _(v0.4.3+)_
 
 Check if a robot deviated from its planned path during a specific trace:
 
@@ -251,7 +259,7 @@ PATH DEVIATION PLAN 0 FOR ROBOT 'robot_sim_001' SINCE 6 hours ago
 
 Returns lateral deviation in metres per waypoint plus summary stats.
 
-### Joint trajectory tracking
+### Joint trajectory tracking _(v0.4.3+)_
 
 Compare planned vs. actual joint positions to detect mechanical issues or controller errors:
 
@@ -267,7 +275,7 @@ JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 1 hour ago
 
 Returns per-joint `position_error_rad` and summary statistics.
 
-### Browse robot joint map
+### Browse robot joint map _(v0.4.3+)_
 
 Inspect the URDF-derived joint map registered for a robot model:
 
@@ -421,7 +429,7 @@ SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces SINCE 1 hour ago
 
 ---
 
-## Geospatial filtering
+## Geospatial filtering _(v0.4.3+)_
 
 ### Filter by GPS proximity (Haversine)
 
