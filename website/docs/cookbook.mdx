@@ -289,17 +289,27 @@ Returns `joint_name`, `joint_index`, `joint_type`, `lower_limit`, `upper_limit`.
 
 ## MCAP recordings
 
-### Find the recording that covers a time window
+### Find recordings covering a time window
 
-:::caution Not implemented in v0.4
-`SHOW RECORDING` is not yet compiled. Use `FROM recordings LIMIT 5` to browse recording metadata directly.
-:::
+`FROM recordings` queries the `mcap_metadata` index — one row per MCAP file. It returns file-level metadata (robot, time window, topics, `s3_key`). Use `s3_key` with the returned timestamps to fetch and seek into the file client-side for sub-range slicing.
 
 ```sql
-SHOW RECORDING
+-- All recent recordings for a robot (SINCE uses overlap semantics on end_time)
+FROM recordings WHERE robot_id = 'amr-01' SINCE 6 hours ago LIMIT 10
+
+-- Recordings that contain joint state data
+FROM recordings
+WHERE '/joint_states' = ANY(topics)
+SINCE 24 hours ago
+
+-- Find the recording that covers a specific error timestamp
+FROM recordings
+WHERE robot_id = 'amr-01'
+  AND start_time <= '2026-04-17T10:22:00Z'
+  AND end_time   >= '2026-04-17T10:22:00Z'
 ```
 
-Returns MCAP recording metadata (`s3_key`, time range, topics) that covers the most recent event window.
+Returns `robot_id`, `session_id`, `start_time`, `end_time`, `s3_key`, `topics`, `message_types`.
 
 ---
 
