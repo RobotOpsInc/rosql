@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-04-17
+
+### Added
+
+- **Public demo dataset** — a sample AMR telemetry dataset (traces, logs, metrics, topic messages) is now hosted at `s3://robotops-production-rosql-demo/data` and updated on every release. No credentials or data source required to run a first query.
+- **Quickstart zero-friction example** — the quickstart, homepage, and all versioned docs now lead with the public demo URL so new users can query real robot telemetry immediately after install.
+- **Release pipeline S3 upload** — the release workflow now syncs `examples/parquet/fixtures/` to the public demo bucket automatically on each release.
+
 ## [0.5.0] - 2026-04-17
 
 ### Fixed
