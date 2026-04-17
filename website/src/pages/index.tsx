@@ -6,7 +6,7 @@ import CodeBlock from '@theme/CodeBlock';
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import Head from '@docusaurus/Head';
-import { Bot, ChartScatter, Table, Share2, Terminal, Database, BarChart2, ArrowRight, Ruler, BarChart3, Network, Cpu, Layers, Activity, Box, Play } from 'lucide-react';
+import { Bot, ChartScatter, Table, Share2, Terminal, Database, BarChart2, ArrowRight, Ruler, BarChart3, Network, Cpu, Layers, Activity, Box, Play, GitBranch } from 'lucide-react';
 import { RosqlRepl } from '@site/src/components/RosqlRepl';
 
 const JSON_LD = JSON.stringify({
@@ -426,6 +426,12 @@ export default function Home(): ReactNode {
               </div>
 
               <div className="benefit-card">
+                <GitBranch size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
+                <h3>Deployment-aware scoping</h3>
+                <p>Scope any query to a specific robot, version, environment, or session — <code>FOR ROBOT 'arm-01' FOR VERSION 'v1.3.0'</code>. Compare error rates across versions or flag regressions since your last deploy without timestamp math.</p>
+              </div>
+
+              <div className="benefit-card">
                 <Share2 size={22} strokeWidth={1.5} style={{ color: 'var(--ifm-color-primary)', marginBottom: '0.75rem' }} />
                 <h3>Causality graphs</h3>
                 <p><code>TRACE 'id'</code> walks the <code>parent_span_id</code> chain recursively — see exactly how a message propagated through your robot's nodes and across system boundaries.</p>
@@ -459,14 +465,14 @@ export default function Home(): ReactNode {
             <div className="showcase-grid">
 
               <div className="showcase-card">
-                <p className="showcase-question">"Did robot <em>amr-foo-1</em> move within 24 in of a point in the last 24 hours?"</p>
+                <p className="showcase-question">"Did robot <em>amr-foo-1</em> move within 2 ft of a point in the last 24 hours?"</p>
                 <div className="showcase-viz">
                   <MockTable
                     rows={[
-                      { cols: ['09:23:14', 'amr-foo-1', '0.549 m', '✓'] },
-                      { cols: ['09:24:02', 'amr-foo-1', '0.482 m', '✓'] },
-                      { cols: ['09:24:51', 'amr-foo-1', '0.712 m', ''] },
-                      { cols: ['09:25:37', 'amr-foo-1', '0.438 m', '✓'] },
+                      { cols: ['09:23:14', 'amr-foo-1', '29.512 ft', ''] },
+                      { cols: ['09:24:02', 'amr-foo-1', '26.342 ft', ''] },
+                      { cols: ['09:24:51', 'amr-foo-1', '23.143 ft', '✓'] },
+                      { cols: ['09:25:37', 'amr-foo-1', '21.188 ft', ''] },
                     ]}
                   />
                 </div>
