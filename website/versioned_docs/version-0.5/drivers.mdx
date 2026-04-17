@@ -30,41 +30,6 @@ ROSQL compiles to SQL and executes against your telemetry data. Each backend is 
 | `server` | `rosql` CLI binary + gRPC server | tonic, tokio, clap |
 | `wasm` | WASM exports for browser editors | wasm-bindgen |
 
-## Installing
-
-### One-liner (Linux x86_64 / arm64, macOS Apple Silicon)
-
-```bash
-curl -fsSL https://rosql.org/install.sh | sh
-```
-
-Pre-built binaries include the Parquet backend (`--backend parquet`) out of the box.
-
-### Build from source
-
-```bash
-# Parquet backend + CLI (recommended — no external database required)
-cargo install rosql --features server,duckdb
-
-# PostgreSQL driver + CLI
-cargo install rosql --features server,postgres
-
-# MySQL driver + CLI
-cargo install rosql --features server,mysql
-
-# Multiple backends
-cargo install rosql --features server,duckdb,postgres,mysql
-
-# Library only (no CLI, no runtime)
-cargo add rosql
-```
-
-:::note Windows / Intel Mac
-Pre-built binaries are not available for Windows or Intel Macs. Use `cargo install` above.
-:::
-
----
-
 ## Parquet backend
 
 DuckDB runs embedded and reads Parquet files directly — no external server required.
