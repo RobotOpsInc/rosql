@@ -690,9 +690,9 @@ export default function Home(): ReactNode {
               </Tabs>
               <div style={{ marginTop: '1.5rem' }}>
               <CodeBlock language="bash" title="Run your first query">
-                {`rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \\
+                {`rosql query "FROM traces WHERE status = 'ERROR' LIMIT 5" \\
   --backend parquet \\
-  --url <your-telemetry-dir>  # see quickstart for S3, PostgreSQL, and all options`}
+  --url s3://robotops-production-rosql-demo/data`}
               </CodeBlock>
               </div>
             </div>
