@@ -1,0 +1,166 @@
+---
+title: Concepts
+description: Core ROSQL concepts — SHOW vs FROM, scoping, joint indexing, and ANOMALY best practices
+sidebar_position: 4
+keywords: [rosql, concepts, show, from, scoping, joints, anomaly, facet, session]
+---
+
+# Concepts
+
+Key concepts for understanding how ROSQL works and how to get the most out of it.
+
+---
+
+## SHOW vs FROM
+
+ROSQL has two types of queries: **data queries** (`FROM`) and **diagnostic commands** (`SHOW`).
+
+### FROM — query telemetry data
+
+`FROM` queries retrieve and aggregate raw telemetry: spans, logs, metrics, topic messages, or recording metadata. They support all SQL-like clauses (`WHERE`, `FACET`, `SINCE`, `ORDER BY`, `LIMIT`) and return rows.
+
+```sql
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+SELECT AVG(duration) FROM traces FACET robot_id
+FROM logs WHERE severity = 'FATAL'
+```
+
+Use `FROM` when you want to **explore, aggregate, or trend** data.
+
+### SHOW — diagnostic snapshots
+
+`SHOW` commands return structured diagnostic snapshots — not raw rows, but pre-shaped information about your system's current state. They are compound commands with fixed schemas:
+
+```sql
+SHOW SPAN SUMMARY FOR ROBOT 'robot_42' SINCE 1 hour ago
+SHOW DEPLOYMENTS SINCE 7 days ago
+SHOW TOPICS FOR ROBOT 'robot_42'
+SHOW NODES FOR ROBOT 'robot_42'
+SHOW NODE GRAPH
+SHOW JOINTS FOR ROBOT 'arm_01'
+SHOW PLANS FOR TRACE 'abc123'
+```
+
+Use `SHOW` when you want a **snapshot of system topology, configuration, or performance summary**. `SHOW` commands are not pipeable, but they support `FOR` scoping and `SINCE` time ranges.
+
+### When to use which
+
+| Goal | Use |
+|---|---|
+| Find slow action spans | `FROM traces WHERE action_name = '...' ORDER BY duration DESC` |
+| See which nodes are slowest | `SHOW SPAN SUMMARY` |
+| Watch error rate over time | `FROM traces TIMESERIES 5 min` |
+| See the topology of a topic | `MESSAGE FLOW FROM TOPIC '/cmd_vel'` |
+| Inspect available topics | `SHOW TOPICS` |
+| Get a span tree for a trace | `TRACE 'id'` (this is neither FROM nor SHOW — it's its own compound) |
+
+---
+
+## Scoping with FOR
+
+The `FOR` clause scopes any query to a specific robot, version, environment, or session. All `FOR` dimensions can be combined:
+
+```sql
+FOR ROBOT 'robot_42' FROM traces WHERE status = 'ERROR'
+FOR VERSION '2.3.1' FROM traces TIMESERIES 5 min
+FOR ENVIRONMENT 'production' FOR ROBOT 'robot_42' FROM logs
+FOR SESSION 'delivery_042' FROM traces SINCE 1 hour ago
+```
+
+### How scoping works
+
+Each `FOR` clause adds a filter on the `resource_attributes` JSONB column:
+
+| FOR clause | Compiled as |
+|---|---|
+| `FOR ROBOT 'robot_42'` | `resource_attributes->>'robot.id' = 'robot_42'` |
+| `FOR VERSION '2.3.1'` | `resource_attributes->>'service.version' = '2.3.1'` |
+| `FOR ENVIRONMENT 'production'` | `resource_attributes->>'deployment.environment' = 'production'` |
+| `FOR SESSION 'sess_abc'` | `resource_attributes->>'ros.session.id' = 'sess_abc'` |
+
+Scoping applies to `FROM` queries, `SHOW` commands, compound queries (`TRACE`, `MESSAGE FLOW`, `HEALTH`), and deviation queries.
+
+### Compound scoping example
+
+```sql
+FOR ROBOT 'robot_42' FOR ENVIRONMENT 'production' FROM traces
+WHERE action_name = '/navigate_to_pose' AND status = 'ERROR'
+SINCE 1 hour ago
+```
+
+---
+
+## Joint state array indexing
+
+ROS2 `sensor_msgs/JointState` messages store joint positions, velocities, and efforts as arrays. The index of each joint corresponds to its position in the `name[]` array — which is defined by the URDF.
+
+### Position by index
+
+```sql
+-- Joint 0 position
+FROM joint_states WHERE fields['position[0]'] > 1.5 FOR ROBOT 'arm_01'
+
+-- Joint 2 position error in JOINT DEVIATION
+JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 1 hour ago
+```
+
+`fields['position[0]']` compiles to `"fields"->'position'->>0` in SQL.
+
+### What does `position[0]` mean?
+
+The index is meaningless without the joint map. For example, for a 6-DOF arm:
+
+| Index | Joint name | Type | Range |
+|---|---|---|---|
+| 0 | `shoulder_pan` | revolute | ±3.14 rad |
+| 1 | `shoulder_lift` | revolute | ±1.57 rad |
+| 2 | `elbow_flex` | revolute | 0..2.27 rad |
+| 3 | `wrist_1` | revolute | ±3.14 rad |
+| 4 | `wrist_2` | revolute | ±3.14 rad |
+| 5 | `wrist_3` | revolute | ±3.14 rad |
+
+Inspect the joint map for any robot with:
+
+```sql
+SHOW JOINTS FOR ROBOT 'arm_01'
+```
+
+### Path to named joint access
+
+Named joint access (e.g. `shoulder_pan` instead of `position[0]`) is planned but requires `FOR ROBOT` scope to resolve the joint map at query time. See [#65](https://github.com/RobotOpsInc/rosql/issues/65) for progress.
+
+Until then: use `SHOW JOINTS` to look up the index, then query by index.
+
+---
+
+## ANOMALY and the FACET requirement
+
+`ANOMALY(field) COMPARED TO <baseline>` computes per-group z-scores by comparing a current window to a baseline. Without `FACET`, it compares **all spans together** — mixing `/navigate_to_pose` spans, heartbeats, diagnostics, and anything else in `otel_traces`. This produces a statistically incoherent distribution.
+
+### Why FACET matters
+
+Imagine your navigation actions take ~2 seconds and your heartbeats take ~5 ms. Without FACET:
+
+- Mean ≈ 200 ms (dominated by volume of small spans)
+- A 3-second navigation span has `z_score ≈ 1.4` — not anomalous
+- A 500 ms heartbeat has `z_score ≈ 1.6` — "more anomalous" than the slow navigation
+
+This is the apples-and-oranges problem. With `FACET action_name`:
+
+- The `/navigate_to_pose` distribution is compared only to other `/navigate_to_pose` spans
+- A 3-second navigation span is correctly flagged as anomalous against its own baseline
+
+### Use FACET
+
+```sql
+-- Good: compares like-for-like spans
+ANOMALY(duration) COMPARED TO last week FACET action_name
+
+-- Good: per-robot anomaly detection
+ANOMALY(duration) COMPARED TO fleet FACET robot_id
+
+-- Avoid: mixes all span types
+ANOMALY(duration) COMPARED TO last week
+```
+
+ROSQL will emit a `ANOMALY_NO_FACET` warning (not an error) if you omit `FACET`, but the query will still run — just with potentially misleading results.

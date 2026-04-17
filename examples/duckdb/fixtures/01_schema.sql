@@ -57,6 +57,43 @@ CREATE TABLE IF NOT EXISTS mcap_metadata (
     topics     VARCHAR[] NOT NULL DEFAULT []
 );
 
+-- Optional: TF2 transform broadcasts (FROM tf)
+CREATE TABLE IF NOT EXISTS tf_states (
+    timestamp      TIMESTAMPTZ NOT NULL,
+    robot_id       TEXT NOT NULL,
+    parent_frame   TEXT NOT NULL,
+    child_frame    TEXT NOT NULL,
+    translation_x  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    translation_y  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    translation_z  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    rotation_x     DOUBLE PRECISION NOT NULL DEFAULT 0,
+    rotation_y     DOUBLE PRECISION NOT NULL DEFAULT 0,
+    rotation_z     DOUBLE PRECISION NOT NULL DEFAULT 0,
+    rotation_w     DOUBLE PRECISION NOT NULL DEFAULT 1
+);
+
+-- Optional: robot liveness heartbeats (FROM heartbeats)
+CREATE TABLE IF NOT EXISTS robot_heartbeats (
+    timestamp          TIMESTAMPTZ NOT NULL,
+    robot_id           TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'online',
+    uptime_ns          BIGINT NOT NULL DEFAULT 0,
+    battery_percentage DOUBLE PRECISION,
+    attributes         JSON NOT NULL DEFAULT '{}'
+);
+
+-- Optional: OS/kernel-level log events (FROM system_logs)
+CREATE TABLE IF NOT EXISTS system_logs (
+    timestamp        TIMESTAMPTZ NOT NULL,
+    robot_id         TEXT NOT NULL,
+    severity_text    TEXT NOT NULL DEFAULT 'INFO',
+    severity_number  INTEGER NOT NULL DEFAULT 9,
+    host             TEXT NOT NULL DEFAULT '',
+    body             TEXT NOT NULL DEFAULT '',
+    log_attributes   JSON NOT NULL DEFAULT '{}'
+);
+
+-- Deployment and node lifecycle events (FROM events)
 CREATE TABLE IF NOT EXISTS ros2_events (
     timestamp    TIMESTAMPTZ NOT NULL,
     robot_id     TEXT NOT NULL,
@@ -64,4 +101,14 @@ CREATE TABLE IF NOT EXISTS ros2_events (
     node_name    TEXT NOT NULL DEFAULT '',
     version      TEXT NOT NULL DEFAULT '',
     payload      JSON NOT NULL DEFAULT '{}'
+);
+
+-- Optional: URDF-derived joint map for SHOW JOINTS / JOINT DEVIATION
+CREATE TABLE IF NOT EXISTS robot_joint_map (
+    robot_model  TEXT NOT NULL,
+    valid_from   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    valid_to     TIMESTAMPTZ,                        -- NULL = currently active
+    version      TEXT NOT NULL DEFAULT '',
+    robot_ids    VARCHAR[] NOT NULL DEFAULT [],
+    joint_map    JSON NOT NULL DEFAULT '[]'          -- array of joint descriptors
 );

@@ -28,13 +28,9 @@ FROM recordings
 Sources:
 - `traces` — `otel_traces` table
 - `logs` — `otel_logs` table
-- `metrics` / `diagnostics` — `otel_metrics` table
+- `metrics` — `otel_metrics` table
 - `topics` — `topic_messages` table
 - `recordings` — `mcap_metadata` table
-- `tf` — `tf_states` table
-- `heartbeats` — `robot_heartbeats` table
-- `system_logs` — `system_logs` table
-- `events` — `ros2_events` table
 - `odom`, `joint_states`, `battery`, `cmd_vel`, `imu` — topic aliases
 
 ---
@@ -49,9 +45,9 @@ SELECT AVG(duration) AS avg_dur, COUNT(*) AS total FROM traces
 SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose'
 ```
 
-Aggregate functions: `AVG`, `COUNT`, `MAX`, `MIN`, `SUM`, `STDDEV`, `PERCENTILE`, `TOPIC_RATE`, `ACTION_SUCCESS_RATE`, `MOVING_AVG`, `DERIVATIVE`, `APPROX_COUNT_DISTINCT`, `APPROX_PERCENTILE`
+Aggregate functions: `AVG`, `COUNT`, `MAX`, `MIN`, `SUM`, `PERCENTILE`, `TOPIC_RATE`, `ACTION_SUCCESS_RATE`, `MOVING_AVG`, `DERIVATIVE`, `APPROX_COUNT_DISTINCT`, `APPROX_PERCENTILE`
 
-See [Aggregate function reference](#aggregate-function-reference) for syntax and examples.
+See [Aggregate functions](./syntax#aggregate-functions) in the Syntax reference for syntax and examples.
 
 ---
 
@@ -68,10 +64,7 @@ FROM logs WHERE severity IN ('ERROR', 'WARN')
 FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
 ```
 
-**Duration units** — ROSQL automatically converts to nanoseconds:
-- `500 ms` → `500000000`
-- `2 s` → `2000000000`
-- `1 min` → `60000000000`
+**Unit values** (e.g. `500 ms`, `2 km`, `45 deg`) are automatically converted to SI at parse time — see [Physical units](./syntax#physical-units).
 
 **JSON field access**: `fields['key']` on `topic_messages.fields` (JSONB)
 
@@ -79,7 +72,7 @@ FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
 
 ---
 
-### `WHERE position WITHIN <radius> OF <center>` _(v0.4.3+)_
+### `WHERE position WITHIN <radius> OF <center>`
 
 Geospatial filter. Returns rows where the `position` field falls within `radius` of `center`.
 
@@ -95,17 +88,6 @@ FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago
 - **Local frame** `OF POSITION (x, y)`: uses Euclidean `SQRT(POWER(x - cx, 2) + POWER(y - cy, 2))`; extracts `pose.pose.position.x` and `pose.pose.position.y` from `fields`.
 
 Requires the `topic_messages` table with position data in `fields`.
-
----
-
-### `BETWEEN <time> AND <time>`
-
-Filter by a time range (inclusive). Both absolute and relative time expressions are supported.
-
-```sql
-FROM traces BETWEEN '2026-03-01T00:00:00Z' AND '2026-04-01T00:00:00Z'
-FROM logs BETWEEN 2 days ago AND 1 day ago
-```
 
 ---
 
@@ -231,58 +213,6 @@ Works on all query types: standard, pipeline, and compound.
 
 ---
 
-## Time-series and enrichment
-
-### `TIMESERIES <interval>` _(v0.4.2+)_
-
-Bucket results into time windows of the given interval. Composes with `SELECT`, `FACET`, and `SINCE`.
-
-```sql
-SELECT AVG(duration) FROM traces TIMESERIES 5 min SINCE 1 hour ago
-SELECT COUNT(*) FROM logs WHERE severity = 'ERROR' TIMESERIES 1 h SINCE 24 hours ago FACET robot_id
-```
-
-- Interval units: `ns`, `us`, `ms`, `s`, `min`, `h`, `days` (SI abbreviations) or long form `minutes`, `hours`, etc.
-- Compiles to `time_bucket()` (DuckDB), `date_bin()` (PostgreSQL), or `FROM_UNIXTIME(...DIV...)` (MySQL)
-- Automatically adds `time_bucket` to SELECT, GROUP BY, and ORDER BY
-- Exempt from the default `LIMIT 100`
-- When combined with `FACET`, produces a stacked line chart format hint
-
----
-
-### `ENRICH WITH <source> [LIMIT N] [SAMPLE FULL]` _(v0.4.2+)_
-
-Attach rows from a secondary data source to each row of the primary result. Multiple `ENRICH WITH` clauses can be chained.
-
-```sql
-FROM traces WHERE trace_id = 'abc123'
-ENRICH WITH logs LIMIT 20
-
-FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
-ENRICH WITH logs LIMIT 10
-ENRICH WITH metrics LIMIT 5
-```
-
-- Default per-row enrichment cap: 50 rows
-- `LIMIT N` overrides the cap for that enrichment
-- `SAMPLE FULL` disables the cap entirely (use with care on large datasets)
-- Result rows carry `_enriched[source]` JSON metadata
-
----
-
-### `FORMAT <format>`
-
-Override the output format hint. By default ROSQL infers the best format from the query shape.
-
-```sql
-FROM traces WHERE status = 'ERROR' FORMAT table
-SELECT AVG(duration) FACET robot_id FORMAT bar_chart
-```
-
-Valid values: `table`, `timeseries`, `scalar`, `trace_tree`, `graph`, `path`
-
----
-
 ## Cross-signal correlation
 
 ### `DURING(<subquery>)`
@@ -315,10 +245,6 @@ TRACE 'trace-002'
 
 Returns all columns from `otel_traces` for every span in the causal chain, in traversal order.
 
-:::note Removed in v0.4.1
-`MESSAGE JOURNEY FOR TRACE 'id'` has been removed. Use `TRACE 'id'` instead.
-:::
-
 ---
 
 ### `MESSAGE FLOW FROM TOPIC <topic> [TO NODE|TOPIC <dest>]`
@@ -338,34 +264,11 @@ MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
 
 Returns publisher/subscriber node pairs for the specified path.
 
-:::note Removed in v0.4.1
-`MESSAGE PATHS FOR TOPIC '/topic'` has been removed. Use `MESSAGE FLOW FROM TOPIC '/topic'` instead.
-
-`MESSAGE PATH FROM TOPIC '/src' TO NODE '/dst'` has been removed. Use `MESSAGE FLOW FROM TOPIC '/src' TO NODE '/dst'` instead.
-:::
-
 ---
 
 ## Health and anomaly
 
-### `HEALTH() [FOR ROBOT <robot_id>] [SINCE <time>]`
-
-:::caution Not implemented in v0.4
-`HEALTH()` is reserved syntax and is not yet compiled. Use the [Composable Health Dashboard](./cookbook#composable-health-dashboard) recipes as a working alternative.
-:::
-
-Fan out across traces, logs, and metrics to produce a composite health assessment.
-
-```sql
-HEALTH() FOR ROBOT 'robot_sim_001'
-HEALTH() FOR ROBOT 'robot_42' SINCE 30 minutes ago
-```
-
-Returns a structured health report including error rates, log severity counts, and metric status.
-
----
-
-### `ANOMALY(<field>) COMPARED TO <baseline>` _(v0.4.3+)_
+### `ANOMALY(<field>) COMPARED TO <baseline>`
 
 Detect statistical anomalies in a field using a two-phase z-score CTE. `COMPARED TO` is required. `FACET` is strongly recommended to get per-robot breakdown.
 
@@ -388,7 +291,7 @@ Requires the [`robot_joint_map`](#robot_joint_map) and `otel_traces` tables.
 
 ---
 
-### `PATH DEVIATION` _(v0.4.3+)_
+### `PATH DEVIATION`
 
 Compare actual robot trajectory (from `/odom` topic messages) against the planned path (from `/plan` topic messages). Computes lateral deviation in metres at each waypoint.
 
@@ -410,7 +313,7 @@ Requires the `topic_messages` table with `/odom` and `/plan` data.
 
 ---
 
-### `JOINT DEVIATION` _(v0.4.3+)_
+### `JOINT DEVIATION`
 
 Compare planned joint trajectory (from `/joint_trajectory` topic messages) against actual joint states (from `/joint_states` topic messages). Computes per-joint position error in radians.
 
@@ -513,47 +416,7 @@ Returns plan spans with timing, robot, and trace context.
 
 ---
 
-### `SHOW TOPICS` _(v0.4.2+)_
-
-Return a summary of active ROS2 topics — publish rates, message types, and publisher/subscriber counts. Supports optional `WHERE`, `FOR`, and `SINCE` scoping.
-
-```sql
-SHOW TOPICS
-SHOW TOPICS FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
-SHOW TOPICS WHERE topic_name LIKE '/camera%' SINCE 30 minutes ago
-```
-
-Returns `topic_name`, `message_type`, `avg_rate_hz`, `publishers`, `subscribers`, `last_message_age_ms`.
-
----
-
-### `SHOW NODES` _(v0.4.2+)_
-
-Return a summary of active ROS2 nodes — published and subscribed topic counts and error counts. Supports optional `FOR` and `SINCE` scoping.
-
-```sql
-SHOW NODES
-SHOW NODES FOR ROBOT 'robot_sim_001' SINCE 30 minutes ago
-```
-
-Returns `node_name`, `topics_published`, `topics_subscribed`, `error_count`, `last_seen`.
-
----
-
-### `SHOW NODE GRAPH` _(v0.4.2+)_
-
-Return the topic-to-node edge list, suitable for building a directed network graph visualization. Supports optional `FOR` and `SINCE` scoping.
-
-```sql
-SHOW NODE GRAPH
-SHOW NODE GRAPH FOR ROBOT 'robot_sim_001' SINCE 30 minutes ago
-```
-
-Returns `source_node`, `topic`, `target_node` edges. Format hint: `NodeGraph`.
-
----
-
-### `SHOW JOINTS` _(v0.4.3+)_
+### `SHOW JOINTS`
 
 Return the joint map for a robot from the `robot_joint_map` table. Queries the URDF-derived joint metadata registered for that robot model.
 
@@ -570,17 +433,7 @@ Requires the optional [`robot_joint_map`](#robot_joint_map) table.
 
 ## Pipeline syntax
 
-Use `|` to chain query stages, making complex queries more readable.
-
-```sql
-FROM traces
-| WHERE duration > 500 ms
-| WHERE status = 'ERROR'
-| FACET robot_id
-| COMPARE TO last week
-```
-
-Each stage receives the output of the previous stage. Equivalent to nesting clauses.
+See [Pipeline syntax](./syntax#pipeline-form) in the Syntax reference for the full grammar and equivalence rules.
 
 ---
 
@@ -631,76 +484,78 @@ Returns results for each version side by side.
 
 ## Aggregate function reference
 
-### `STDDEV(field)`
-
-Standard deviation of a numeric field.
-
-```sql
-SELECT STDDEV(duration) FROM traces
-SELECT AVG(duration) AS avg_dur, STDDEV(duration) AS stddev_dur FROM traces FACET robot_id
-```
+See [Aggregate functions](./syntax#aggregate-functions) in the Syntax reference.
 
 ---
 
-### `TOPIC_RATE([topic_name])`
+## Output format hints
 
-Average publish rate for a topic (or all topics) from the `otel_metrics` table.
+Every ROSQL response includes a `format_hint` field in its metadata. This tells frontends how to best visualize the result — the REPL and dashboard use it to automatically choose a chart type.
 
-```sql
-SELECT TOPIC_RATE() FROM metrics
-SELECT TOPIC_RATE('/cmd_vel') FROM metrics
-```
+### Inferred format hints
 
-### `ACTION_SUCCESS_RATE([action_name])`
+ROSQL infers the appropriate hint from the query shape:
 
-Ratio of succeeded action spans to total action spans. Returns a value between 0 and 1.
+| Query pattern | `format_hint` | Use for |
+|---|---|---|
+| `TIMESERIES` without `FACET` | `LineChart` | Single time series |
+| `TIMESERIES` with `FACET` | `StackedLineChart` | Multiple series, split by dimension |
+| `FACET` without `TIMESERIES` | `BarChart` | Categorical aggregations |
+| `TRACE 'id'` | `Gantt` | Span waterfall chart |
+| `MESSAGE FLOW` | `DirectedGraph` | Pub/sub topology |
+| `SHOW NODE GRAPH` | `NodeGraph` | Node connectivity map |
+| `SHOW SPAN SUMMARY` | `HorizontalBars` | Ranked span durations |
+| `ANOMALY(...)` | `Table` (with `color_field: is_anomalous`) | Highlighted anomaly rows |
+| Scalar aggregation only | `ScalarCards` | KPI metric cards |
+| `FROM logs` / `FROM system_logs` | `LogTable` (with `color_field: severity`) | Severity-colored log viewer |
+| `FROM recordings` | `RecordingList` | Recording file list |
+| Everything else | `Table` | Generic tabular display |
 
-```sql
-SELECT ACTION_SUCCESS_RATE() FROM traces
-SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces
-```
+### Visualization config
 
-### `MOVING_AVG(field, window)`
+Alongside `format_hint`, the response metadata includes a `visualization` object with rendering hints:
 
-Rolling average over a sliding window of `window` rows.
+| Field | Description |
+|---|---|
+| `x_axis` | Field to place on the x-axis (e.g. `"time_bucket"` for timeseries) |
+| `y_axis` | Field to place on the y-axis (e.g. the primary aggregated metric alias) |
+| `series_key` | Field to split series by (populated from `FACET` dimension) |
+| `color_field` | Field to drive color encoding (e.g. `"severity"`, `"is_anomalous"`) |
+| `label_field` | Field to use as a display label (e.g. the scalar alias) |
 
-```sql
-SELECT MOVING_AVG(duration, 5) FROM traces
-```
+### FORMAT clause (explicit override)
 
-Compiles to `AVG(...) OVER (ROWS BETWEEN N PRECEDING AND CURRENT ROW)`.
-
-### `DERIVATIVE(field)`
-
-Rate of change between consecutive rows (LAG-based).
-
-```sql
-SELECT DERIVATIVE(metric_value) FROM metrics
-```
-
-### `APPROX_COUNT_DISTINCT(field)`
-
-Approximate distinct count. Uses `approx_count_distinct()` on DuckDB; falls back to `COUNT(DISTINCT ...)` on PostgreSQL.
-
-```sql
-SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces
-```
-
-### `APPROX_PERCENTILE(field, percentile)`
-
-Approximate percentile. Uses `approx_quantile()` on DuckDB; falls back to `PERCENTILE_CONT` on PostgreSQL.
+Append `FORMAT <value>` to any query to override the inferred hint:
 
 ```sql
-SELECT APPROX_PERCENTILE(duration, 95) FROM traces
+FROM traces TIMESERIES 5 min SINCE 6 hours ago FORMAT table
+SELECT COUNT(*) FROM traces FACET robot_id FORMAT table
 ```
+
+Valid values: `table`, `timeseries`, `scalar`, `trace_tree`, `graph`, `path`.
+
+---
+
+## Error types
+
+ROSQL produces structured errors — no raw SQL or database error text is ever surfaced. Each error type tells you exactly what to do differently:
+
+| Error type | When raised | Example |
+|---|---|---|
+| `ParseError` | Syntax error in the query | `Unexpected token 'WHER' at line 1, col 22. Did you mean 'WHERE'?` |
+| `NotImplemented` | Feature parses but is not yet implemented | `HEALTH() is not yet implemented. See cookbook: rosql.org/docs/cookbook` |
+| `ReservedSyntax` | Reserved keyword used (ALERT, DEFINE) | `ALERT is reserved but not supported. Alerts belong in the Robot Ops platform.` |
+| `DataSourceUnavailable` | Required table is missing | `PATH DEVIATION requires topic_messages table. Configure topic ingest.` |
+| `CompilationError` | Valid syntax but cannot compile | `Named joint access requires FOR ROBOT scope to resolve joint names.` |
+| `ExecutionError` | Database returned an error | `Execution failed on PostgreSQL: Table not found. Verify that telemetry data has been ingested.` |
+| `ValidationWarning` | Non-fatal advisory (in `warnings` array) | `ANOMALY without FACET compares heterogeneous spans. Add FACET action_name for meaningful z-scores.` |
+
+`ValidationWarning` is not thrown as an error — it is included in the `warnings` array alongside a successful result, with a `code`, `message`, and `suggestion` field.
 
 ---
 
 ## Notes
 
 - All timestamps in results are UTC ISO 8601
-- `duration` is stored as nanoseconds (`BIGINT`); ROSQL expressions like `500 ms` are automatically converted
 - Default `LIMIT` is 100 if not specified. Exempt query types: scalar aggregations, `FACET`, `TRACE`, `MESSAGE FLOW`, `PATH DEVIATION`, `JOINT DEVIATION`, `ANOMALY`, `SHOW JOINTS`
-- `SINCE` is always relative to query execution time
-- FOR clauses filter on resource attributes: `FOR ROBOT` → `robot.id`, `FOR VERSION` → `service.version`, `FOR ENVIRONMENT` → `deployment.environment`, `FOR SESSION` → `ros.session.id`
-- **Removed in v0.4.1**: `MESSAGE JOURNEY FOR TRACE`, `MESSAGE PATHS FOR TOPIC`, `MESSAGE PATH FROM TOPIC ... TO NODE` — see [Message causality](#message-causality) for replacements
+- FOR clauses filter on resource attributes: `FOR ROBOT` → `robot_id`, `FOR VERSION` → `service.version`, `FOR ENVIRONMENT` → `deployment.environment`, `FOR SESSION` → `ros.session.id`

@@ -120,11 +120,15 @@ brew install robotopsinc/tap/rosql
 # Or build from source (all platforms)
 cargo install rosql --features server,duckdb
 
-# Query local Parquet telemetry files
+# Try the public demo dataset instantly — no setup, no credentials
+rosql query "FROM traces WHERE status = 'ERROR' LIMIT 5" \
+  --backend parquet --url s3://robotops-production-rosql-demo/data
+
+# Query your own local Parquet telemetry files
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
   --backend parquet --url ./telemetry/robotops_demo_agent/20260403-141530/
 
-# Query Parquet files on S3
+# Query Parquet files on a private S3 bucket
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
   --backend parquet --url s3://my-bucket/robot-01/robotops_demo_agent/20260403-141530/
 
@@ -197,6 +201,10 @@ rosql parse "FROM traces WHERE duration > 500 ms SINCE 1 hour ago"
 rosql compile "FROM traces WHERE duration > 500 ms" --backend parquet
 rosql compile "FROM traces WHERE duration > 500 ms" --backend postgres
 
+# Execute → query results as JSON (public demo dataset — no credentials needed)
+rosql query "FROM traces WHERE status = 'ERROR' LIMIT 5" \
+  --backend parquet --url s3://robotops-production-rosql-demo/data
+
 # Execute → query results as JSON (Parquet backend — local or S3)
 rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
   --backend parquet --url ./telemetry/robotops_demo_agent/20260403-141530/
@@ -228,11 +236,13 @@ The `--backend parquet --url <path>` option expects the following directory stru
 
 ```
 <url>/
-  traces/          *.parquet  →  otel_traces view
-  logs/            *.parquet  →  otel_logs view
-  metrics/         *.parquet  →  otel_metrics view
-  topic_messages/  *.parquet  →  topic_messages view
-  mcap_metadata/   *.parquet  →  mcap_metadata view
+  traces/            *.parquet  →  otel_traces view
+  logs/              *.parquet  →  otel_logs view
+  metrics/           *.parquet  →  otel_metrics view
+  topic_messages/    *.parquet  →  topic_messages view
+  mcap_metadata/     *.parquet  →  mcap_metadata view
+  robot_joint_map/   *.parquet  →  robot_joint_map view  (optional — needed for SHOW JOINTS / JOINT DEVIATION)
+  ros2_events/       *.parquet  →  ros2_events view      (optional — needed for SHOW DEPLOYMENTS)
 ```
 
 Files are discovered recursively via `**/*.parquet` globs. Missing subdirectories are silently skipped — queries against absent tables return a `DataSourceUnavailable` error.
@@ -247,7 +257,7 @@ When `--url s3://...` is used, ROSQL loads the DuckDB `httpfs` extension and rea
 | `AWS_SECRET_ACCESS_KEY` | Static secret key |
 | `AWS_REGION` / `AWS_DEFAULT_REGION` | AWS region (e.g. `us-east-1`) |
 | `AWS_PROFILE` | Named credentials profile |
-| `AWS_ENDPOINT_URL` | Override endpoint for S3-compatible storage (MinIO, Ceph, etc.) |
+| `AWS_ENDPOINT_URL` | Override endpoint for S3-compatible storage (MinIO, Cloudflare R2 etc.) |
 
 ## Examples
 
@@ -418,7 +428,7 @@ Prerequisites: Rust (stable, 1.80+), protoc, buf (optional). See [CONTRIBUTING.m
 
 ## Contributing
 
-ROSQL is in early development (v0.1) and contributions are welcome.
+ROSQL is in early development and contributions are welcome.
 
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, build variants, and release process
 - File bugs and feature requests in the [issue tracker](https://github.com/RobotOpsInc/rosql/issues)

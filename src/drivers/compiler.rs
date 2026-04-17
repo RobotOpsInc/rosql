@@ -375,7 +375,7 @@ impl<'a> CompileCtx<'a> {
             where_parts.push(self.compile_condition(cond, &table)?);
         }
         if let Some(ref tr) = q.time_range {
-            where_parts.push(self.compile_time_range(tr, &table)?);
+            where_parts.push(self.compile_time_range(tr, &table, &q.data_source)?);
         }
         if let DataSource::TopicAlias(ref alias) = q.data_source {
             where_parts.push(format!("topic_name = '{}'", alias.topic_name()));
@@ -666,7 +666,10 @@ impl<'a> CompileCtx<'a> {
             }
         }
         if let Some(ref tr) = cq.time_range {
-            seed_where.push_str(&format!(" AND {}", self.compile_time_range(tr, "")?));
+            seed_where.push_str(&format!(
+                " AND {}",
+                self.compile_time_range(tr, "", &DataSource::Traces)?
+            ));
         }
 
         // Project the three columns the DirectedGraph viz expects.
@@ -719,7 +722,7 @@ impl<'a> CompileCtx<'a> {
             where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "")?);
+            where_parts.push(self.compile_time_range(tr, "", &DataSource::Traces)?);
         }
         let where_clause = if where_parts.is_empty() {
             String::new()
@@ -750,7 +753,7 @@ impl<'a> CompileCtx<'a> {
             where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "")?);
+            where_parts.push(self.compile_time_range(tr, "", &DataSource::Traces)?);
         }
         let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
 
@@ -787,7 +790,7 @@ impl<'a> CompileCtx<'a> {
             where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "")?);
+            where_parts.push(self.compile_time_range(tr, "", &DataSource::Traces)?);
         }
 
         Ok(format!(
@@ -810,7 +813,7 @@ impl<'a> CompileCtx<'a> {
             inner_where.push(self.compile_condition(cond, &inner_table)?);
         }
         if let Some(ref tr) = inner_time_range {
-            inner_where.push(self.compile_time_range(tr, &inner_table)?);
+            inner_where.push(self.compile_time_range(tr, &inner_table, &DataSource::Traces)?);
         }
 
         let inner_where_clause = if inner_where.is_empty() {
@@ -867,7 +870,7 @@ impl<'a> CompileCtx<'a> {
             where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "")?);
+            where_parts.push(self.compile_time_range(tr, "", &DataSource::Traces)?);
         }
         let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
 
@@ -909,7 +912,7 @@ impl<'a> CompileCtx<'a> {
             where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "")?);
+            where_parts.push(self.compile_time_range(tr, "", &DataSource::Traces)?);
         }
         let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
 
@@ -950,7 +953,7 @@ impl<'a> CompileCtx<'a> {
             where_parts.extend(self.compile_scope_filters(scope, false));
         }
         if let Some(ref tr) = cq.time_range {
-            where_parts.push(self.compile_time_range(tr, "")?);
+            where_parts.push(self.compile_time_range(tr, "", &DataSource::Traces)?);
         }
         let where_clause = format!(" WHERE {}", where_parts.join(" AND "));
 
@@ -1034,7 +1037,7 @@ impl<'a> CompileCtx<'a> {
             }
         }
         if let Some(ref tr) = cq.time_range {
-            target_filters.push(self.compile_time_range(tr, "")?);
+            target_filters.push(self.compile_time_range(tr, "", &DataSource::Traces)?);
         }
         let target_where = if target_filters.is_empty() {
             String::new()
@@ -1102,7 +1105,7 @@ impl<'a> CompileCtx<'a> {
             }
         }
         if let Some(ref tr) = cq.time_range {
-            target_filters.push(self.compile_time_range(tr, "")?);
+            target_filters.push(self.compile_time_range(tr, "", &DataSource::Traces)?);
         }
         let target_where = if target_filters.is_empty() {
             String::new()
@@ -1168,7 +1171,7 @@ impl<'a> CompileCtx<'a> {
 
         // Current time filter
         let current_filter = if let Some(ref tr) = cq.time_range {
-            self.compile_time_range(tr, "")?
+            self.compile_time_range(tr, "", &DataSource::Traces)?
         } else {
             "1=1".into()
         };
@@ -1718,7 +1721,32 @@ impl<'a> CompileCtx<'a> {
         self.compile_expr(expr, table)
     }
 
-    fn compile_time_range(&self, tr: &TimeRange, _table: &str) -> Result<String, ROSQLError> {
+    fn compile_time_range(
+        &self,
+        tr: &TimeRange,
+        _table: &str,
+        source: &DataSource,
+    ) -> Result<String, ROSQLError> {
+        // mcap_metadata uses start_time/end_time rather than a single timestamp column.
+        // Use overlap semantics: return any recording whose window intersects the query range.
+        if matches!(source, DataSource::Recordings) {
+            let end_col = self.col("end_time");
+            let start_col = self.col("start_time");
+            return match tr {
+                TimeRange::Since(expr) => {
+                    let time_val = self.compile_time_expr(expr)?;
+                    // Recording ended after the window start (overlaps or is within)
+                    Ok(format!("{end_col} >= {time_val}"))
+                }
+                TimeRange::Between { start, end } => {
+                    let s = self.compile_time_expr(start)?;
+                    let e = self.compile_time_expr(end)?;
+                    // Recording overlaps [s, e]: started before end AND ended after start
+                    Ok(format!("{start_col} <= {e} AND {end_col} >= {s}"))
+                }
+            };
+        }
+
         let ts_col = self.col("timestamp");
         match tr {
             TimeRange::Since(expr) => {
@@ -1781,25 +1809,23 @@ impl<'a> CompileCtx<'a> {
     fn resolve_table(&self, source: &DataSource) -> Result<String, ROSQLError> {
         // Check capability requirements
         match source {
-            DataSource::Topics | DataSource::TopicAlias(_) | DataSource::Tf => {
-                if !self.capabilities.topic_data {
-                    return Err(ROSQLError::DataSourceUnavailable {
-                        data_source: format!("{source:?}"),
-                        message: "This data source requires topic ingest. \
-                                 Configure topic ingest to enable this feature."
-                            .into(),
-                    });
-                }
+            DataSource::Topics | DataSource::TopicAlias(_) | DataSource::Tf
+                if !self.capabilities.topic_data =>
+            {
+                return Err(ROSQLError::DataSourceUnavailable {
+                    data_source: format!("{source:?}"),
+                    message: "This data source requires topic ingest. \
+                             Configure topic ingest to enable this feature."
+                        .into(),
+                });
             }
-            DataSource::Recordings => {
-                if !self.capabilities.recording_index {
-                    return Err(ROSQLError::DataSourceUnavailable {
-                        data_source: "recordings".into(),
-                        message: "FROM recordings requires an mcap_metadata table. \
-                                 Configure your recording index to enable this feature."
-                            .into(),
-                    });
-                }
+            DataSource::Recordings if !self.capabilities.recording_index => {
+                return Err(ROSQLError::DataSourceUnavailable {
+                    data_source: "recordings".into(),
+                    message: "FROM recordings requires an mcap_metadata table. \
+                             Configure your recording index to enable this feature."
+                        .into(),
+                });
             }
             _ => {}
         }
