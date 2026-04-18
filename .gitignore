@@ -6,3 +6,4 @@ website/node_modules
 website/.docusaurus
 website/build
 website/static/rosql_bg.wasm
+**/**/.DS_Store
