@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-04-18
+
+### Fixed
+
+- **`span_name_col` → `span_name`** — renamed the `otel_traces` column to match the standard OTel Collector PostgreSQL exporter convention. Updated across schema fixtures, docs, and the website Gantt visualization.
+- **`s3_key` → `file_uri` on `mcap_metadata`** — replaced the S3-only field with a generic `file_uri` that accepts any URI scheme (`s3://`, `file://`, `gs://`), enabling local and GCS-backed MCAP storage.
+
+### Added
+
+- **`org_id` field** — queryable on `otel_traces`, `otel_logs`, and `otel_metrics` via `resource_attributes->>'organization.id'`. The ClickHouse dialect (upcoming #98) will upgrade this to the materialized `OrgId` column.
+- **`system_logs` tab completion** — `FROM system_logs` now appears in CLI autocomplete alongside other data sources.
+
 ## [0.5.1] - 2026-04-17
 
 ### Added
