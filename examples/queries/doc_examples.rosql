@@ -6,7 +6,8 @@
 --   (c) Queries that return ROSQLError::NotImplemented are acceptable (gated clauses);
 --       these are marked with -- [GATED] below: HEALTH(), CORRELATE, SHOW RECORDING.
 --   (d) DURING combined form (FROM ... DURING(...)) silently drops the DURING clause
---       pending GH#74; the smoke test passes but does not verify DURING is applied.
+--       (not yet wired in the standard-query parser); the smoke test passes but does
+--       not verify DURING is applied.
 --
 -- Tested by: tests/doc_queries.rs (parse + compile for PostgreSQL and DuckDB).
 
