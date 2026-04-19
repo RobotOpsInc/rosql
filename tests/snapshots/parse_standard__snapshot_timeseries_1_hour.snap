@@ -1,5 +1,6 @@
 ---
 source: tests/parse_standard.rs
+assertion_line: 140
 expression: ast
 ---
 Standard:
@@ -27,3 +28,4 @@ Standard:
       si_value: 3600
       si_unit: s
   enrichments: []
+  during: ~

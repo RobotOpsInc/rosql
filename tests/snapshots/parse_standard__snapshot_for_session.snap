@@ -1,5 +1,6 @@
 ---
 source: tests/parse_standard.rs
+assertion_line: 114
 expression: ast
 ---
 Standard:
@@ -26,3 +27,4 @@ Standard:
   baseline: ~
   timeseries: ~
   enrichments: []
+  during: ~

@@ -1322,7 +1322,6 @@ fn combo_where_since_facet_order_limit() {
 }
 
 #[test]
-#[ignore = "DURING combined form not yet wired in standard-query parser — silently dropped"]
 fn combo_where_since_during_facet() {
     let q = "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago DURING( FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15 ) FACET robot_id";
     assert_compiles_all(q, "EXISTS");

@@ -34,6 +34,7 @@ pub struct ROSQLQuery {
     pub baseline: Option<Baseline>,
     pub timeseries: Option<TimeseriesClause>,
     pub enrichments: Vec<EnrichmentClause>,
+    pub during: Option<CompoundClause>,
 }
 
 /// Pipeline query: `FROM source | WHERE ... | FACET ...`
