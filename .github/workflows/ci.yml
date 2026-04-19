@@ -74,6 +74,15 @@ jobs:
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler
 
+      - name: Install DuckDB CLI
+        run: |
+          curl -L https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip -o /tmp/duckdb.zip
+          unzip /tmp/duckdb.zip -d /tmp/
+          sudo mv /tmp/duckdb /usr/local/bin/duckdb
+
+      - name: Regenerate Parquet fixtures
+        run: ./examples/parquet/generate_fixtures.sh
+
       - name: Test with DuckDB
         run: cargo test --features duckdb
 
