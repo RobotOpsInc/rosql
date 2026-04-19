@@ -59,12 +59,12 @@ async fn query_error_traces() {
 
 #[tokio::test]
 async fn query_trace_recursive_cte() {
-    let result = execute_query("TRACE 'trace-002'").await;
+    // trace-amr01-m2: root → bt_navigator → controller → costmap = 4 spans
+    let result = execute_query("TRACE 'trace-amr01-m2'").await;
     assert!(
         result.metadata.row_count > 0,
         "expected spans in trace tree"
     );
-    // trace-002 has root → bt_navigator → controller → costmap = 4 spans
     assert_eq!(
         result.metadata.row_count, 4,
         "expected 4 spans in trace tree"
@@ -73,10 +73,10 @@ async fn query_trace_recursive_cte() {
 
 #[tokio::test]
 async fn query_trace() {
-    let result = execute_query("TRACE 'trace-002'").await;
+    let result = execute_query("TRACE 'trace-amr01-m2'").await;
     assert_eq!(
         result.metadata.row_count, 4,
-        "expected 4 spans for trace-002"
+        "expected 4 spans for trace-amr01-m2"
     );
 }
 
@@ -84,17 +84,18 @@ async fn query_trace() {
 async fn query_show_recording() {
     let result = execute_query("FROM recordings LIMIT 5").await;
     assert_eq!(
-        result.metadata.row_count, 1,
-        "expected 1 recording from fixtures"
+        result.metadata.row_count, 3,
+        "expected 3 recordings from fixtures"
     );
 }
 
 #[tokio::test]
 async fn query_path_deviation() {
-    let result = execute_query("PATH DEVIATION FOR ROBOT 'robot_sim_001'").await;
+    // robot-amr-02 mission 3: /odom drifts >0.5m from /plan (trace-amr02-m3)
+    let result = execute_query("PATH DEVIATION FOR ROBOT 'robot-amr-02' SINCE 1 hour ago").await;
     assert!(
         result.metadata.row_count > 0,
-        "expected /odom trajectory points"
+        "expected /odom trajectory points for robot-amr-02"
     );
 }
 
@@ -114,7 +115,11 @@ async fn query_aggregation() {
     assert_eq!(result.metadata.row_count, 1, "COUNT should return 1 row");
     if let Some(row) = result.rows.first() {
         if let Some(serde_json::Value::Number(n)) = row.first() {
-            assert_eq!(n.as_i64().unwrap(), 11, "expected 11 total traces");
+            assert_eq!(
+                n.as_i64().unwrap(),
+                54,
+                "expected 54 total spans across all traces"
+            );
         }
     }
 }
