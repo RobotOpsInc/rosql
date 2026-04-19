@@ -40,7 +40,7 @@ examples-up:
 examples-down:
     docker compose -f examples/postgres/docker-compose.yml down -v
 
-# Run example integration tests against Docker PostgreSQL
+# Run example integration tests against Docker PostgreSQL (includes ignored CLI DB tests)
 test-examples:
     #!/usr/bin/env bash
     set -e
@@ -48,9 +48,14 @@ test-examples:
     docker compose -f examples/postgres/docker-compose.yml up -d --wait
     echo "Running integration tests..."
     DATABASE_URL=postgresql://rosql:rosql@localhost:5432/rosql_examples \
-        cargo test --ignored --features postgres 2>&1 || { docker compose -f examples/postgres/docker-compose.yml down -v; exit 1; }
+        cargo test --features server,postgres -- --include-ignored 2>&1 || { docker compose -f examples/postgres/docker-compose.yml down -v; exit 1; }
     echo "Tearing down..."
     docker compose -f examples/postgres/docker-compose.yml down -v
+
+# Run CLI integration tests (no DB required)
+test-cli:
+    cargo build --features server --bin rosql
+    cargo test --features server --test cli_integration
 
 # Run WASM tests (requires wasm-pack + Chrome)
 test-wasm:
@@ -68,7 +73,7 @@ test-duckdb:
     cargo test --features duckdb
 
 # Run all integration tests (postgres requires Docker; duckdb does not)
-test-all: test test-examples test-duckdb
+test-all: test test-cli test-duckdb test-examples
 
 # Generate THIRD_PARTY_NOTICES from cargo-about
 notices:
