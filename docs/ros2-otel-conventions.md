@@ -125,7 +125,7 @@ CREATE TABLE otel_traces (
     trace_id             TEXT NOT NULL,
     span_id              TEXT NOT NULL,
     parent_span_id       TEXT NOT NULL DEFAULT '',
-    span_name_col        TEXT NOT NULL,
+    span_name        TEXT NOT NULL,
     span_kind            TEXT NOT NULL DEFAULT 'INTERNAL',
     service_name         TEXT NOT NULL DEFAULT '',
     duration             BIGINT NOT NULL,          -- nanoseconds
@@ -248,7 +248,7 @@ These are the ROSQL field names and what columns they resolve to.
 | `trace_id` | `trace_id` | — |
 | `span_id` | `span_id` | — |
 | `parent_span_id` | `parent_span_id` | — |
-| `span_name` | `span_name_col` | — |
+| `span_name` | `span_name` | — |
 | `service` | `service_name` | — |
 | `duration` | `duration` | nanoseconds |
 | `status` | `status_code` | OK / ERROR |
@@ -256,6 +256,8 @@ These are the ROSQL field names and what columns they resolve to.
 | `action_name` | `span_attributes->>'ros.action.name'` | — |
 | `action_status` | `span_attributes->>'ros.action.status'` | — |
 | `topic` | `span_attributes->>'ros.topic'` | — |
+| `robot_id` | `resource_attributes->>'robot.id'` | — |
+| `org_id` | `resource_attributes->>'organization.id'` | — |
 
 ### From `otel_metrics`
 
@@ -298,6 +300,8 @@ These are the ROSQL field names and what columns they resolve to.
 | `message` | `body` |
 | `severity` | `severity_text` |
 | `severity_number` | `severity_number` |
+| `robot_id` | `resource_attributes->>'robot.id'` |
+| `org_id` | `resource_attributes->>'organization.id'` |
 
 ### From `topic_messages` (position and joint data)
 

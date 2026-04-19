@@ -129,6 +129,7 @@ fn data_source_completions() -> Vec<Completion> {
         ds("tf", "TF transform tree"),
         ds("heartbeats", "Robot liveness data"),
         ds("recordings", "MCAP recording index"),
+        ds("system_logs", "OS/kernel-level log events"),
         ds("events", "Discrete events"),
         ds("odom", "Alias: /odom topic"),
         ds("joint_states", "Alias: /joint_states topic"),

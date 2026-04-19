@@ -120,7 +120,7 @@ CREATE TABLE otel_traces (
     trace_id             TEXT NOT NULL,
     span_id              TEXT NOT NULL,
     parent_span_id       TEXT NOT NULL DEFAULT '',
-    span_name_col        TEXT NOT NULL,
+    span_name        TEXT NOT NULL,
     span_kind            TEXT NOT NULL DEFAULT 'INTERNAL',
     service_name         TEXT NOT NULL DEFAULT '',
     duration             BIGINT NOT NULL,          -- nanoseconds
@@ -173,7 +173,7 @@ Required Parquet columns (snake_case, matching the `otel-postgres` profile):
 | `trace_id` | STRING |
 | `span_id` | STRING |
 | `parent_span_id` | STRING |
-| `span_name_col` | STRING |
+| `span_name` | STRING |
 | `span_kind` | STRING |
 | `service_name` | STRING |
 | `duration` | INT64 (nanoseconds) |
@@ -562,7 +562,7 @@ The Parquet backend uses `otel-postgres` column names.
 | `trace_id` | `trace_id` | — |
 | `span_id` | `span_id` | — |
 | `parent_span_id` | `parent_span_id` | — |
-| `span_name` | `span_name_col` | — |
+| `span_name` | `span_name` | — |
 | `service` | `service_name` | — |
 | `duration` | `duration` | nanoseconds |
 | `status` | `status_code` | OK / ERROR |
@@ -571,6 +571,7 @@ The Parquet backend uses `otel-postgres` column names.
 | `action_status` | `span_attributes->>'ros.action.status'` | — |
 | `topic` | `span_attributes->>'ros.topic'` | — |
 | `robot_id` | `resource_attributes->>'robot.id'` | — |
+| `org_id` | `resource_attributes->>'organization.id'` | — |
 | `version` | `resource_attributes->>'service.version'` | — |
 | `environment` | `resource_attributes->>'deployment.environment'` | — |
 | `session_id` | `resource_attributes->>'ros.session.id'` | — |
@@ -592,6 +593,7 @@ The Parquet backend uses `otel-postgres` column names.
 | `action_status` | `SpanAttributes['ros.action.status']` | — |
 | `topic` | `SpanAttributes['ros.topic']` | — |
 | `robot_id` | `ResourceAttributes['robot.id']` | — |
+| `org_id` | `ResourceAttributes['organization.id']` | — |
 | `version` | `ResourceAttributes['service.version']` | — |
 | `environment` | `ResourceAttributes['deployment.environment']` | — |
 | `session_id` | `ResourceAttributes['ros.session.id']` | — |
@@ -609,6 +611,8 @@ The Parquet backend uses `otel-postgres` column names.
 | `message` | `body` |
 | `severity` | `severity_text` |
 | `severity_number` | `severity_number` |
+| `robot_id` | `resource_attributes->>'robot.id'` |
+| `org_id` | `resource_attributes->>'organization.id'` |
 
   </TabItem>
   <TabItem value="otel-clickhouse" label="otel-clickhouse">
@@ -618,6 +622,8 @@ The Parquet backend uses `otel-postgres` column names.
 | `message` | `Body` |
 | `severity` | `SeverityText` |
 | `severity_number` | `SeverityNumber` |
+| `robot_id` | `ResourceAttributes['robot.id']` |
+| `org_id` | `ResourceAttributes['organization.id']` |
 
   </TabItem>
 </Tabs>
@@ -660,6 +666,8 @@ The Parquet backend uses `otel-postgres` column names.
 | `battery_temperature` | `value` WHERE `metric_name = 'system.battery.temperature'` | °C |
 | `process_cpu` | `value` WHERE `metric_name = 'process.cpu.utilization'` | % |
 | `process_memory` | `value` WHERE `metric_name = 'process.memory.usage'` | B |
+| `robot_id` | `resource_attributes->>'robot.id'` | — |
+| `org_id` | `resource_attributes->>'organization.id'` | — |
 
   </TabItem>
   <TabItem value="otel-clickhouse" label="otel-clickhouse">
@@ -697,6 +705,8 @@ The Parquet backend uses `otel-postgres` column names.
 | `battery_temperature` | `Value` WHERE `MetricName = 'system.battery.temperature'` | °C |
 | `process_cpu` | `Value` WHERE `MetricName = 'process.cpu.utilization'` | % |
 | `process_memory` | `Value` WHERE `MetricName = 'process.memory.usage'` | B |
+| `robot_id` | `ResourceAttributes['robot.id']` | — |
+| `org_id` | `ResourceAttributes['organization.id']` | — |
 
   </TabItem>
 </Tabs>

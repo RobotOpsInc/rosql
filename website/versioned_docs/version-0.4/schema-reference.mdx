@@ -118,7 +118,7 @@ CREATE TABLE otel_traces (
     trace_id             TEXT NOT NULL,
     span_id              TEXT NOT NULL,
     parent_span_id       TEXT NOT NULL DEFAULT '',
-    span_name_col        TEXT NOT NULL,
+    span_name        TEXT NOT NULL,
     span_kind            TEXT NOT NULL DEFAULT 'INTERNAL',
     service_name         TEXT NOT NULL DEFAULT '',
     duration             BIGINT NOT NULL,          -- nanoseconds
@@ -171,7 +171,7 @@ Required Parquet columns (snake_case, matching the `otel-postgres` profile):
 | `trace_id` | STRING |
 | `span_id` | STRING |
 | `parent_span_id` | STRING |
-| `span_name_col` | STRING |
+| `span_name` | STRING |
 | `span_kind` | STRING |
 | `service_name` | STRING |
 | `duration` | INT64 (nanoseconds) |
@@ -485,7 +485,7 @@ The Parquet backend uses `otel-postgres` column names.
 | `trace_id` | `trace_id` | — |
 | `span_id` | `span_id` | — |
 | `parent_span_id` | `parent_span_id` | — |
-| `span_name` | `span_name_col` | — |
+| `span_name` | `span_name` | — |
 | `service` | `service_name` | — |
 | `duration` | `duration` | nanoseconds |
 | `status` | `status_code` | OK / ERROR |

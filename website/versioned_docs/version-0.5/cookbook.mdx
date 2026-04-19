@@ -114,7 +114,7 @@ FROM odom LIMIT 5
 Find error traces that occurred while battery percentage was below a threshold — `DURING()` handles the time-window correlation automatically.
 
 ```sql
-SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+SELECT trace_id, span_name, service_name, duration, status_code, span_attributes
 FROM traces
 WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 DURING(

@@ -77,7 +77,7 @@ rosql query "FROM traces WHERE status = 'ERROR' LIMIT 5" \
 
 ```
 ╭──────────────────┬────────────────┬──────────────────┬────────────────────────────────┬──────────────┬────────────┬─────────────╮
-│ timestamp        │ trace_id       │ span_id          │ span_name_col                  │ service_name │ duration   │ status_code │
+│ timestamp        │ trace_id       │ span_id          │ span_name                  │ service_name │ duration   │ status_code │
 ├──────────────────┼────────────────┼──────────────────┼────────────────────────────────┼──────────────┼────────────┼─────────────┤
 │ 1776452455875402 │ trace-amr01-m1 │ span-a01-m1-root │ /navigate_to_pose              │ robot-amr-01 │ 7000000000 │ OK          │
 │ 1776452455975402 │ trace-amr01-m1 │ span-a01-m1-bt   │ /bt_navigator/navigate         │ robot-amr-01 │ 6900000000 │ OK          │
@@ -137,7 +137,7 @@ rosql query "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago" \
 Find navigation failures that happened while the battery was critically low:
 
 ```sql
-SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+SELECT trace_id, span_name, service_name, duration, status_code, span_attributes
 FROM traces
 WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 DURING(
@@ -147,7 +147,7 @@ DURING(
 ```
 
 ```bash
-rosql query "SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+rosql query "SELECT trace_id, span_name, service_name, duration, status_code, span_attributes
 FROM traces
 WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 DURING(
@@ -170,10 +170,10 @@ This walks `parent_span_id → span_id` recursively via a CTE and returns all sp
 
 ```json
 [
-  { "span_id": "span-001-root",    "span_name_col": "/navigate_to_pose",           "ros.node": "/bt_navigator",        "duration": 8000000000 },
-  { "span_id": "span-001-bt",      "span_name_col": "/bt_navigator/navigate",       "ros.node": "/bt_navigator",        "duration": 7900000000 },
-  { "span_id": "span-001-ctrl",    "span_name_col": "/controller_server/follow_path","ros.node": "/controller_server",   "duration": 7800000000 },
-  { "span_id": "span-001-costmap", "span_name_col": "/local_costmap_node/update",   "ros.node": "/local_costmap_node",  "duration":  500000000 }
+  { "span_id": "span-001-root",    "span_name": "/navigate_to_pose",           "ros.node": "/bt_navigator",        "duration": 8000000000 },
+  { "span_id": "span-001-bt",      "span_name": "/bt_navigator/navigate",       "ros.node": "/bt_navigator",        "duration": 7900000000 },
+  { "span_id": "span-001-ctrl",    "span_name": "/controller_server/follow_path","ros.node": "/controller_server",   "duration": 7800000000 },
+  { "span_id": "span-001-costmap", "span_name": "/local_costmap_node/update",   "ros.node": "/local_costmap_node",  "duration":  500000000 }
 ]
 ```
 
@@ -212,7 +212,7 @@ async fn main() -> anyhow::Result<()> {
     // let backend = SqlBackend::new("postgresql://user:pass@localhost/telemetry").await?;
 
     let query = parse("
-        SELECT trace_id, span_name_col, service_name, duration, status_code
+        SELECT trace_id, span_name, service_name, duration, status_code
         FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
         DURING(
           FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15
