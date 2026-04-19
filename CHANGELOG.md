@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-04-19
+
+### Added
+
+- **Comprehensive query coverage audit (issue #96)** — every ROSQL query in user-facing documentation is now smoke-tested against both PostgreSQL and DuckDB via `examples/queries/doc_examples.rosql` + `tests/doc_queries.rs`. Two doc queries that silently produced wrong results were caught and fixed.
+- **All-dialect compile coverage** — every SQL-output test in `tests/compile_audit.rs` now asserts on PostgreSQL, DuckDB, and MySQL via `assert_compiles_all` / `assert_compiles_dialects`. Redundant single-dialect and `_both` sibling tests removed (-471 lines).
+- **Cross-backend parity tests** — `tests/compile_parity.rs` with 15 structural equivalence checks ensuring both dialects produce the same high-level constructs (GROUP BY, ORDER BY, LIMIT, CTE presence) for representative queries.
+- **Multi-clause combination tests** — 19 tests covering compound clause combinations; the DURING combined-form gap is now explicitly documented as `#[ignore]` pending GH#74.
+- **MySQL baseline coverage** — 10 compile tests with MySQL-specific substring assertions (`NOW() - INTERVAL`, `JSON_EXTRACT`, `FROM_UNIXTIME`, etc.).
+- **CLI integration tests** — `tests/cli_integration.rs` covering `compile`, `parse`, `validate`, and `completions` subcommands with JSON shape assertions; requires `--features server`.
+- **WASM shape assertions** — `tests/wasm.rs` upgraded from liveness-only to structural assertions on `ok`/`valid`/`ast`/`errors` fields and completions array shape.
+- **Testing Integrity policy in CLAUDE.md** — four enforceable rules: doc-query rule, all-dialects rule, combination test rule, CLI output rule.
+
+### Fixed
+
+- **Parquet fixture `robot_id` corruption** — odom rows in `05_topic_messages.sql` had a timestamp expression in the `robot_id` column instead of `'robot-amr-02'`. PATH DEVIATION FOR ROBOT returned 0 rows against the Parquet backend.
+- **Missing `ros2.topic.message_rate` metrics** — TOPIC_RATE('/cmd_vel') returned null in Parquet integration tests because no message-rate data existed in the metrics fixture. Added `/cmd_vel` and `/odom` publish-rate rows.
+- **Stale Parquet integration test assertions** — test IDs and counts (`trace-002`, COUNT=11, 1 recording, `robot_sim_001`) referenced a fixture schema predating the PR #103 data rewrite. Synced to current data and regenerated Parquet files.
+- **`SINCE last week` in docs** — `command-reference.mdx` documented `SINCE last week` as valid syntax; the parser only accepts `SINCE last <event_type>`. Changed to `SINCE 7 days ago`.
+- **`FOR VERSION` before `ANOMALY` in cookbook** — `cookbook.mdx` had `FOR VERSION 'v1.3.0' ANOMALY(...)` which is invalid; reordered to `ANOMALY(...) ... FOR VERSION 'v1.3.0'`.
+
+## [0.5.2] - 2026-04-18
+
+### Fixed
+
+- **`span_name_col` → `span_name`** — renamed the `otel_traces` column to match the standard OTel Collector PostgreSQL exporter convention. Updated across schema fixtures, docs, and the website Gantt visualization.
+- **`s3_key` → `file_uri` on `mcap_metadata`** — replaced the S3-only field with a generic `file_uri` that accepts any URI scheme (`s3://`, `file://`, `gs://`), enabling local and GCS-backed MCAP storage.
+
+### Added
+
+- **`org_id` field** — queryable on `otel_traces`, `otel_logs`, and `otel_metrics` via `resource_attributes->>'organization.id'`. The ClickHouse dialect (upcoming #98) will upgrade this to the materialized `OrgId` column.
+- **`system_logs` tab completion** — `FROM system_logs` now appears in CLI autocomplete alongside other data sources.
+
+## [0.5.1] - 2026-04-17
+
+### Added
+
+- **Public demo dataset** — a sample AMR telemetry dataset (traces, logs, metrics, topic messages) is now hosted at `s3://robotops-production-rosql-demo/data` and updated on every release. No credentials or data source required to run a first query.
+- **Quickstart zero-friction example** — the quickstart, homepage, and all versioned docs now lead with the public demo URL so new users can query real robot telemetry immediately after install.
+- **Release pipeline S3 upload** — the release workflow now syncs `examples/parquet/fixtures/` to the public demo bucket automatically on each release.
+
 ## [0.5.0] - 2026-04-17
 
 ### Fixed

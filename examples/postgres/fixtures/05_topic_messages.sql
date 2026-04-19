@@ -36,6 +36,14 @@ INSERT INTO topic_messages (robot_id, topic_name, "timestamp", fields, message_t
 ('robot_sim_001', '/odom', '2026-03-24T10:15:00Z', '{"position.x": "7.9",  "position.y": "3.8", "orientation.z": "0.0"}', 'nav_msgs/msg/Odometry');
 
 -- ============================================================================
+-- /plan — planned path for PATH DEVIATION analysis
+-- ============================================================================
+
+INSERT INTO topic_messages (robot_id, topic_name, "timestamp", fields, message_type) VALUES
+('robot_sim_001', '/plan', '2026-03-24T09:59:00Z', '{"pose.pose.position.x": "0.0", "pose.pose.position.y": "0.0"}', 'nav_msgs/msg/Path'),
+('robot_sim_001', '/plan', '2026-03-24T10:08:30Z', '{"pose.pose.position.x": "5.0", "pose.pose.position.y": "3.0"}', 'nav_msgs/msg/Path');
+
+-- ============================================================================
 -- /battery_state — percentage drops during action 2
 -- ============================================================================
 

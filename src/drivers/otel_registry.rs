@@ -48,7 +48,7 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
     let trace_id = profile.col("trace_id", "TraceId");
     let span_id = profile.col("span_id", "SpanId");
     let parent_span_id = profile.col("parent_span_id", "ParentSpanId");
-    let span_name = profile.col("span_name_col", "SpanName");
+    let span_name = profile.col("span_name", "SpanName");
     let service_name = profile.col("service_name", "ServiceName");
     let duration = profile.col("duration", "Duration");
     let status_code = profile.col("status_code", "StatusCode");
@@ -90,11 +90,19 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
     reg.register(map_field("topic", "otel_traces", span_attrs, "ros.topic"));
 
     // Resource attributes shared across all OTel tables.
-    // robot_id on OTel tables lives in resource_attributes->>'robot.id'.
-    // On topic_messages it is a bare column (registered separately below).
+    // robot_id and org_id live in resource_attributes on Postgres/DuckDB.
+    // The Clickhouse dialect (#98) will override these to use the materialized
+    // RobotId and OrgId columns with bloom filter indexes.
+    // On topic_messages, robot_id is a bare column (registered separately below).
     let res_attrs = "resource_attributes";
     for otel_table in ["otel_traces", "otel_logs", "otel_metrics"] {
         reg.register(map_field("robot_id", otel_table, res_attrs, "robot.id"));
+        reg.register(map_field(
+            "org_id",
+            otel_table,
+            res_attrs,
+            "organization.id",
+        ));
     }
 
     // ── otel_metrics fields ─────────────────────────────────────────
@@ -312,7 +320,7 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
 
     // ── mcap_metadata fields ────────────────────────────────────────
     reg.register(simple("session_id", "mcap_metadata", "session_id"));
-    reg.register(simple("s3_key", "mcap_metadata", "s3_key"));
+    reg.register(simple("file_uri", "mcap_metadata", "file_uri"));
 
     reg
 }

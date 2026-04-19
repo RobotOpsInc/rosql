@@ -1,0 +1,491 @@
+-- Doc-example corpus: every copy-pasteable ROSQL query from user-facing documentation.
+--
+-- Rules:
+--   (a) Every ROSQL query added to any documentation surface must appear here.
+--   (b) If a query is removed from docs, remove it here too.
+--   (c) Queries that return ROSQLError::NotImplemented are acceptable (gated clauses);
+--       these are marked with -- [GATED] below: HEALTH(), CORRELATE, SHOW RECORDING.
+--   (d) DURING combined form (FROM ... DURING(...)) silently drops the DURING clause
+--       (not yet wired in the standard-query parser); the smoke test passes but does
+--       not verify DURING is applied.
+--
+-- Tested by: tests/doc_queries.rs (parse + compile for PostgreSQL and DuckDB).
+
+-- ── README ──────────────────────────────────────────────────────────────────
+
+SELECT trace_id, span_name, service_name, duration, status_code, span_attributes FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose' DURING( FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15 ) SINCE 6 hours ago
+
+TRACE 'a3f1c9d2e8b04f7a'
+
+SELECT span_name, duration FROM traces WHERE action_name = '/navigate_to_pose' AND duration > 500 ms SINCE 1 hour ago ORDER BY duration DESC LIMIT 20
+
+FROM traces WHERE status = 'ERROR' DURING( FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20 ) SINCE yesterday
+
+SELECT COUNT(*) AS errors FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 1 hour ago FACET robot_id
+
+SELECT * FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose' SINCE 1 hour ago ENRICH WITH logs LIMIT 20
+
+SHOW TOPICS FOR ROBOT 'robot_42' SINCE 30 minutes ago
+
+SHOW NODES FOR ROBOT 'robot_42' SINCE 30 minutes ago
+
+SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 minutes ago
+
+TRACE 'abc123def456'
+
+FROM traces | WHERE duration > 500 ms | TIMESERIES 1 min | FACET robot_id
+
+SELECT trace_id, span_name, duration FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose' SINCE 30 min ago ORDER BY duration DESC LIMIT 5
+
+SELECT * FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose' SINCE 30 min ago ENRICH WITH logs LIMIT 50
+
+SHOW TOPICS FOR ROBOT 'robot_42' SINCE 30 min ago
+
+SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 min ago
+
+FROM traces WHERE duration > 500 ms SINCE 1 hour ago
+
+SELECT * FROM logs
+
+FROM traces WHERE duration > 500 ms
+
+-- ── Quickstart ──────────────────────────────────────────────────────────────
+
+FROM traces WHERE status = 'ERROR' LIMIT 5
+
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+
+SELECT trace_id, span_name, service_name, duration, status_code, span_attributes FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose' DURING( FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15 )
+
+TRACE 'trace-001'
+
+-- ── Syntax reference ────────────────────────────────────────────────────────
+
+SELECT AVG(duration) FROM traces WHERE status = 'ERROR' SINCE 1 hour ago FACET robot_id ORDER BY avg_dur DESC LIMIT 10
+
+FROM traces | WHERE status = 'ERROR' | SELECT AVG(duration) | SINCE 1 hour ago | FACET robot_id | ORDER BY avg_dur DESC | LIMIT 10
+
+TRACE 'a3f1c9d2e8b04f7a'
+
+-- [GATED] HEALTH() is reserved, returns NotImplemented
+HEALTH() FOR ROBOT 'robot_42'
+
+SHOW SPAN SUMMARY SINCE 1 hour ago
+
+ANOMALY(duration) COMPARED TO last week FACET robot_id
+
+FROM topics WHERE topic_name = '/odom' SINCE 1 hour ago USING ROS_TIME
+
+SELECT TOPIC_RATE() FROM metrics
+
+SELECT TOPIC_RATE('/cmd_vel') FROM metrics
+
+SELECT ACTION_SUCCESS_RATE() FROM traces
+
+SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces
+
+SELECT MOVING_AVG(duration, 5) FROM traces
+
+SELECT DERIVATIVE(metric_value) FROM metrics
+
+SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces
+
+SELECT APPROX_PERCENTILE(duration, 95) FROM traces
+
+SELECT AVG(duration) AS avg_dur FROM traces WHERE status = 'ERROR' FOR ROBOT 'scout_1' SINCE 1 hour ago FACET action_name ORDER BY avg_dur DESC LIMIT 5
+
+FROM traces | WHERE status = 'ERROR' | FOR ROBOT 'scout_1' | SINCE 1 hour ago | SELECT AVG(duration) AS avg_dur | FACET action_name | ORDER BY avg_dur DESC | LIMIT 5
+
+FROM traces WHERE action_name = '/navigate_to_pose' AND duration > 2 s SINCE 1 hour ago
+
+-- ── Concepts ────────────────────────────────────────────────────────────────
+
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+
+SELECT AVG(duration) FROM traces FACET robot_id
+
+FROM logs WHERE severity = 'FATAL'
+
+SHOW SPAN SUMMARY FOR ROBOT 'robot_42' SINCE 1 hour ago
+
+SHOW DEPLOYMENTS SINCE 7 days ago
+
+SHOW TOPICS FOR ROBOT 'robot_42'
+
+SHOW NODES FOR ROBOT 'robot_42'
+
+SHOW NODE GRAPH
+
+SHOW JOINTS FOR ROBOT 'arm_01'
+
+SHOW PLANS FOR TRACE 'abc123'
+
+FOR ROBOT 'robot_42' FROM traces WHERE status = 'ERROR'
+
+FOR VERSION '2.3.1' FROM traces TIMESERIES 5 min
+
+FOR ENVIRONMENT 'production' FOR ROBOT 'robot_42' FROM logs
+
+FOR SESSION 'delivery_042' FROM traces SINCE 1 hour ago
+
+FOR ROBOT 'robot_42' FOR ENVIRONMENT 'production' FROM traces WHERE action_name = '/navigate_to_pose' AND status = 'ERROR' SINCE 1 hour ago
+
+FROM joint_states WHERE fields['position[0]'] > 1.5 FOR ROBOT 'arm_01'
+
+JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 1 hour ago
+
+ANOMALY(duration) COMPARED TO last week FACET action_name
+
+ANOMALY(duration) COMPARED TO fleet FACET robot_id
+
+ANOMALY(duration) COMPARED TO last week
+
+-- ── Cookbook ────────────────────────────────────────────────────────────────
+
+FROM traces WHERE status = 'ERROR'
+
+FROM logs WHERE severity = 'ERROR'
+
+SELECT span_name, duration FROM traces WHERE action_name = '/navigate_to_pose' AND duration > 500 ms SINCE 1 hour ago ORDER BY duration DESC LIMIT 20
+
+FROM traces WHERE node = '/bt_navigator'
+
+FOR ROBOT 'robot_sim_001' FROM logs WHERE severity = 'ERROR'
+
+FOR VERSION 'v1.2.3' FROM traces WHERE status = 'ERROR'
+
+FOR ENVIRONMENT 'production' FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+
+FOR SESSION 'sess_abc123' FROM logs WHERE severity = 'ERROR'
+
+FOR ROBOT 'robot_42' FOR VERSION 'v1.0.0' FOR ENVIRONMENT 'prod' FROM traces WHERE status = 'ERROR'
+
+FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
+
+FROM odom LIMIT 5
+
+SELECT trace_id, span_name, service_name, duration, status_code, span_attributes FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose' DURING( FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15 ) SINCE 6 hours ago
+
+FROM traces WHERE status = 'ERROR' DURING( FROM metrics WHERE metric_name = 'system.cpu.total_usage_pct' AND metric_value > 90 ) SINCE yesterday
+
+MESSAGE FLOW FROM TOPIC '/cmd_vel'
+
+MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/motor_driver'
+
+MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
+
+TRACE 'trace-002'
+
+SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET robot_id SINCE 30 minutes ago
+
+SELECT COUNT(*) FROM logs WHERE severity IN ('ERROR', 'WARN') FACET severity SINCE 30 minutes ago
+
+SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces SINCE 30 minutes ago
+
+SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 minutes ago
+
+SELECT APPROX_PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose' SINCE 30 minutes ago
+
+ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago
+
+ANOMALY(duration) COMPARED TO fleet SINCE 1 hour ago FACET robot_id
+
+ANOMALY(duration) FROM traces COMPARED TO last week FACET robot_id SINCE 24 hours ago
+
+ANOMALY(duration) COMPARED TO last week FOR VERSION 'v1.3.0' FACET robot_id SINCE 12 hours ago
+
+PATH DEVIATION FOR TRACE 'trace-002'
+
+PATH DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+
+PATH DEVIATION PLAN 0 FOR ROBOT 'robot_sim_001' SINCE 6 hours ago
+
+JOINT DEVIATION FOR TRACE 'trace-002'
+
+JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 1 hour ago
+
+SHOW JOINTS FOR ROBOT 'robot_sim_001'
+
+FROM recordings WHERE robot_id = 'amr-01' SINCE 6 hours ago LIMIT 10
+
+FROM recordings WHERE '/joint_states' = ANY(topics) SINCE 24 hours ago
+
+FROM recordings WHERE robot_id = 'amr-01' AND start_time <= '2026-04-17T10:22:00Z' AND end_time >= '2026-04-17T10:22:00Z'
+
+FROM traces | WHERE duration > 500 ms | WHERE status = 'ERROR' | FACET robot_id
+
+FROM traces | WHERE action_name = '/navigate_to_pose' | WHERE status = 'ERROR' | FACET robot_id | COMPARE TO last week
+
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago | COMPARE TO VERSION 'v1.0.0'
+
+FROM traces WHERE action_name = '/navigate_to_pose' COMPARE VERSION 'v2.3.1' TO VERSION 'v2.3.0'
+
+SHOW DEPLOYMENTS FOR ROBOT 'robot_42' SINCE 7 days ago
+
+SHOW SPAN SUMMARY FOR ROBOT 'robot_42' SINCE 1 hour ago
+
+SHOW PLANS FOR TRACE 'a3f1c9d2e8b04f7a'
+
+SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 hour ago
+
+FROM logs | WHERE severity IN ('ERROR', 'WARN') | ORDER BY severity DESC | LIMIT 20
+
+SELECT AVG(duration) FROM traces FACET robot_id
+
+SELECT COUNT(*) FROM logs WHERE severity = 'ERROR' FACET robot_id
+
+SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose'
+
+SELECT AVG(duration) AS avg_dur, MAX(duration) AS max_dur, COUNT(*) AS total FROM traces
+
+SELECT MOVING_AVG(duration, 5) FROM traces WHERE action_name = '/navigate_to_pose'
+
+SELECT DERIVATIVE(metric_value) FROM metrics WHERE metric_name = 'system.cpu.total_usage_pct'
+
+SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces SINCE 1 hour ago
+
+FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago
+
+FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago
+
+FROM joint_states WHERE fields['position[0]'] > 1.5 FOR ROBOT 'arm_01' SINCE 1 hour ago
+
+FROM logs ORDER BY timestamp DESC LIMIT 20 OFFSET 0
+
+FROM logs ORDER BY timestamp DESC LIMIT 20 OFFSET 20
+
+FROM logs ORDER BY timestamp DESC LIMIT 20 OFFSET 40
+
+FROM logs | ORDER BY timestamp DESC | LIMIT 20 | OFFSET 40
+
+FROM traces WHERE action_name = '/navigate_to_pose' AND status = 'ERROR' SINCE 2 hours ago ORDER BY timestamp DESC LIMIT 5
+
+FROM traces WHERE action_name = '/navigate_to_pose' AND status = 'ERROR' SINCE 2 hours ago ENRICH WITH logs
+
+ANOMALY(duration) COMPARED TO fleet FACET robot_id SINCE 1 hour ago
+
+FROM traces WHERE action_name = '/navigate_to_pose' COMPARE VERSION 'v2.3.1' TO VERSION 'v2.3.0'
+
+SELECT COUNT(*) FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 6 hours ago
+
+FROM logs WHERE severity IN ('ERROR', 'FATAL') SINCE 1 hour ago
+
+SELECT COUNT(*) AS total_errors, AVG(duration) AS avg_duration FROM traces SINCE 1 hour ago
+
+SELECT action_name, COUNT(*) FROM traces FACET action_name SINCE 1 hour ago
+
+FOR SESSION 'delivery_042' FROM traces WHERE status = 'ERROR'
+
+FOR SESSION 'delivery_042' FROM logs ORDER BY timestamp DESC
+
+-- ── Command reference ────────────────────────────────────────────────────────
+
+FROM traces
+
+FROM logs
+
+FROM metrics
+
+FROM topics
+
+FROM recordings
+
+SELECT trace_id, span_name, duration FROM traces WHERE status = 'ERROR'
+
+SELECT AVG(duration) AS avg_dur, COUNT(*) AS total FROM traces
+
+SELECT PERCENTILE(duration, 95) FROM traces WHERE action_name = '/navigate_to_pose'
+
+FROM traces WHERE status = 'ERROR'
+
+FROM traces WHERE duration > 500 ms AND status = 'ERROR'
+
+FROM logs WHERE severity IN ('ERROR', 'WARN')
+
+FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20
+
+FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago
+
+FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago
+
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+
+FROM traces SINCE 30 minutes ago
+
+FROM traces SINCE yesterday
+
+FROM traces SINCE 7 days ago
+
+FROM traces SINCE '2025-03-25T00:00:00Z'
+
+FROM traces LIMIT 10
+
+FROM logs LIMIT 20 OFFSET 40
+
+FROM logs OFFSET 10
+
+FROM logs | LIMIT 10 | OFFSET 20
+
+SELECT span_name, duration FROM traces ORDER BY duration DESC LIMIT 20
+
+FOR ROBOT 'robot_sim_001' FROM logs WHERE severity = 'ERROR'
+
+FOR ROBOT 'robot_42' FROM logs SINCE 30 minutes ago
+
+FOR FLEET FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
+
+FOR VERSION 'v1.2.3' FROM traces WHERE status = 'ERROR'
+
+FOR ROBOT 'robot_42' FOR VERSION 'v1.0.0' FROM logs SINCE 1 hour ago
+
+FOR ENVIRONMENT 'production' FROM traces WHERE status = 'ERROR'
+
+FOR FLEET FOR ENVIRONMENT 'staging' FROM metrics SINCE 30 minutes ago
+
+FOR SESSION 'sess_abc123' FROM logs WHERE severity = 'ERROR'
+
+FOR ROBOT 'r1' FOR VERSION 'v1.0' FOR ENVIRONMENT 'prod' FROM traces WHERE status = 'ERROR'
+
+FOR FLEET FOR VERSION 'v2.0' FOR ENVIRONMENT 'production' FROM traces | FACET robot_id
+
+FROM traces WHERE status = 'ERROR' DURING( FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15 ) SINCE 6 hours ago
+
+TRACE 'a3f1c9d2e8b04f7a'
+
+TRACE 'trace-002'
+
+MESSAGE FLOW FROM TOPIC '/cmd_vel'
+
+MESSAGE FLOW FROM TOPIC '/cmd_vel' TO NODE '/motor_driver'
+
+MESSAGE FLOW FROM TOPIC '/sensor_data' TO TOPIC '/processed_data'
+
+-- [GATED] HEALTH() is reserved, returns NotImplemented
+HEALTH() FOR ROBOT 'robot_sim_001'
+
+-- [GATED] HEALTH() is reserved, returns NotImplemented
+HEALTH() FOR ROBOT 'robot_42' SINCE 30 minutes ago
+
+ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago
+
+ANOMALY(duration) COMPARED TO fleet SINCE 1 hour ago FACET robot_id
+
+ANOMALY(duration) FROM traces COMPARED TO last 24 hours FACET robot_id SINCE 12 hours ago
+
+PATH DEVIATION FOR TRACE 'trace-002'
+
+PATH DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+
+PATH DEVIATION PLAN 0 FOR ROBOT 'robot_sim_001' SINCE 6 hours ago
+
+PATH DEVIATION PLAN -1 FOR TRACE 'trace-002'
+
+JOINT DEVIATION FOR TRACE 'trace-002'
+
+JOINT DEVIATION FOR ROBOT 'robot_sim_001' SINCE 1 hour ago
+
+FROM recordings LIMIT 10
+
+FROM recordings WHERE robot_id = 'amr-01' LIMIT 10
+
+FROM recordings WHERE end_time >= NOW() - INTERVAL '2 hours' AND start_time <= NOW()
+
+FROM recordings WHERE '/camera/image_raw' = ANY(topics)
+
+FROM recordings WHERE robot_id = 'amr-01' AND end_time >= NOW() - INTERVAL '6 hours' AND '/joint_states' = ANY(topics) LIMIT 5
+
+SHOW DEPLOYMENTS
+
+SHOW DEPLOYMENTS FOR ROBOT 'robot_42'
+
+SHOW DEPLOYMENTS FOR ROBOT 'robot_42' SINCE 7 days ago
+
+SHOW DEPLOYMENTS FOR ENVIRONMENT 'production' SINCE 7 days ago
+
+SHOW SPAN SUMMARY
+
+SHOW SPAN SUMMARY FOR ROBOT 'robot_42'
+
+SHOW SPAN SUMMARY FOR ROBOT 'robot_42' SINCE 1 hour ago
+
+SHOW SPAN SUMMARY FOR VERSION 'v1.2.3' SINCE 30 minutes ago
+
+SHOW PLANS
+
+SHOW PLANS FOR TRACE 'a3f1c9d2e8b04f7a'
+
+SHOW PLANS FOR ROBOT 'robot_42'
+
+SHOW PLANS FOR ROBOT 'robot_42' SINCE 1 hour ago
+
+SHOW JOINTS FOR ROBOT 'robot_sim_001'
+
+SHOW JOINTS FOR ROBOT 'arm_01'
+
+SELECT AVG(duration) FROM traces FACET robot_id
+
+FROM traces WHERE status = 'ERROR' | FACET robot_id
+
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago | COMPARE TO last week
+
+FROM traces COMPARE TO VERSION 'v1.2.3'
+
+FROM traces WHERE status = 'ERROR' SINCE 1 hour ago | COMPARE TO VERSION 'v1.0.0'
+
+FROM traces COMPARE VERSION 'v1.0' TO VERSION 'v2.0'
+
+FROM traces WHERE action_name = '/navigate_to_pose' COMPARE VERSION 'v1.0' TO VERSION 'v2.0'
+
+FROM traces TIMESERIES 5 min SINCE 6 hours ago FORMAT table
+
+SELECT COUNT(*) FROM traces FACET robot_id FORMAT table
+
+-- ── CLI docs ─────────────────────────────────────────────────────────────────
+
+FROM traces WHERE duration > 500 ms SINCE 1 hour ago
+
+FROM traces WHERE status = 'ERROR'
+
+-- ── REPL showcase (RosqlRepl.tsx) ────────────────────────────────────────────
+
+TRACE 'trace-amr02-m3'
+
+TRACE 'trace-amr02-m3' ENRICH WITH logs LIMIT 5
+
+SELECT cpu_usage FROM metrics TIMESERIES 2 min FACET robot_id SINCE 45 min ago
+
+MESSAGE FLOW FROM TOPIC '/scan' FOR ROBOT 'robot-amr-02'
+
+SHOW SPAN SUMMARY FOR ROBOT 'robot-amr-02' SINCE 90 min ago
+
+PATH DEVIATION FOR TRACE 'trace-amr02-m3'
+
+ANOMALY(duration) COMPARED TO last week FACET robot_id
+
+FROM topics WHERE topic_name = '/battery_state' AND fields['voltage'] < 11.5 V FOR ROBOT 'robot-amr-02' SINCE 2 h ago
+
+SHOW NODE GRAPH FOR ROBOT 'robot-amr-02'
+
+-- ── Homepage (index.tsx) ─────────────────────────────────────────────────────
+
+FROM joint_states WHERE fields['position[2]'] > 30 deg DURING( FROM battery WHERE fields['percentage'] < 15 ) FOR ROBOT 'arm-01' SINCE 2 hours ago
+
+SELECT cpu_usage FROM metrics TIMESERIES 2 min FACET robot_id SINCE 45 min ago
+
+-- ── Examples page (examples.tsx) ─────────────────────────────────────────────
+
+FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
+
+MESSAGE FLOW FROM TOPIC '/cmd_vel'
+
+SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET robot_id SINCE 30 minutes ago
+
+SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces SINCE 1 hour ago
+
+SELECT TOPIC_RATE('/cmd_vel') FROM metrics SINCE 30 minutes ago
+
+SELECT MOVING_AVG(duration, 5) FROM traces WHERE action_name = '/navigate_to_pose'
+
+FROM traces | WHERE duration > 500 ms | WHERE status = 'ERROR' | FACET robot_id
+
+FROM traces | WHERE action_name = '/navigate_to_pose' | WHERE status = 'ERROR' | FACET robot_id | COMPARE TO last week

@@ -1,5 +1,6 @@
 ---
 source: tests/parse_standard.rs
+assertion_line: 163
 expression: ast
 ---
 Standard:
@@ -27,3 +28,4 @@ Standard:
       join_key: ~
       limit: ~
       sample_full: true
+  during: ~

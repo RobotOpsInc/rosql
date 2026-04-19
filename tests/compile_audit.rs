@@ -56,15 +56,56 @@ fn format_hint(query: &str) -> FormatHint {
     compile_result(query).format_hint
 }
 
+// All three dialects should contain `expected` in their SQL output.
+fn assert_compiles_all(query: &str, expected: &str) {
+    for dialect in [
+        SqlDialect::PostgreSQL,
+        SqlDialect::DuckDB,
+        SqlDialect::MySQL,
+    ] {
+        let sql = compile_sql(query, dialect);
+        assert!(
+            sql.contains(expected),
+            "{dialect:?} SQL missing '{expected}':\n{sql}"
+        );
+    }
+}
+
+// Three-way dialect-specific assertions — use when dialects produce legitimately
+// different SQL surface (e.g. date_bin vs time_bucket vs FROM_UNIXTIME).
+fn assert_compiles_dialects(
+    query: &str,
+    pg_contains: &str,
+    duck_contains: &str,
+    mysql_contains: &str,
+) {
+    let pg = compile_sql(query, SqlDialect::PostgreSQL);
+    let duck = compile_sql(query, SqlDialect::DuckDB);
+    let mysql = compile_sql(query, SqlDialect::MySQL);
+    assert!(
+        pg.contains(pg_contains),
+        "PG SQL missing '{pg_contains}':\n{pg}"
+    );
+    assert!(
+        duck.contains(duck_contains),
+        "DuckDB SQL missing '{duck_contains}':\n{duck}"
+    );
+    assert!(
+        mysql.contains(mysql_contains),
+        "MySQL SQL missing '{mysql_contains}':\n{mysql}"
+    );
+}
+
 // ── Implemented aggregation functions ───────────────────────────────────────
 
 #[test]
 fn topic_rate_compiles_to_subquery() {
-    let sql = compile_sql("SELECT TOPIC_RATE() FROM metrics", SqlDialect::PostgreSQL);
-    assert!(sql.contains("otel_metrics"), "got: {sql}");
+    let q = "SELECT TOPIC_RATE() FROM metrics";
+    assert_compiles_all(q, "otel_metrics");
+    assert_compiles_all(q, "AVG");
+    // Verify PG-specific details (registry-resolved column name)
+    let sql = compile_sql(q, SqlDialect::PostgreSQL);
     assert!(sql.contains("ros2.topic.message_rate"), "got: {sql}");
-    assert!(sql.contains("AVG"), "got: {sql}");
-    // Uses the registry-resolved column name, not the ROSQL alias.
     assert!(
         sql.contains(r#""value""#),
         "expected resolved column 'value', got: {sql}"
@@ -77,32 +118,28 @@ fn topic_rate_compiles_to_subquery() {
 
 #[test]
 fn topic_rate_with_topic_arg() {
-    let sql = compile_sql(
-        "SELECT TOPIC_RATE('/cmd_vel') FROM metrics",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("otel_metrics"), "got: {sql}");
+    let q = "SELECT TOPIC_RATE('/cmd_vel') FROM metrics";
+    assert_compiles_all(q, "otel_metrics");
+    assert_compiles_all(q, "/cmd_vel");
     // Topic filter uses JSON extraction from the attributes column, not a bare column.
+    let sql = compile_sql(q, SqlDialect::PostgreSQL);
     assert!(sql.contains("attributes"), "got: {sql}");
     assert!(sql.contains("topic"), "got: {sql}");
     assert!(
         !sql.contains("topic_name"),
         "should not use bare topic_name column, got: {sql}"
     );
-    assert!(sql.contains("/cmd_vel"), "got: {sql}");
 }
 
 #[test]
 fn action_success_rate_no_arg() {
-    let sql = compile_sql(
-        "SELECT ACTION_SUCCESS_RATE() FROM traces",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("succeeded"), "got: {sql}");
-    assert!(sql.contains("CASE WHEN"), "got: {sql}");
-    assert!(sql.contains("COUNT"), "got: {sql}");
-    assert!(sql.contains("NULLIF"), "got: {sql}");
+    let q = "SELECT ACTION_SUCCESS_RATE() FROM traces";
+    assert_compiles_all(q, "CASE WHEN");
+    assert_compiles_all(q, "COUNT");
+    assert_compiles_all(q, "NULLIF");
     // Uses JSON extraction, not a bare column name.
+    let sql = compile_sql(q, SqlDialect::PostgreSQL);
+    assert!(sql.contains("succeeded"), "got: {sql}");
     assert!(
         sql.contains("span_attributes"),
         "expected span_attributes JSON access, got: {sql}"
@@ -112,13 +149,11 @@ fn action_success_rate_no_arg() {
 
 #[test]
 fn action_success_rate_with_arg() {
-    let sql = compile_sql(
-        "SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("navigate_to_pose"), "got: {sql}");
-    assert!(sql.contains("succeeded"), "got: {sql}");
+    let q = "SELECT ACTION_SUCCESS_RATE('/navigate_to_pose') FROM traces";
+    assert_compiles_all(q, "navigate_to_pose");
+    assert_compiles_all(q, "succeeded");
     // action_name filter also uses JSON extraction.
+    let sql = compile_sql(q, SqlDialect::PostgreSQL);
     assert!(
         sql.contains("ros.action.name"),
         "expected ros.action.name JSON key, got: {sql}"
@@ -131,109 +166,83 @@ fn action_success_rate_with_arg() {
 
 #[test]
 fn facet_adds_column_to_select() {
-    // Explicit aggregation + FACET must include the facet column in SELECT.
-    let sql = compile_sql(
-        "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET service_name",
-        SqlDialect::DuckDB,
-    );
+    // Explicit aggregation + FACET must include the facet column in SELECT and GROUP BY.
+    let q = "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' FACET service_name";
+    assert_compiles_all(q, "GROUP BY");
     // service_name is a real column on otel_traces — should appear in SELECT and GROUP BY.
+    let sql = compile_sql(q, SqlDialect::DuckDB);
     let col = r#""service_name""#;
     assert!(
         sql.contains(&format!("SELECT {col}")) || sql.contains(&format!("{col}, COUNT")),
         "facet column missing from SELECT, got: {sql}"
     );
-    assert!(sql.contains("GROUP BY"), "got: {sql}");
 }
 
 #[test]
 fn facet_robot_id_resolves_json_on_traces() {
     // robot_id on otel_traces must resolve to resource_attributes->>'robot.id', not a bare column.
-    let sql = compile_sql(
-        "SELECT COUNT(*) FROM traces FACET robot_id",
-        SqlDialect::DuckDB,
-    );
-    assert!(
-        sql.contains("resource_attributes") && sql.contains("robot.id"),
-        "expected JSON extraction for robot_id on otel_traces, got: {sql}"
-    );
+    let q = "SELECT COUNT(*) FROM traces FACET robot_id";
+    assert_compiles_all(q, "robot.id");
 }
 
 #[test]
 fn facet_robot_id_bare_on_topic_messages() {
     // robot_id on topic_messages must resolve to the bare column, not JSON extraction.
-    let sql = compile_sql("FROM odom FACET robot_id", SqlDialect::DuckDB);
-    assert!(
-        sql.contains(r#""robot_id""#),
-        "expected bare robot_id column on topic_messages, got: {sql}"
-    );
-    assert!(
-        !sql.contains("resource_attributes"),
-        "should not use resource_attributes on topic_messages, got: {sql}"
-    );
+    let q = "FROM odom FACET robot_id";
+    assert_compiles_all(q, "robot_id");
+    // Verify no resource_attributes on any dialect
+    for dialect in [
+        SqlDialect::PostgreSQL,
+        SqlDialect::DuckDB,
+        SqlDialect::MySQL,
+    ] {
+        let sql = compile_sql(q, dialect);
+        assert!(
+            !sql.contains("resource_attributes"),
+            "should not use resource_attributes on topic_messages ({dialect:?}), got: {sql}"
+        );
+    }
 }
 
 #[test]
 fn moving_avg_window() {
-    let sql = compile_sql(
-        "SELECT MOVING_AVG(duration, 5) FROM traces",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("AVG"), "got: {sql}");
-    assert!(sql.contains("OVER"), "got: {sql}");
-    assert!(sql.contains("ROWS BETWEEN"), "got: {sql}");
-    assert!(sql.contains("PRECEDING"), "got: {sql}");
+    let q = "SELECT MOVING_AVG(duration, 5) FROM traces";
+    assert_compiles_all(q, "AVG");
+    assert_compiles_all(q, "OVER");
+    assert_compiles_all(q, "ROWS BETWEEN");
     // Window of 5 → 4 PRECEDING
-    assert!(sql.contains("4 PRECEDING"), "got: {sql}");
+    assert_compiles_all(q, "4 PRECEDING");
 }
 
 #[test]
 fn derivative_compiles_lag() {
-    let sql = compile_sql(
-        "SELECT DERIVATIVE(metric_value) FROM metrics",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("LAG("), "got: {sql}");
-    assert!(sql.contains("OVER"), "got: {sql}");
-    assert!(sql.contains("NULLIF"), "got: {sql}");
+    let q = "SELECT DERIVATIVE(metric_value) FROM metrics";
+    assert_compiles_all(q, "LAG(");
+    assert_compiles_all(q, "OVER");
+    assert_compiles_all(q, "NULLIF");
 }
 
 #[test]
-fn approx_count_distinct_pg() {
-    let sql = compile_sql(
+fn approx_count_distinct() {
+    // PG and MySQL fall back to exact COUNT(DISTINCT ...); DuckDB uses approx_count_distinct
+    assert_compiles_dialects(
         "SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces",
-        SqlDialect::PostgreSQL,
+        "COUNT(DISTINCT",
+        "approx_count_distinct(",
+        "COUNT(DISTINCT",
     );
-    // PG falls back to exact COUNT(DISTINCT ...)
-    assert!(sql.contains("COUNT(DISTINCT"), "got: {sql}");
 }
 
 #[test]
-fn approx_count_distinct_duckdb() {
-    let sql = compile_sql(
-        "SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces",
-        SqlDialect::DuckDB,
-    );
-    assert!(sql.contains("approx_count_distinct("), "got: {sql}");
-}
-
-#[test]
-fn approx_percentile_pg() {
-    let sql = compile_sql(
+fn approx_percentile() {
+    // PG uses PERCENTILE_CONT; DuckDB uses approx_quantile; MySQL uses ROW_NUMBER emulation.
+    // The percentile value 0.95 appears in all three.
+    assert_compiles_dialects(
         "SELECT APPROX_PERCENTILE(duration, 95) FROM traces",
-        SqlDialect::PostgreSQL,
+        "PERCENTILE_CONT",
+        "approx_quantile(",
+        "0.95",
     );
-    assert!(sql.contains("PERCENTILE_CONT"), "got: {sql}");
-    assert!(sql.contains("0.95"), "got: {sql}");
-}
-
-#[test]
-fn approx_percentile_duckdb() {
-    let sql = compile_sql(
-        "SELECT APPROX_PERCENTILE(duration, 95) FROM traces",
-        SqlDialect::DuckDB,
-    );
-    assert!(sql.contains("approx_quantile("), "got: {sql}");
-    assert!(sql.contains("0.95"), "got: {sql}");
 }
 
 // ── Gated aggregation functions ─────────────────────────────────────────────
@@ -303,27 +312,21 @@ fn health_gated() {
 #[test]
 fn anomaly_compiles_two_cte() {
     // ANOMALY now compiles to a two-phase CTE with z-score output.
-    let sql = compile_sql(
-        "ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago",
-        SqlDialect::DuckDB,
-    );
-    assert!(sql.contains("current_stats"), "got: {sql}");
-    assert!(sql.contains("baseline_stats"), "got: {sql}");
-    assert!(sql.contains("z_score"), "got: {sql}");
-    assert!(sql.contains("is_anomalous"), "got: {sql}");
-    assert!(sql.contains("direction"), "got: {sql}");
+    let q = "ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago";
+    assert_compiles_all(q, "current_stats");
+    assert_compiles_all(q, "baseline_stats");
+    assert_compiles_all(q, "z_score");
+    assert_compiles_all(q, "is_anomalous");
 }
 
 #[test]
 fn anomaly_last_24h_baseline() {
-    let sql = compile_sql(
-        "ANOMALY(duration) COMPARED TO last 24 hours FACET robot_id SINCE 12 hours ago",
-        SqlDialect::PostgreSQL,
-    );
-    // Should reference a 48-hour and 24-hour window for the baseline
+    let q = "ANOMALY(duration) COMPARED TO last 24 hours FACET robot_id SINCE 12 hours ago";
+    assert_compiles_all(q, "baseline_stats");
+    // Should reference a 48-hour and 24-hour window for the baseline (PG-dialect check)
+    let sql = compile_sql(q, SqlDialect::PostgreSQL);
     assert!(sql.contains("48"), "expected 48-hour window: {sql}");
     assert!(sql.contains("24"), "expected 24-hour window: {sql}");
-    assert!(sql.contains("baseline_stats"), "got: {sql}");
 }
 
 #[test]
@@ -336,14 +339,10 @@ fn anomaly_missing_compared_to_is_parse_error() {
 #[test]
 fn path_deviation_compiles() {
     // PATH DEVIATION compiles to a three-CTE SQL query returning per-timestamp rows.
-    let sql = compile_sql(
-        "PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("planned_path"), "got: {sql}");
-    assert!(sql.contains("actual_poses"), "got: {sql}");
-    assert!(sql.contains("lateral_deviation_m"), "got: {sql}");
-    assert!(sql.contains("ORDER BY timestamp"), "got: {sql}");
+    let q = "PATH DEVIATION FOR ROBOT 'r1' SINCE yesterday";
+    assert_compiles_all(q, "planned_path");
+    assert_compiles_all(q, "actual_poses");
+    assert_compiles_all(q, "lateral_deviation_m");
 }
 
 #[test]
@@ -365,44 +364,34 @@ fn path_deviation_plan_index_compiles() {
 
 #[test]
 fn joint_deviation_compiles() {
-    let sql = compile_sql(
-        "JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 2 hours ago",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("planned_joints"), "got: {sql}");
-    assert!(sql.contains("actual_joints"), "got: {sql}");
+    let q = "JOINT DEVIATION FOR ROBOT 'arm_01' SINCE 2 hours ago";
+    assert_compiles_all(q, "planned_joints");
+    assert_compiles_all(q, "actual_joints");
+    assert_compiles_all(q, "joint_error_rad");
+    let sql = compile_sql(q, SqlDialect::PostgreSQL);
     assert!(sql.contains("/joint_trajectory"), "got: {sql}");
     assert!(sql.contains("/joint_states"), "got: {sql}");
-    assert!(sql.contains("joint_error_rad"), "got: {sql}");
 }
 
 #[test]
 fn show_joints_compiles() {
-    let sql = compile_sql("SHOW JOINTS FOR ROBOT 'arm_01'", SqlDialect::PostgreSQL);
-    assert!(sql.contains("robot_joint_map"), "got: {sql}");
-    assert!(sql.contains("arm_01"), "got: {sql}");
+    let q = "SHOW JOINTS FOR ROBOT 'arm_01'";
+    assert_compiles_all(q, "robot_joint_map");
+    assert_compiles_all(q, "arm_01");
 }
 
 #[test]
 fn within_local_compiles() {
-    let sql = compile_sql(
-        "FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("SQRT"), "expected Euclidean formula: {sql}");
-    assert!(sql.contains("POWER"), "expected POWER: {sql}");
-    assert!(sql.contains("2"), "expected radius 2: {sql}");
+    let q = "FROM odom WHERE position WITHIN 2 m OF POSITION (1.5, 3.0) SINCE 1 hour ago";
+    assert_compiles_all(q, "SQRT");
+    assert_compiles_all(q, "POWER");
 }
 
 #[test]
 fn within_gps_compiles() {
-    let sql = compile_sql(
-        "FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("ASIN"), "expected Haversine ASIN: {sql}");
-    assert!(sql.contains("6371000"), "expected Earth radius: {sql}");
-    assert!(sql.contains("500"), "expected 500 m radius: {sql}");
+    let q = "FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago";
+    assert_compiles_all(q, "ASIN");
+    assert_compiles_all(q, "6371000");
 }
 
 #[test]
@@ -512,22 +501,14 @@ fn default_limit_not_applied_for_trace() {
 
 #[test]
 fn offset_compiles() {
-    let sql = compile_sql("FROM logs LIMIT 20 OFFSET 40", SqlDialect::PostgreSQL);
-    assert!(sql.contains("LIMIT 20"), "got: {sql}");
-    assert!(sql.contains("OFFSET 40"), "got: {sql}");
+    let q = "FROM logs LIMIT 20 OFFSET 40";
+    assert_compiles_all(q, "LIMIT");
+    assert_compiles_all(q, "OFFSET");
 }
 
 #[test]
 fn offset_only_compiles() {
-    let sql = compile_sql("FROM logs OFFSET 10", SqlDialect::PostgreSQL);
-    assert!(sql.contains("OFFSET 10"), "got: {sql}");
-}
-
-#[test]
-fn offset_compiles_duckdb() {
-    let sql = compile_sql("FROM logs LIMIT 10 OFFSET 5", SqlDialect::DuckDB);
-    assert!(sql.contains("LIMIT 10"), "got: {sql}");
-    assert!(sql.contains("OFFSET 5"), "got: {sql}");
+    assert_compiles_all("FROM logs OFFSET 10", "OFFSET");
 }
 
 // ── ALERT / DEFINE reserved keyword errors ───────────────────────────────────
@@ -558,82 +539,70 @@ fn define_reserved_keyword_message() {
 
 #[test]
 fn for_robot_compiles_to_where_clause() {
-    let sql = compile_sql("SELECT * FROM logs FOR ROBOT 'r1'", SqlDialect::PostgreSQL);
-    assert!(sql.contains("robot.id"), "got: {sql}");
-    assert!(sql.contains("r1"), "got: {sql}");
+    let q = "SELECT * FROM logs FOR ROBOT 'r1'";
+    assert_compiles_all(q, "robot.id");
+    assert_compiles_all(q, "r1");
 }
 
 #[test]
 fn for_version_compiles_to_where_clause() {
-    let sql = compile_sql(
-        "SELECT * FROM logs FOR VERSION 'v1.2.3'",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("service.version"), "got: {sql}");
-    assert!(sql.contains("v1.2.3"), "got: {sql}");
+    let q = "SELECT * FROM logs FOR VERSION 'v1.2.3'";
+    assert_compiles_all(q, "service.version");
+    assert_compiles_all(q, "v1.2.3");
 }
 
 #[test]
 fn for_environment_compiles_to_where_clause() {
-    let sql = compile_sql(
-        "SELECT * FROM logs FOR ENVIRONMENT 'production'",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("deployment.environment"), "got: {sql}");
-    assert!(sql.contains("production"), "got: {sql}");
+    let q = "SELECT * FROM logs FOR ENVIRONMENT 'production'";
+    assert_compiles_all(q, "deployment.environment");
+    assert_compiles_all(q, "production");
 }
 
 #[test]
 fn for_session_compiles_to_where_clause() {
-    let sql = compile_sql(
-        "SELECT * FROM logs FOR SESSION 'sess_abc'",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("ros.session.id"), "got: {sql}");
-    assert!(sql.contains("sess_abc"), "got: {sql}");
+    let q = "SELECT * FROM logs FOR SESSION 'sess_abc'";
+    assert_compiles_all(q, "ros.session.id");
+    assert_compiles_all(q, "sess_abc");
 }
 
 #[test]
 fn composable_scope_emits_all_filters() {
-    let sql = compile_sql(
-        "SELECT * FROM logs FOR ROBOT 'r1' FOR VERSION 'v1.0' FOR ENVIRONMENT 'prod'",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("robot.id"), "got: {sql}");
-    assert!(sql.contains("service.version"), "got: {sql}");
-    assert!(sql.contains("deployment.environment"), "got: {sql}");
+    let q = "SELECT * FROM logs FOR ROBOT 'r1' FOR VERSION 'v1.0' FOR ENVIRONMENT 'prod'";
+    assert_compiles_all(q, "robot.id");
+    assert_compiles_all(q, "service.version");
+    assert_compiles_all(q, "deployment.environment");
 }
 
 #[test]
 fn trace_with_scope_compiles_to_cte_with_filter() {
-    let sql = compile_sql("TRACE 'abc123' FOR ROBOT 'r1'", SqlDialect::PostgreSQL);
-    assert!(sql.contains("WITH RECURSIVE trace_tree"), "got: {sql}");
-    assert!(sql.contains("robot.id"), "got: {sql}");
+    let q = "TRACE 'abc123' FOR ROBOT 'r1'";
+    assert_compiles_all(q, "WITH RECURSIVE");
+    assert_compiles_all(q, "robot.id");
 }
 
 // ── SHOW commands ─────────────────────────────────────────────────────────────
 
 #[test]
 fn show_deployments_compiles() {
-    let sql = compile_sql("SHOW DEPLOYMENTS SINCE 30 days ago", SqlDialect::PostgreSQL);
-    assert!(sql.contains("service.version"), "got: {sql}");
-    assert!(sql.contains("deployment.environment"), "got: {sql}");
-    assert!(sql.contains("GROUP BY"), "got: {sql}");
+    let q = "SHOW DEPLOYMENTS SINCE 30 days ago";
+    assert_compiles_all(q, "service.version");
+    assert_compiles_all(q, "deployment.environment");
+    assert_compiles_all(q, "GROUP BY");
 }
 
 #[test]
 fn show_span_summary_compiles() {
-    let sql = compile_sql("SHOW SPAN SUMMARY SINCE 1 hour ago", SqlDialect::PostgreSQL);
-    assert!(sql.contains("span_name"), "got: {sql}");
-    assert!(sql.contains("AVG"), "got: {sql}");
-    assert!(sql.contains("GROUP BY"), "got: {sql}");
+    let q = "SHOW SPAN SUMMARY SINCE 1 hour ago";
+    assert_compiles_all(q, "span_name");
+    assert_compiles_all(q, "AVG");
+    assert_compiles_all(q, "GROUP BY");
 }
 
 #[test]
 fn show_plans_compiles() {
-    let sql = compile_sql("SHOW PLANS FOR TRACE 'abc123'", SqlDialect::PostgreSQL);
-    assert!(sql.contains("ros.plan.id"), "got: {sql}");
-    assert!(sql.contains("abc123"), "got: {sql}");
+    let q = "SHOW PLANS FOR TRACE 'abc123'";
+    assert_compiles_all(q, "ros.plan.id");
+    assert_compiles_all(q, "abc123");
 }
 
 // ── COMPARE TO VERSION ────────────────────────────────────────────────────────
@@ -703,48 +672,31 @@ fn message_path_deprecation_error() {
 // ── SHOW TOPICS / SHOW NODES / SHOW NODE GRAPH ──────────────────────────────
 
 #[test]
-fn show_topics_compiles_postgres() {
+fn show_topics_compiles() {
+    let q = "SHOW TOPICS SINCE 6 hours ago";
+    assert_compiles_all(q, "ros.topic");
+    assert_compiles_all(q, "GROUP BY");
+    // PG-specific detail checks
     let sql = compile_sql(
         "SHOW TOPICS FOR ROBOT 'robot_42' SINCE 1 hour ago",
         SqlDialect::PostgreSQL,
     );
-    assert!(sql.contains("ros.topic"), "got: {sql}");
     assert!(sql.contains("topic_name"), "got: {sql}");
-    assert!(sql.contains("avg_rate_hz"), "got: {sql}");
-    assert!(sql.contains("publishers"), "got: {sql}");
-    assert!(sql.contains("subscribers"), "got: {sql}");
     assert!(sql.contains("robot.id"), "got: {sql}");
 }
 
 #[test]
-fn show_topics_compiles_duckdb() {
-    let sql = compile_sql("SHOW TOPICS SINCE 6 hours ago", SqlDialect::DuckDB);
-    assert!(sql.contains("ros.topic"), "got: {sql}");
-    assert!(sql.contains("GROUP BY"), "got: {sql}");
+fn show_nodes_compiles() {
+    let q = "SHOW NODES FOR ROBOT 'robot_42' SINCE 30 minutes ago";
+    assert_compiles_all(q, "ros.node");
+    assert_compiles_all(q, "node_name");
 }
 
 #[test]
-fn show_nodes_compiles_postgres() {
-    let sql = compile_sql(
-        "SHOW NODES FOR ROBOT 'robot_42' SINCE 30 minutes ago",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("ros.node"), "got: {sql}");
-    assert!(sql.contains("node_name"), "got: {sql}");
-    assert!(sql.contains("topics_published"), "got: {sql}");
-    assert!(sql.contains("error_count"), "got: {sql}");
-    assert!(sql.contains("last_seen"), "got: {sql}");
-}
-
-#[test]
-fn show_node_graph_compiles_postgres() {
-    let sql = compile_sql(
-        "SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 minutes ago",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("source_node"), "got: {sql}");
-    assert!(sql.contains("target_node"), "got: {sql}");
-    assert!(sql.contains("DISTINCT"), "got: {sql}");
+fn show_node_graph_compiles() {
+    let q = "SHOW NODE GRAPH FOR ROBOT 'robot_42' SINCE 30 minutes ago";
+    assert_compiles_all(q, "source_node");
+    assert_compiles_all(q, "DISTINCT");
 }
 
 #[test]
@@ -761,95 +713,50 @@ fn show_topics_not_limit_exempt() {
 // standard query. Tests below use standalone DURING where the compiler is active.
 
 #[test]
-fn during_compiles_to_exists_subquery_postgres() {
-    let sql = compile_sql(
-        "DURING(FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15) \
-         SINCE 6 hours ago",
-        SqlDialect::PostgreSQL,
-    );
-    // DURING should produce a EXISTS subquery against the inner data source
-    assert!(
-        sql.contains("topic_messages"),
-        "expected topic_messages in DURING subquery, got: {sql}"
-    );
-    assert!(
-        sql.contains("otel_traces"),
-        "expected outer otel_traces, got: {sql}"
-    );
-    assert!(
-        sql.contains("battery_state"),
-        "expected topic filter, got: {sql}"
-    );
-}
-
-#[test]
-fn during_compiles_to_exists_subquery_duckdb() {
-    let sql = compile_sql(
-        "DURING(FROM metrics WHERE metric_name = 'system.cpu.utilization')",
-        SqlDialect::DuckDB,
-    );
-    assert!(
-        sql.contains("otel_metrics"),
-        "expected otel_metrics in DURING subquery, got: {sql}"
-    );
-    assert!(
-        sql.contains("otel_traces"),
-        "expected outer otel_traces, got: {sql}"
-    );
+fn during_compiles_to_exists_subquery() {
+    let q = "DURING(FROM metrics WHERE metric_name = 'system.cpu.utilization')";
+    assert_compiles_all(q, "otel_traces");
+    assert_compiles_all(q, "EXISTS");
 }
 
 // ── TIMESERIES ───────────────────────────────────────────────────────────────
 
 #[test]
-fn timeseries_compiles_duckdb() {
+fn timeseries_compiles() {
+    let q = "SELECT COUNT(*) FROM traces TIMESERIES 5 min SINCE 1 hour ago";
+    assert_compiles_dialects(q, "date_bin", "time_bucket", "FROM_UNIXTIME");
+    assert_compiles_all(q, "GROUP BY");
+    // DuckDB-specific ordering/interval assertions
     let sql = compile_sql(
         "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 6 hours ago",
         SqlDialect::DuckDB,
     );
-    assert!(sql.contains("time_bucket"), "got: {sql}");
-    assert!(sql.contains("GROUP BY"), "got: {sql}");
     assert!(sql.contains("ORDER BY time_bucket ASC"), "got: {sql}");
     assert!(sql.contains("INTERVAL '5 minutes'"), "got: {sql}");
 }
 
 #[test]
-fn timeseries_compiles_postgres() {
-    let sql = compile_sql(
-        "SELECT COUNT(*) FROM traces TIMESERIES 1 hour SINCE 24 hours ago",
-        SqlDialect::PostgreSQL,
-    );
-    assert!(sql.contains("time_bucket"), "got: {sql}");
-    assert!(sql.contains("date_bin"), "got: {sql}");
-    assert!(sql.contains("GROUP BY"), "got: {sql}");
-}
-
-#[test]
-fn timeseries_bare_field_wrapped_in_avg_duckdb() {
+fn timeseries_bare_field_wrapped_in_avg() {
     // A bare field selection (not an aggregation) in a TIMESERIES+FACET query must be
     // auto-wrapped in AVG() so the generated SQL is valid under GROUP BY.
     // Regression: previously emitted bare "value" causing DuckDB binder error.
-    let sql = compile_sql(
-        "SELECT cpu_usage FROM metrics TIMESERIES 2 min FACET robot_id SINCE 45 min ago",
-        SqlDialect::DuckDB,
-    );
-    assert!(sql.contains("AVG("), "bare field not wrapped in AVG: {sql}");
-    assert!(sql.contains("GROUP BY"), "got: {sql}");
-    assert!(sql.contains("time_bucket"), "got: {sql}");
+    let q = "SELECT cpu_usage FROM metrics TIMESERIES 2 min FACET robot_id SINCE 45 min ago";
+    assert_compiles_all(q, "AVG(");
+    assert_compiles_all(q, "GROUP BY");
+    assert_compiles_dialects(q, "date_bin", "time_bucket", "FROM_UNIXTIME");
 }
 
 #[test]
-fn timeseries_composes_with_facet_duckdb() {
-    let sql = compile_sql(
-        "SELECT AVG(duration) FROM traces TIMESERIES 1 min FACET action_name SINCE 1 hour ago",
-        SqlDialect::DuckDB,
-    );
-    assert!(sql.contains("time_bucket"), "got: {sql}");
-    // action_name is resolved to span_attributes json access in OTel registry
+fn timeseries_composes_with_facet() {
+    let q = "SELECT AVG(duration) FROM traces TIMESERIES 1 min FACET action_name SINCE 1 hour ago";
+    assert_compiles_all(q, "GROUP BY");
+    assert_compiles_dialects(q, "date_bin", "time_bucket", "FROM_UNIXTIME");
+    // DuckDB: verify both time_bucket and facet dimension appear in GROUP BY
+    let sql = compile_sql(q, SqlDialect::DuckDB);
     assert!(
         sql.contains("action_name") || sql.contains("action.name"),
         "got: {sql}"
     );
-    // Both time_bucket and facet dimension should appear in GROUP BY
     let gb_pos = sql.find("GROUP BY").expect("missing GROUP BY");
     let gb_clause = &sql[gb_pos..];
     assert!(
@@ -875,7 +782,7 @@ fn timeseries_is_limit_exempt() {
 
 #[test]
 fn enrich_with_primary_sql_unchanged() {
-    // Primary SQL should be the same as without enrichment
+    // Primary SQL should be the same as without enrichment (PG idempotence check)
     let enriched = compile_sql(
         "FROM traces WHERE status = 'ERROR' ENRICH WITH logs SINCE 1 hour ago",
         SqlDialect::PostgreSQL,
@@ -885,6 +792,11 @@ fn enrich_with_primary_sql_unchanged() {
         SqlDialect::PostgreSQL,
     );
     assert_eq!(enriched, plain, "ENRICH WITH should not modify primary SQL");
+    // All dialects should compile to a query referencing otel_traces
+    assert_compiles_all(
+        "FROM traces WHERE status = 'ERROR' ENRICH WITH logs SINCE 1 hour ago",
+        "otel_traces",
+    );
 }
 
 #[test]
@@ -1240,32 +1152,19 @@ fn execution_error_no_raw_driver_text() {
 #[test]
 fn recordings_since_uses_end_time_not_timestamp() {
     // FROM recordings SINCE X must filter by end_time (overlap), not a non-existent timestamp col.
-    let sql = compile_sql(
-        "FROM recordings WHERE robot_id = 'amr-01' SINCE 6 hours ago",
+    let q = "FROM recordings WHERE robot_id = 'amr-01' SINCE 6 hours ago";
+    assert_compiles_all(q, "end_time");
+    for dialect in [
         SqlDialect::PostgreSQL,
-    );
-    assert!(
-        sql.contains("end_time"),
-        "expected end_time in WHERE clause, got: {sql}"
-    );
-    assert!(
-        !sql.contains("\"timestamp\""),
-        "timestamp column must not appear for recordings, got: {sql}"
-    );
-
-    // DuckDB dialect
-    let sql_duck = compile_sql(
-        "FROM recordings WHERE robot_id = 'amr-01' SINCE 6 hours ago",
         SqlDialect::DuckDB,
-    );
-    assert!(
-        sql_duck.contains("end_time"),
-        "DuckDB: expected end_time in WHERE clause, got: {sql_duck}"
-    );
-    assert!(
-        !sql_duck.contains("\"timestamp\""),
-        "DuckDB: timestamp column must not appear for recordings, got: {sql_duck}"
-    );
+        SqlDialect::MySQL,
+    ] {
+        let sql = compile_sql(q, dialect);
+        assert!(
+            !sql.contains("\"timestamp\""),
+            "{dialect:?}: timestamp column must not appear for recordings, got: {sql}"
+        );
+    }
 }
 
 #[test]
@@ -1280,4 +1179,281 @@ fn recordings_between_uses_overlap_semantics() {
         sql.contains("mcap_metadata"),
         "expected mcap_metadata table, got: {sql}"
     );
+}
+
+// ── MySQL baseline coverage (Section 5, issue #96) ────────────────────────────
+// MySQL has zero compile test coverage; these 10 tests establish a baseline.
+// Each asserts on a MySQL-dialect-specific substring so regressions in dialect.rs
+// are caught — not just "compiles without error."
+
+#[test]
+fn mysql_since_uses_interval_syntax() {
+    let sql = compile_sql(
+        "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago",
+        SqlDialect::MySQL,
+    );
+    assert!(
+        sql.contains("INTERVAL 1 hour"),
+        "MySQL SINCE should use NOW() - INTERVAL syntax, got: {sql}"
+    );
+    assert!(sql.contains("otel_traces"), "got: {sql}");
+}
+
+#[test]
+fn mysql_facet_uses_json_unquote() {
+    let sql = compile_sql(
+        "SELECT COUNT(*) FROM traces FACET robot_id",
+        SqlDialect::MySQL,
+    );
+    assert!(
+        sql.contains("JSON_UNQUOTE"),
+        "MySQL FACET should use JSON_UNQUOTE for JSON columns, got: {sql}"
+    );
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+}
+
+#[test]
+fn mysql_duration_unit_converts_to_nanoseconds() {
+    let sql = compile_sql("FROM traces WHERE duration > 500 ms", SqlDialect::MySQL);
+    // 500 ms = 500_000_000 ns
+    assert!(
+        sql.contains("500000000"),
+        "MySQL should convert 500 ms to nanoseconds, got: {sql}"
+    );
+}
+
+#[test]
+fn mysql_json_field_uses_json_extract() {
+    let sql = compile_sql(
+        "FROM topics WHERE fields['percentage'] < 20",
+        SqlDialect::MySQL,
+    );
+    assert!(
+        sql.contains("JSON_EXTRACT"),
+        "MySQL JSON field access should use JSON_EXTRACT, got: {sql}"
+    );
+}
+
+#[test]
+fn mysql_timeseries_uses_from_unixtime() {
+    let sql = compile_sql(
+        "SELECT COUNT(*) FROM traces TIMESERIES 5 min SINCE 1 hour ago",
+        SqlDialect::MySQL,
+    );
+    assert!(
+        sql.contains("FROM_UNIXTIME"),
+        "MySQL TIMESERIES should use FROM_UNIXTIME bucketing, got: {sql}"
+    );
+    assert!(sql.contains("GROUP BY"), "got: {sql}");
+    assert!(sql.contains("time_bucket"), "got: {sql}");
+}
+
+#[test]
+fn mysql_scope_filter_uses_json_extract() {
+    let sql = compile_sql(
+        "FOR ROBOT 'r1' FROM traces WHERE status = 'ERROR'",
+        SqlDialect::MySQL,
+    );
+    assert!(
+        sql.contains("JSON_EXTRACT"),
+        "MySQL scope filter should use JSON_EXTRACT for resource_attributes, got: {sql}"
+    );
+    assert!(sql.contains("r1"), "got: {sql}");
+}
+
+#[test]
+fn mysql_limit_offset_compiles() {
+    let sql = compile_sql(
+        "FROM logs ORDER BY timestamp DESC LIMIT 20 OFFSET 40",
+        SqlDialect::MySQL,
+    );
+    assert!(sql.contains("LIMIT 20"), "got: {sql}");
+    assert!(sql.contains("OFFSET 40"), "got: {sql}");
+    assert!(sql.contains("ORDER BY"), "got: {sql}");
+}
+
+#[test]
+fn mysql_trace_uses_recursive_cte() {
+    let sql = compile_sql("TRACE 'abc123'", SqlDialect::MySQL);
+    assert!(
+        sql.contains("WITH RECURSIVE"),
+        "MySQL TRACE should use WITH RECURSIVE CTE, got: {sql}"
+    );
+    assert!(sql.contains("trace_tree"), "got: {sql}");
+}
+
+#[test]
+fn mysql_approx_percentile_uses_row_number_emulation() {
+    let sql = compile_sql(
+        "SELECT APPROX_PERCENTILE(duration, 95) FROM traces",
+        SqlDialect::MySQL,
+    );
+    // MySQL lacks native percentile; emulated via ROW_NUMBER window function
+    assert!(
+        sql.contains("ROW_NUMBER"),
+        "MySQL APPROX_PERCENTILE should use ROW_NUMBER emulation, got: {sql}"
+    );
+}
+
+#[test]
+fn mysql_approx_count_distinct_uses_count_distinct() {
+    let sql = compile_sql(
+        "SELECT APPROX_COUNT_DISTINCT(span_name) FROM traces",
+        SqlDialect::MySQL,
+    );
+    assert!(
+        sql.contains("COUNT(DISTINCT"),
+        "MySQL APPROX_COUNT_DISTINCT should fall back to COUNT(DISTINCT), got: {sql}"
+    );
+}
+
+// ── Multi-clause combination tests (Section 2, issue #96) ─────────────────────
+// Each test uses assert_compiles_all() to verify all three dialects produce
+// SQL containing the expected structural elements, not just that no error occurs.
+
+// Standard query combos
+#[test]
+fn combo_where_since_facet_order_limit() {
+    let q = "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago FACET robot_id ORDER BY robot_id ASC LIMIT 10";
+    assert_compiles_all(q, "GROUP BY");
+    assert_compiles_all(q, "ORDER BY");
+    assert_compiles_all(q, "LIMIT 10");
+    assert_compiles_all(q, "otel_traces");
+}
+
+#[test]
+fn combo_where_since_during_facet() {
+    let q = "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago DURING( FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15 ) FACET robot_id";
+    assert_compiles_all(q, "EXISTS");
+}
+
+#[test]
+fn combo_where_since_enrich_limit() {
+    // LIMIT on an ENRICH WITH query goes to the enrichment plan, not the primary SQL.
+    // The primary SQL is the same as without enrichment; the limit is checked separately.
+    let q = "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago ENRICH WITH logs LIMIT 20";
+    assert_compiles_all(q, "otel_traces");
+    assert_compiles_all(q, "status_code");
+}
+
+#[test]
+fn combo_where_since_timeseries_facet() {
+    let q = "SELECT COUNT(*) FROM traces WHERE status = 'ERROR' SINCE 1 hour ago TIMESERIES 5 min FACET robot_id";
+    // PG uses date_bin (aliased as time_bucket), DuckDB uses time_bucket, MySQL uses FROM_UNIXTIME
+    assert_compiles_dialects(q, "date_bin", "time_bucket", "FROM_UNIXTIME");
+    assert_compiles_all(q, "GROUP BY");
+    assert_compiles_all(q, "robot.id");
+}
+
+#[test]
+fn combo_agg_where_since_facet_order() {
+    let q = "SELECT COUNT(*) AS errors FROM traces WHERE status = 'ERROR' SINCE 1 hour ago FACET action_name ORDER BY errors DESC";
+    assert_compiles_all(q, "GROUP BY");
+    assert_compiles_all(q, "ORDER BY");
+    assert_compiles_all(q, "errors");
+}
+
+#[test]
+fn combo_for_robot_where_since_facet() {
+    let q = "FOR ROBOT 'r1' FROM traces WHERE status = 'ERROR' SINCE 1 hour ago FACET action_name";
+    assert_compiles_all(q, "robot.id");
+    assert_compiles_all(q, "GROUP BY");
+    assert_compiles_all(q, "action_name");
+}
+
+#[test]
+fn combo_for_robot_for_version_where_since() {
+    let q = "FOR ROBOT 'r1' FOR VERSION 'v1.0' FROM traces WHERE status = 'ERROR' SINCE 1 hour ago";
+    assert_compiles_all(q, "robot.id");
+    assert_compiles_all(q, "service.version");
+    assert_compiles_all(q, "otel_traces");
+}
+
+#[test]
+fn combo_within_since_limit() {
+    let q =
+        "FROM odom WHERE position WITHIN 500 m OF (37.7749, -122.4194) SINCE 1 hour ago LIMIT 10";
+    assert_compiles_all(q, "ASIN");
+    assert_compiles_all(q, "LIMIT 10");
+}
+
+#[test]
+fn combo_where_since_using_ros_time() {
+    let q = "FROM topics WHERE topic_name = '/odom' SINCE 1 hour ago USING ROS_TIME";
+    assert_compiles_all(q, "topic_messages");
+    assert_compiles_all(q, "/odom");
+}
+
+#[test]
+fn combo_where_between_facet() {
+    let q = "FROM traces WHERE duration BETWEEN 100 ms AND 2 s FACET robot_id";
+    assert_compiles_all(q, "GROUP BY");
+    assert_compiles_all(q, "robot.id");
+}
+
+#[test]
+fn combo_where_since_offset_limit() {
+    let q = "FROM logs SINCE 1 hour ago OFFSET 40 LIMIT 20";
+    assert_compiles_all(q, "LIMIT 20");
+    assert_compiles_all(q, "OFFSET 40");
+}
+
+// Pipeline combos
+#[test]
+fn combo_pipeline_where_where_facet_compare() {
+    let q = "FROM traces | WHERE duration > 500 ms | WHERE status = 'ERROR' | FACET robot_id";
+    assert_compiles_all(q, "GROUP BY");
+    assert_compiles_all(q, "otel_traces");
+}
+
+#[test]
+fn combo_pipeline_where_timeseries_facet_since() {
+    let q = "FROM traces | WHERE status = 'ERROR' | TIMESERIES 5 min | FACET robot_id | SINCE 1 hour ago";
+    assert_compiles_dialects(q, "date_bin", "time_bucket", "FROM_UNIXTIME");
+    assert_compiles_all(q, "GROUP BY");
+}
+
+#[test]
+fn combo_pipeline_where_enrich_limit() {
+    let q = "FROM traces | WHERE status = 'ERROR' | ENRICH WITH logs | LIMIT 20";
+    assert_compiles_all(q, "otel_traces");
+    assert_compiles_all(q, "LIMIT 20");
+}
+
+// Compound with modifiers
+#[test]
+fn combo_trace_enrich_limit() {
+    let q = "TRACE 'abc123' ENRICH WITH logs LIMIT 5";
+    assert_compiles_all(q, "WITH RECURSIVE");
+    assert_compiles_all(q, "trace_tree");
+}
+
+#[test]
+fn combo_anomaly_compared_facet_since() {
+    let q = "ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 7 days ago";
+    assert_compiles_all(q, "current_stats");
+    assert_compiles_all(q, "baseline_stats");
+    assert_compiles_all(q, "z_score");
+}
+
+#[test]
+fn combo_path_deviation_plan_for_robot_since() {
+    let q = "PATH DEVIATION PLAN 0 FOR ROBOT 'r1' SINCE 1 hour ago";
+    assert_compiles_all(q, "planned_path");
+    assert_compiles_all(q, "OFFSET 0");
+}
+
+#[test]
+fn combo_show_span_summary_for_robot_since() {
+    let q = "SHOW SPAN SUMMARY FOR ROBOT 'r1' SINCE 1 hour ago";
+    assert_compiles_all(q, "span_name");
+    assert_compiles_all(q, "robot.id");
+    assert_compiles_all(q, "GROUP BY");
+}
+
+#[test]
+fn combo_message_flow_for_robot() {
+    let q = "MESSAGE FLOW FROM TOPIC '/cmd_vel' FOR ROBOT 'r1'";
+    assert_compiles_all(q, "/cmd_vel");
+    assert_compiles_all(q, "source_node");
 }

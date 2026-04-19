@@ -3,7 +3,7 @@
 -- Each session covers the robot's active mission window.
 -- S3 keys follow: s3://robotops-recordings/{robot_id}/{date}/session-{n}.mcap
 
-INSERT INTO mcap_metadata (robot_id, session_id, start_time, end_time, s3_key, topics) VALUES
+INSERT INTO mcap_metadata (robot_id, session_id, start_time, end_time, file_uri, topics) VALUES
 (
   'robot-amr-01',
   'session-amr01-2026-04-12',

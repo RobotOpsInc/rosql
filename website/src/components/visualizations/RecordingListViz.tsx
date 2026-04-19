@@ -11,7 +11,7 @@ export function RecordingListViz({ rows }: VizProps) {
       {rows.map((row, i) => {
         const robotId = String(row['robot_id'] ?? '');
         const sessionId = String(row['session_id'] ?? '');
-        const s3Key = String(row['s3_key'] ?? '');
+        const fileUri = String(row['file_uri'] ?? row['s3_key'] ?? '');
         const startTime = String(row['start_time'] ?? '').slice(0, 19);
         const endTime = String(row['end_time'] ?? '').slice(0, 19);
         const topics = row['topics'];
@@ -39,9 +39,9 @@ export function RecordingListViz({ rows }: VizProps) {
             <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 6 }}>
               {startTime} → {endTime}
             </div>
-            {s3Key && (
+            {fileUri && (
               <div style={{ fontSize: 10, color: '#6B7280', fontFamily: 'var(--ifm-font-family-monospace)', marginBottom: 6, wordBreak: 'break-all' }}>
-                {s3Key}
+                {fileUri}
               </div>
             )}
             {topicList.length > 0 && (

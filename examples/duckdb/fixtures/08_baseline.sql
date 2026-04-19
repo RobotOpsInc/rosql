@@ -23,7 +23,7 @@
 -- Baseline traces: robot-amr-01 (7-14 days ago, ~8s missions, normal)
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '10 days',
  'trace-baseline-a01-w1', 'span-baseline-a01-w1-1', '',
  '/navigate_to_pose', 'robot-amr-01', 7500000000, 'OK',
@@ -44,7 +44,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- Baseline traces: robot-amr-02 (7-14 days ago, ~7s missions, normal — pre v2.4.0)
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '10 days',
  'trace-baseline-a02-w1', 'span-baseline-a02-w1-1', '',
  '/navigate_to_pose', 'robot-amr-02', 6500000000, 'OK',
@@ -65,7 +65,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- Baseline traces: robot-amr-03 (7-14 days ago, ~11s missions, consistent)
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '10 days',
  'trace-baseline-a03-w1', 'span-baseline-a03-w1-1', '',
  '/navigate_to_pose', 'robot-amr-03', 10000000000, 'OK',

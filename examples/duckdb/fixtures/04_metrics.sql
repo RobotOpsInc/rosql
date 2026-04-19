@@ -75,6 +75,21 @@ INSERT INTO otel_metrics (timestamp, metric_name, value, attributes, service_nam
 (NOW()::TIMESTAMP - INTERVAL '3 minutes',  'system.cpu.utilization', 29.1, '{}', 'robot-amr-02', '{"robot.id": "robot-amr-02"}');
 
 -- ============================================================================
+-- ros2.topic.message_rate — publish rate for key topics (all 3 robots)
+-- Covers TOPIC_RATE('/cmd_vel') and TOPIC_RATE('/odom') queries.
+-- ============================================================================
+
+INSERT INTO otel_metrics (timestamp, metric_name, value, attributes, service_name, resource_attributes) VALUES
+(NOW()::TIMESTAMP - INTERVAL '25 minutes', 'ros2.topic.message_rate', 9.8,  '{"topic": "/cmd_vel"}', 'robot-amr-01', '{"robot.id": "robot-amr-01"}'),
+(NOW()::TIMESTAMP - INTERVAL '23 minutes', 'ros2.topic.message_rate', 10.1, '{"topic": "/cmd_vel"}', 'robot-amr-01', '{"robot.id": "robot-amr-01"}'),
+(NOW()::TIMESTAMP - INTERVAL '21 minutes', 'ros2.topic.message_rate', 10.0, '{"topic": "/cmd_vel"}', 'robot-amr-01', '{"robot.id": "robot-amr-01"}'),
+(NOW()::TIMESTAMP - INTERVAL '25 minutes', 'ros2.topic.message_rate', 10.2, '{"topic": "/cmd_vel"}', 'robot-amr-02', '{"robot.id": "robot-amr-02"}'),
+(NOW()::TIMESTAMP - INTERVAL '23 minutes', 'ros2.topic.message_rate', 9.5,  '{"topic": "/cmd_vel"}', 'robot-amr-02', '{"robot.id": "robot-amr-02"}'),
+(NOW()::TIMESTAMP - INTERVAL '21 minutes', 'ros2.topic.message_rate', 4.1,  '{"topic": "/cmd_vel"}', 'robot-amr-02', '{"robot.id": "robot-amr-02"}'),
+(NOW()::TIMESTAMP - INTERVAL '25 minutes', 'ros2.topic.message_rate', 9.9,  '{"topic": "/odom"}', 'robot-amr-01', '{"robot.id": "robot-amr-01"}'),
+(NOW()::TIMESTAMP - INTERVAL '23 minutes', 'ros2.topic.message_rate', 10.0, '{"topic": "/odom"}', 'robot-amr-01', '{"robot.id": "robot-amr-01"}');
+
+-- ============================================================================
 -- robot-amr-03 CPU — gradual upward drift (aging hardware)
 -- ============================================================================
 

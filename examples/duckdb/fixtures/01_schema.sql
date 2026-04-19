@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS otel_traces (
     trace_id            TEXT NOT NULL,
     span_id             TEXT NOT NULL,
     parent_span_id      TEXT NOT NULL DEFAULT '',
-    span_name_col       TEXT NOT NULL,
+    span_name           TEXT NOT NULL,
     span_kind           TEXT NOT NULL DEFAULT 'INTERNAL',
     service_name        TEXT NOT NULL DEFAULT '',
     duration            BIGINT NOT NULL,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS mcap_metadata (
     session_id TEXT NOT NULL,
     start_time TIMESTAMPTZ NOT NULL,
     end_time   TIMESTAMPTZ NOT NULL,
-    s3_key     TEXT NOT NULL,
+    file_uri   TEXT NOT NULL,
     topics     VARCHAR[] NOT NULL DEFAULT []
 );
 

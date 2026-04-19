@@ -192,7 +192,6 @@ jobs:
 
           gh pr merge "$PR_URL" \
             --repo RobotOpsInc/homebrew-tap \
-            --auto \
             --merge
 
   publish-crate:

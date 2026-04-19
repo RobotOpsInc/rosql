@@ -20,7 +20,7 @@ const EXAMPLES: Example[] = [
     title: 'Cross-signal correlation: failures during low battery',
     description:
       'The DURING() clause correlates two data sources by time. Here we find navigation failures that occurred while battery percentage was critically low — combining a trace query with a topic message query in a single statement.',
-    query: `SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+    query: `SELECT trace_id, span_name, service_name, duration, status_code, span_attributes
 FROM traces
 WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 DURING(
