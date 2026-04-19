@@ -99,11 +99,13 @@ Filter by timestamp (relative or absolute).
 FROM traces WHERE status = 'ERROR' SINCE 1 hour ago
 FROM traces SINCE 30 minutes ago
 FROM traces SINCE yesterday
-FROM traces SINCE last week
+FROM traces SINCE 7 days ago
 FROM traces SINCE '2025-03-25T00:00:00Z'
 ```
 
-Relative tokens: `X minutes ago`, `X hours ago`, `X days ago`, `yesterday`, `last week`, `last month`
+Relative tokens: `X minutes ago`, `X hours ago`, `X days ago`, `yesterday`
+
+Event-relative tokens: `last deployment`, `last robot restart`, `last action failure`, `last topic drop`, `last diagnostic warning`
 
 ---
 
@@ -392,7 +394,7 @@ Return distinct deployment history (version × environment combinations) from `o
 SHOW DEPLOYMENTS
 SHOW DEPLOYMENTS FOR ROBOT 'robot_42'
 SHOW DEPLOYMENTS FOR ROBOT 'robot_42' SINCE 7 days ago
-SHOW DEPLOYMENTS FOR ENVIRONMENT 'production' SINCE last week
+SHOW DEPLOYMENTS FOR ENVIRONMENT 'production' SINCE 7 days ago
 ```
 
 Returns distinct `service.version` × `deployment.environment` pairs with first/last seen timestamps.
