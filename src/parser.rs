@@ -269,6 +269,7 @@ impl<'src> Parser<'src> {
             baseline: None,
             timeseries: None,
             enrichments: Vec::new(),
+            during: None,
         };
 
         // Optional FOR ... scope clause(s) at the start
@@ -365,6 +366,9 @@ impl<'src> Parser<'src> {
                     self.advance();
                     self.expect(&Token::With)?;
                     query.enrichments.push(self.parse_enrichment_clause()?);
+                }
+                Some(Token::During) => {
+                    query.during = Some(self.parse_during_clause()?);
                 }
                 Some(Token::Semicolon) => {
                     self.advance();

@@ -385,6 +385,28 @@ impl<'a> CompileCtx<'a> {
                 self.compile_scope_filters(scope, Self::has_direct_robot_id(&q.data_source)),
             );
         }
+        if let Some(CompoundClause::During {
+            ref inner_source,
+            ref inner_conditions,
+            ref inner_time_range,
+        }) = q.during
+        {
+            let inner_table = self.resolve_table(inner_source)?;
+            let ts = self.col("timestamp");
+            let mut inner_where = vec![format!(
+                "inner_t.{ts} >= {table}.{ts} AND inner_t.{ts} <= {table}.{ts}"
+            )];
+            if let Some(ref cond) = inner_conditions {
+                inner_where.push(self.compile_condition(cond, &inner_table)?);
+            }
+            if let Some(ref tr) = inner_time_range {
+                inner_where.push(self.compile_time_range(tr, &inner_table, inner_source)?);
+            }
+            where_parts.push(format!(
+                "EXISTS (SELECT 1 FROM {inner_table} inner_t WHERE {})",
+                inner_where.join(" AND ")
+            ));
+        }
         if !where_parts.is_empty() {
             parts.push(format!("WHERE {}", where_parts.join(" AND ")));
         }
@@ -443,6 +465,7 @@ impl<'a> CompileCtx<'a> {
             baseline: None,
             timeseries: None,
             enrichments: Vec::new(),
+            during: None,
         };
 
         for stage in &pq.stages {

@@ -30,7 +30,7 @@ jobs:
         run: cargo fmt --check
 
   test:
-    name: Test
+    name: Test (unit + compile + doc-queries)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,23 +46,9 @@ jobs:
       - name: Test
         run: cargo test
 
-  test-postgres:
-    name: Test (PostgreSQL)
+  test-cli:
+    name: Test (CLI integration)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: rosql_examples
-          POSTGRES_USER: rosql
-          POSTGRES_PASSWORD: rosql
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U rosql -d rosql_examples"
-          --health-interval 2s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -71,22 +57,57 @@ jobs:
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler
 
-      - name: Load fixture data
-        env:
-          PGHOST: localhost
-          PGPORT: 5432
-          PGUSER: rosql
-          PGPASSWORD: rosql
-          PGDATABASE: rosql_examples
-        run: |
-          for f in examples/postgres/fixtures/*.sql; do
-            psql -f "$f"
-          done
+      - name: Build CLI binary
+        run: cargo build --features server --bin rosql
 
-      - name: Test with PostgreSQL
+      - name: Test CLI (no DB required)
+        run: cargo test --features server --test cli_integration
+
+  test-parquet:
+    name: Test (Parquet / DuckDB)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Install DuckDB CLI
+        run: |
+          curl -L https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip -o /tmp/duckdb.zip
+          unzip /tmp/duckdb.zip -d /tmp/
+          sudo mv /tmp/duckdb /usr/local/bin/duckdb
+
+      - name: Regenerate Parquet fixtures
+        run: ./examples/parquet/generate_fixtures.sh
+
+      - name: Test with DuckDB
+        run: cargo test --features duckdb
+
+  test-postgres:
+    name: Test (PostgreSQL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Start PostgreSQL with fixtures
+        run: docker compose -f examples/postgres/docker-compose.yml up -d --wait
+
+      - name: Test with PostgreSQL (all tests including ignored integration tests)
         env:
           DATABASE_URL: postgresql://rosql:rosql@localhost:5432/rosql_examples
-        run: cargo test --features postgres
+        run: cargo test --features server,postgres -- --include-ignored
+
+      - name: Stop PostgreSQL
+        if: always()
+        run: docker compose -f examples/postgres/docker-compose.yml down -v
 
   test-wasm:
     name: Test (WASM)

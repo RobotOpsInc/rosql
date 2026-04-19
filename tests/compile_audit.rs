@@ -1322,21 +1322,9 @@ fn combo_where_since_facet_order_limit() {
 }
 
 #[test]
-#[ignore = "GH#74: DURING combined form not yet wired in standard-query parser — DURING is silently dropped"]
 fn combo_where_since_during_facet() {
-    // When GH#74 is fixed, this test should assert that the generated SQL
-    // contains EXISTS (the DURING subquery), not just that it compiles.
     let q = "FROM traces WHERE status = 'ERROR' SINCE 1 hour ago DURING( FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15 ) FACET robot_id";
-    let pg = compile_sql(q, SqlDialect::PostgreSQL);
-    let duck = compile_sql(q, SqlDialect::DuckDB);
-    assert!(
-        pg.contains("EXISTS"),
-        "PG: DURING should produce EXISTS subquery, got: {pg}"
-    );
-    assert!(
-        duck.contains("EXISTS"),
-        "DuckDB: DURING should produce EXISTS subquery, got: {duck}"
-    );
+    assert_compiles_all(q, "EXISTS");
 }
 
 #[test]

@@ -6,7 +6,8 @@
 --   (c) Queries that return ROSQLError::NotImplemented are acceptable (gated clauses);
 --       these are marked with -- [GATED] below: HEALTH(), CORRELATE, SHOW RECORDING.
 --   (d) DURING combined form (FROM ... DURING(...)) silently drops the DURING clause
---       pending GH#74; the smoke test passes but does not verify DURING is applied.
+--       (not yet wired in the standard-query parser); the smoke test passes but does
+--       not verify DURING is applied.
 --
 -- Tested by: tests/doc_queries.rs (parse + compile for PostgreSQL and DuckDB).
 
@@ -467,7 +468,7 @@ SHOW NODE GRAPH FOR ROBOT 'robot-amr-02'
 
 -- ── Homepage (index.tsx) ─────────────────────────────────────────────────────
 
-FROM joint_states WHERE fields['position[2]'] > 30 deg DURING( FROM battery WHERE fields['percentage'] < 15 ) FOR ROBOT 'arm-01' SINCE last deployment
+FROM joint_states WHERE fields['position[2]'] > 30 deg DURING( FROM battery WHERE fields['percentage'] < 15 ) FOR ROBOT 'arm-01' SINCE 2 hours ago
 
 SELECT cpu_usage FROM metrics TIMESERIES 2 min FACET robot_id SINCE 45 min ago
 
