@@ -77,7 +77,7 @@ rosql query "FROM traces WHERE status = 'ERROR' LIMIT 5" \
 
 ```json
 {
-  "columns": ["timestamp", "trace_id", "span_id", "span_name_col", "service_name", "duration", "status_code"],
+  "columns": ["timestamp", "trace_id", "span_id", "span_name", "service_name", "duration", "status_code"],
   "rows": [
     [1776452455875402, "trace-amr01-m1", "span-a01-m1-root", "/navigate_to_pose", "robot-amr-01", 7000000000, "OK"]
   ],
@@ -127,7 +127,7 @@ The killer feature: `DURING` correlates events across data sources in a single q
 Find navigation failures that happened while the battery was critically low:
 
 ```sql
-SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+SELECT trace_id, span_name, service_name, duration, status_code, span_attributes
 FROM traces
 WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 DURING(
@@ -137,7 +137,7 @@ DURING(
 ```
 
 ```bash
-rosql query "SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+rosql query "SELECT trace_id, span_name, service_name, duration, status_code, span_attributes
 FROM traces
 WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 DURING(
@@ -193,7 +193,7 @@ async fn main() -> anyhow::Result<()> {
     // let backend = SqlBackend::new("postgresql://user:pass@localhost/telemetry").await?;
 
     let query = parse("
-        SELECT trace_id, span_name_col, service_name, duration, status_code
+        SELECT trace_id, span_name, service_name, duration, status_code
         FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
         DURING(
           FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15

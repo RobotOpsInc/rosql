@@ -114,7 +114,7 @@ FROM odom LIMIT 5
 Find error traces that occurred while battery percentage was below a threshold — `DURING()` handles the time-window correlation automatically.
 
 ```sql
-SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+SELECT trace_id, span_name, service_name, duration, status_code, span_attributes
 FROM traces
 WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 DURING(
@@ -315,7 +315,7 @@ Returns `joint_name`, `joint_index`, `joint_type`, `lower_limit`, `upper_limit`.
 
 ### Find recordings covering a time window
 
-`FROM recordings` queries the `mcap_metadata` index — one row per MCAP file. It returns file-level metadata (robot, time window, topics, `s3_key`). Use `s3_key` with the returned timestamps to fetch and seek into the file client-side for sub-range slicing.
+`FROM recordings` queries the `mcap_metadata` index — one row per MCAP file. It returns file-level metadata (robot, time window, topics, `file_uri` — an `s3://`, `file://`, or `gs://` URI). Use `file_uri` with the returned timestamps to fetch and seek into the file client-side for sub-range slicing.
 
 ```sql
 -- All recent recordings for a robot (SINCE uses overlap semantics on end_time)
@@ -333,7 +333,7 @@ WHERE robot_id = 'amr-01'
   AND end_time   >= '2026-04-17T10:22:00Z'
 ```
 
-Returns `robot_id`, `session_id`, `start_time`, `end_time`, `s3_key`, `topics`, `message_types`.
+Returns `robot_id`, `session_id`, `start_time`, `end_time`, `file_uri`, `topics`, `message_types`.
 
 ---
 

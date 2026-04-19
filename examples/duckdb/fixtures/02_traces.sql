@@ -28,7 +28,7 @@
 -- robot-amr-01 — Mission 1 (SUCCESS, 7s) at NOW()::TIMESTAMP-57min
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '57 minutes',
  'trace-amr01-m1', 'span-a01-m1-root', '',
  '/navigate_to_pose', 'robot-amr-01', 7000000000, 'OK',
@@ -54,7 +54,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- robot-amr-01 — Mission 2 (SUCCESS, 8s) at NOW()::TIMESTAMP-43min
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '43 minutes',
  'trace-amr01-m2', 'span-a01-m2-root', '',
  '/navigate_to_pose', 'robot-amr-01', 8000000000, 'OK',
@@ -80,7 +80,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- robot-amr-01 — Mission 3 (SUCCESS, 9s) at NOW()::TIMESTAMP-27min
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '27 minutes',
  'trace-amr01-m3', 'span-a01-m3-root', '',
  '/navigate_to_pose', 'robot-amr-01', 9000000000, 'OK',
@@ -106,7 +106,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- robot-amr-02 — Mission 1 (SUCCESS, 7s) at NOW()::TIMESTAMP-56min
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '56 minutes',
  'trace-amr02-m1', 'span-a02-m1-root', '',
  '/navigate_to_pose', 'robot-amr-02', 7000000000, 'OK',
@@ -132,7 +132,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- robot-amr-02 — Mission 2 (SUCCESS, 8s) at NOW()::TIMESTAMP-42min
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '42 minutes',
  'trace-amr02-m2', 'span-a02-m2-root', '',
  '/navigate_to_pose', 'robot-amr-02', 8000000000, 'OK',
@@ -168,7 +168,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 --       └── span-a02-m3-ctrl (grandchild: /costmap → /cmd_vel)
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 -- Root: navigation action aborted
 (NOW()::TIMESTAMP - INTERVAL '26 minutes',
  'trace-amr02-m3', 'span-a02-m3-root', '',
@@ -210,7 +210,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- robot-amr-03 — Mission 1 (SUCCESS, 10s) at NOW()::TIMESTAMP-55min
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '55 minutes',
  'trace-amr03-m1', 'span-a03-m1-root', '',
  '/navigate_to_pose', 'robot-amr-03', 10000000000, 'OK',
@@ -236,7 +236,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- robot-amr-03 — Mission 2 (SUCCESS, 11s) at NOW()::TIMESTAMP-41min
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '41 minutes',
  'trace-amr03-m2', 'span-a03-m2-root', '',
  '/navigate_to_pose', 'robot-amr-03', 11000000000, 'OK',
@@ -262,7 +262,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- robot-amr-03 — Mission 3 (SUCCESS, 13s, slow) at NOW()::TIMESTAMP-25min
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 (NOW()::TIMESTAMP - INTERVAL '25 minutes',
  'trace-amr03-m3', 'span-a03-m3-root', '',
  '/navigate_to_pose', 'robot-amr-03', 13000000000, 'OK',
@@ -292,7 +292,7 @@ INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name
 -- SHOW NODE GRAPH queries: SELECT DISTINCT publisher_node, subscriber_node, topic
 -- ============================================================================
 
-INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name_col, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
+INSERT INTO otel_traces (timestamp, trace_id, span_id, parent_span_id, span_name, service_name, duration, status_code, span_attributes, resource_attributes) VALUES
 -- /lidar_node → /scan → /local_costmap_node
 (NOW()::TIMESTAMP - INTERVAL '15 minutes',
  'trace-amr02-topo', 'span-topo-01', '',

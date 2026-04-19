@@ -1992,7 +1992,7 @@ mod tests {
     #[test]
     fn select_fields() {
         let sql = compile_pg("SELECT span_name, duration FROM traces");
-        assert!(sql.contains(r#""span_name_col""#), "got: {sql}");
+        assert!(sql.contains(r#""span_name""#), "got: {sql}");
         assert!(sql.contains(r#""duration""#), "got: {sql}");
         assert!(sql.contains(r#""otel_traces""#), "got: {sql}");
     }

@@ -335,7 +335,7 @@ Requires the `topic_messages` table with `/joint_trajectory` and `/joint_states`
 
 ### `FROM recordings`
 
-Queries the `mcap_metadata` index table — one row per MCAP file. Returns file-level metadata: which robot, which time window, which topics, and where the file lives (`s3_key`). It does **not** slice into the MCAP content; use `s3_key` along with the returned `start_time`/`end_time` to fetch and seek into the file client-side.
+Queries the `mcap_metadata` index table — one row per MCAP file. Returns file-level metadata: which robot, which time window, which topics, and where the file lives (`file_uri` — an `s3://`, `file://`, or `gs://` URI). It does **not** slice into the MCAP content; use `file_uri` along with the returned `start_time`/`end_time` to fetch and seek into the file client-side.
 
 ```sql
 -- Browse all recordings
@@ -360,7 +360,7 @@ WHERE robot_id = 'amr-01'
 LIMIT 5
 ```
 
-Returns `robot_id`, `session_id`, `start_time`, `end_time`, `s3_key`, `topics`, `message_types` from `mcap_metadata`.
+Returns `robot_id`, `session_id`, `start_time`, `end_time`, `file_uri`, `topics`, `message_types` from `mcap_metadata`.
 
 
 :::note `SHOW RECORDING`

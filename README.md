@@ -65,7 +65,7 @@ Built in Rust and available as a library, CLI, gRPC server, and WASM package, RO
 Express in one sentence what would take a page of SQL: find every navigation failure that happened while the battery was critically low.
 
 ```sql
-SELECT trace_id, span_name_col, service_name, duration, status_code, span_attributes
+SELECT trace_id, span_name, service_name, duration, status_code, span_attributes
 FROM traces
 WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
 DURING(
@@ -77,7 +77,7 @@ SINCE 6 hours ago
 
 ```json
 {
-  "columns": ["trace_id", "span_name_col", "service_name", "duration", "status_code", "span_attributes"],
+  "columns": ["trace_id", "span_name", "service_name", "duration", "status_code", "span_attributes"],
   "rows": [
     ["a3f1c9d2e8b04f7a", "navigate_to_pose", "bt_navigator", 1423187000, "ERROR",
       {"ros.node": "/bt_navigator", "ros.action.name": "/navigate_to_pose", "ros.action.status": "aborted"}],
@@ -98,7 +98,7 @@ TRACE 'a3f1c9d2e8b04f7a'
 
 ```json
 {
-  "columns": ["timestamp", "trace_id", "span_id", "parent_span_id", "span_name_col", "span_kind", "service_name", "duration", "status_code", "span_attributes", "resource_attributes"],
+  "columns": ["timestamp", "trace_id", "span_id", "parent_span_id", "span_name", "span_kind", "service_name", "duration", "status_code", "span_attributes", "resource_attributes"],
   "rows": [
     ["2025-03-25T14:32:11.012Z", "a3f1c9d2e8b04f7a", "f0e1d2c3b4a59687", "",                 "goal_received",     "INTERNAL", "bt_navigator",       0,         "OK",    {"ros.node": "/bt_navigator"},                                       {"host.name": "robot_03"}],
     ["2025-03-25T14:32:11.013Z", "a3f1c9d2e8b04f7a", "1a2b3c4d5e6f7089", "f0e1d2c3b4a59687", "compute_path",      "INTERNAL", "planner_server",    38000000,  "OK",    {"ros.node": "/planner_server",    "ros.topic": "/plan"},              {"host.name": "robot_03"}],
@@ -157,7 +157,7 @@ use rosql::{parse, drivers::{SqlBackend, ExecOptions}};
 async fn main() -> anyhow::Result<()> {
     let backend = SqlBackend::new("postgresql://user:pass@localhost/telemetry").await?;
     let query = parse("
-        SELECT trace_id, span_name_col, service_name, duration, status_code
+        SELECT trace_id, span_name, service_name, duration, status_code
         FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose'
         DURING(
           FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 15

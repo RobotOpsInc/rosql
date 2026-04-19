@@ -10,7 +10,7 @@ const PADDING = 8;
 interface SpanRow {
   span_id: string;
   parent_span_id: string;
-  span_name_col: string;
+  span_name: string;
   service_name: string;
   duration: number;
   status_code: string;
@@ -37,7 +37,7 @@ function buildTree(rows: Record<string, unknown>[]): SpanRow[] {
     spanMap.set(sid, {
       span_id: sid,
       parent_span_id: pid,
-      span_name_col: String(row['span_name_col'] ?? row['span_name'] ?? ''),
+      span_name: String(row['span_name'] ?? row['span_name_col'] ?? ''),
       service_name: String(row['service_name'] ?? ''),
       duration: Number(row['duration'] ?? 0),
       status_code: String(row['status_code'] ?? 'OK'),
@@ -205,7 +205,7 @@ export function GanttViz({ rows }: VizProps) {
                 fontFamily="var(--ifm-font-family-monospace)"
                 style={{ pointerEvents: 'none' }}
               >
-                {span.span_name_col.split('/').pop() ?? span.span_name_col}
+                {span.span_name.split('/').pop() ?? span.span_name}
               </text>
               {/* Bar */}
               <rect
@@ -309,7 +309,7 @@ export function GanttViz({ rows }: VizProps) {
             maxWidth: 260,
           }}
         >
-          <div style={{ fontWeight: 700, color: '#F9FAFB', marginBottom: 4 }}>{tooltip.span.span_name_col}</div>
+          <div style={{ fontWeight: 700, color: '#F9FAFB', marginBottom: 4 }}>{tooltip.span.span_name}</div>
           <div>Duration: <span style={{ color: '#6EE7B7' }}>{formatDuration(tooltip.span.duration)}</span></div>
           <div>Status: <span style={{ color: tooltip.span.status_code === 'ERROR' ? '#EF4444' : '#6EE7B7' }}>{tooltip.span.status_code}</span></div>
           <div style={{ color: '#6B7280', marginTop: 2 }}>{tooltip.span.service_name}</div>
