@@ -258,7 +258,7 @@ ANOMALY(duration) FROM traces COMPARED TO last week FACET robot_id SINCE 24 hour
 Pair with `FOR VERSION` to scope to a specific release:
 
 ```sql
-FOR VERSION 'v1.3.0' ANOMALY(duration) COMPARED TO last week FACET robot_id SINCE 12 hours ago
+ANOMALY(duration) COMPARED TO last week FOR VERSION 'v1.3.0' FACET robot_id SINCE 12 hours ago
 ```
 
 ### Path deviation analysis
