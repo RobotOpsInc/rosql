@@ -356,7 +356,7 @@ CREATE TABLE mcap_metadata (
     session_id           TEXT NOT NULL,
     start_time           TIMESTAMPTZ NOT NULL,
     end_time             TIMESTAMPTZ NOT NULL,
-    s3_key               TEXT NOT NULL,
+    file_uri             TEXT NOT NULL,
     topics               TEXT[] NOT NULL DEFAULT '{}',
     message_types        JSONB NOT NULL DEFAULT '{}'  -- topic → message_type map
 );
@@ -371,7 +371,7 @@ CREATE TABLE mcap_metadata (
     session_id           String NOT NULL,
     start_time           DateTime64(9) NOT NULL,
     end_time             DateTime64(9) NOT NULL,
-    s3_key               String NOT NULL,
+    file_uri             String NOT NULL,
     topics               Array(String) NOT NULL DEFAULT [],
     message_types        String NOT NULL DEFAULT '{}'  -- topic → message_type JSON
 ) ENGINE = MergeTree()
@@ -389,9 +389,11 @@ Subdirectory: `mcap_metadata/`. ROSQL creates a view over `mcap_metadata/**/*.pa
 | `session_id` | STRING |
 | `start_time` | TIMESTAMP (UTC) |
 | `end_time` | TIMESTAMP (UTC) |
-| `s3_key` | STRING |
+| `file_uri` | STRING |
 | `topics` | LIST\<STRING\> |
 | `message_types` | STRING (JSON) |
+
+`file_uri` is a full URI pointing to the MCAP file. Supports `s3://`, `file://`, and `gs://` schemes.
 
   </TabItem>
 </Tabs>

@@ -320,7 +320,7 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
 
     // ── mcap_metadata fields ────────────────────────────────────────
     reg.register(simple("session_id", "mcap_metadata", "session_id"));
-    reg.register(simple("s3_key", "mcap_metadata", "s3_key"));
+    reg.register(simple("file_uri", "mcap_metadata", "file_uri"));
 
     reg
 }

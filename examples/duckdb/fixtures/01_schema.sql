@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS mcap_metadata (
     session_id TEXT NOT NULL,
     start_time TIMESTAMPTZ NOT NULL,
     end_time   TIMESTAMPTZ NOT NULL,
-    s3_key     TEXT NOT NULL,
+    file_uri   TEXT NOT NULL,
     topics     VARCHAR[] NOT NULL DEFAULT []
 );
 

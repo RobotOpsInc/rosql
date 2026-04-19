@@ -195,11 +195,13 @@ CREATE TABLE mcap_metadata (
     session_id           TEXT NOT NULL,
     start_time           TIMESTAMPTZ NOT NULL,
     end_time             TIMESTAMPTZ NOT NULL,
-    s3_key               TEXT NOT NULL,
+    file_uri             TEXT NOT NULL,
     topics               TEXT[] NOT NULL DEFAULT '{}',
     message_types        JSONB NOT NULL DEFAULT '{}'  -- topic → message_type map
 );
 ```
+
+`file_uri` is a full URI pointing to the MCAP file. Supports `s3://`, `file://`, and `gs://` schemes (e.g. `s3://bucket/path/session.mcap`, `file:///var/ros/recordings/session.mcap`).
 
 The `message_types` column maps topic names to their ROS2 message types:
 
