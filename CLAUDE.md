@@ -148,7 +148,7 @@ Rules:
 
 ## Release Workflow
 
-1. Branch from `development`
+1. Create a worktree from the GitHub issue branch, and set-head the worktree to `development`. If the issue branch does not exist, create it and associate it with the issue using `gh`.
 2. Make changes; run `just check` — all checks must pass
 3. Add a CHANGELOG entry: `## [x.y.z] - YYYY-MM-DD` with `### Added` / `### Changed` / `### Removed`
 4. Bump the version in `Cargo.toml` (see CONTRIBUTING.md: `just bump-version [major|minor|patch]`)
