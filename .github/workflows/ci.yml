@@ -157,7 +157,7 @@ jobs:
         run: sudo apt-get install -y protobuf-compiler
 
       - name: Install cargo-about
-        run: cargo install cargo-about --locked
+        run: cargo install cargo-about --locked --features cli
 
       - name: Check licenses and generate attribution
         run: cargo about generate about.hbs > /dev/null
