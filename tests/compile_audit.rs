@@ -1457,3 +1457,56 @@ fn combo_message_flow_for_robot() {
     assert_compiles_all(q, "/cmd_vel");
     assert_compiles_all(q, "source_node");
 }
+
+// ── FROM tf coverage ────────────────────────────────────────────────────────
+// tf_states column schema is registered in otel_registry; verify the typed
+// columns resolve as bare columns (not map access) on all dialects.
+
+#[test]
+fn tf_states_resolves_to_table() {
+    let q = "FROM tf";
+    assert_compiles_all(q, "tf_states");
+}
+
+#[test]
+fn tf_states_columns_are_bare() {
+    let q =
+        "FROM tf WHERE parent_frame = 'base_link' AND child_frame = 'tool0' AND translation_z > 1.0";
+    assert_compiles_all(q, "tf_states");
+    assert_compiles_all(q, "parent_frame");
+    assert_compiles_all(q, "child_frame");
+    assert_compiles_all(q, "translation_z");
+    for dialect in [
+        SqlDialect::PostgreSQL,
+        SqlDialect::DuckDB,
+        SqlDialect::MySQL,
+    ] {
+        let sql = compile_sql(q, dialect);
+        // bare columns must not be wrapped in JSON map access
+        assert!(
+            !sql.contains("resource_attributes"),
+            "{dialect:?}: tf columns should not be JSON map-accessed, got: {sql}"
+        );
+    }
+}
+
+#[test]
+fn combo_tf_where_since_facet() {
+    // Combination test (CLAUDE.md rule 3): new clause + 2+ other clauses.
+    let q = "FROM tf WHERE parent_frame = 'base_link' AND child_frame = 'tool0' \
+             AND translation_z > 1.0 SINCE 1 hour ago FACET robot_id";
+    assert_compiles_all(q, "tf_states");
+    assert_compiles_all(q, "GROUP BY");
+    for dialect in [
+        SqlDialect::PostgreSQL,
+        SqlDialect::DuckDB,
+        SqlDialect::MySQL,
+    ] {
+        let sql = compile_sql(q, dialect);
+        // robot_id on tf_states is a bare column, not a JSON path lookup
+        assert!(
+            sql.contains("robot_id") && !sql.contains("resource_attributes"),
+            "{dialect:?}: FACET robot_id on tf should use bare column, got: {sql}"
+        );
+    }
+}

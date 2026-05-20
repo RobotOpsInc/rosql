@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS mcap_metadata (
 -- Optional: TF2 transform broadcasts (FROM tf)
 CREATE TABLE IF NOT EXISTS tf_states (
     timestamp      TIMESTAMPTZ NOT NULL,
+    org_id         TEXT NOT NULL DEFAULT '',
     robot_id       TEXT NOT NULL,
     parent_frame   TEXT NOT NULL,
     child_frame    TEXT NOT NULL,
