@@ -12,6 +12,7 @@ ROSQL is designed for **humans** — specifically robotics engineers who know SQ
 - **Clarity over brevity.** Prefer `PATH DEVIATION FOR ROBOT 'r1'` over terse abbreviations.
 - **Every user-facing surface is a design surface.** CLI flags, error messages, docs, and example queries are all part of the language's UX.
 - **Documentation should be intuitive and elegantly communicated.** A user should never encounter a discrepancy between what the docs say and what the code does.
+- **Treat this as internal Robot Ops guidance.** Cross-check changes against the codebase and adjacent docs to keep behavior safe, consistent, and up to date.
 
 ## Before Every Push
 
