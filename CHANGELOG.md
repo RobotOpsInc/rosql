@@ -194,7 +194,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`FORMAT` clause wires through to hints** — explicit `FORMAT table|timeseries|scalar|trace_tree|graph|path` overrides inferred format hint; inference applies automatically when FORMAT is absent
 - **`ExecutionError`** — new `ROSQLError` variant wraps all database execution failures with data source context and an actionable `suggestion`; no raw `sqlx`/`duckdb` error text ever reaches the user
 - **`CompilerWarning` struct** — replaces `Vec<String>` warnings with structured `{ code, message, suggestion }` objects (e.g. `ANOMALY_NO_FACET`)
-- **OTel conventions doc** — `docs/ros2-otel-conventions.md` updated with the full robot_agent metric set: 17 system metrics, 10 ROS2 runtime metrics, 2 process metrics, deprecated name table, updated ROSQL field alias table
+- **OTel conventions doc** — `docs/ros2-otel-conventions.md` updated with the full TraceHouse metric set: 17 system metrics, 10 ROS2 runtime metrics, 2 process metrics, deprecated name table, updated ROSQL field alias table
 - **Position field mappings** — added `gps.lat`/`gps.lon` aliases, `position.x`/`position.y` aliases, `orientation.yaw` (computed from quaternion), `velocity[N]` and `effort[N]` joint state paths
 - **New otel_registry shorthand fields** — `publish_rate`, `bandwidth`, `cpu_usage`, `memory_usage` now point to canonical metric names; 20+ new shorthand aliases for system, ROS2, and process metrics
 - **Proto additions** — `result.proto` adds `FormatHint` enum, `VisualizationConfig` message, `CompilerWarning` message, and three new fields on `QueryResult` (field numbers 8, 9, 16)
