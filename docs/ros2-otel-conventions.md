@@ -38,7 +38,7 @@ Implementing this correctly requires middleware-level instrumentation — it can
 
 ## Metric naming conventions
 
-The robot_agent `MetricsCollector` emits metrics using these canonical names. ROSQL exposes them via shorthand field aliases in the query language.
+TraceHouse's `MetricsCollector` emits metrics using these canonical names. ROSQL exposes them via shorthand field aliases in the query language.
 
 ### System metrics
 
