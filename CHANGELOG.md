@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-05-20
+
+### Added
+
+- **`FROM tf` field registry entries** — `tf_states` now has bare-column field registrations (`timestamp`, `org_id`, `robot_id`, `parent_frame`, `child_frame`, `translation_{x,y,z}`, `rotation_{x,y,z,w}`). Previously the `tf` data source was wired in the parser/compiler but the columns weren't exposed to the validator, so `FROM tf WHERE parent_frame = ...` produced an unhelpful error. Compile-test coverage added across all three dialects.
+- **`tf_states` fixture and Parquet view** — new `examples/duckdb/fixtures/10_tf_states.sql` with TF data for the three demo robots; `tf_states/` added to the Parquet backend view mappings and regenerated fixture set so `FROM tf` works end-to-end with `--backend parquet`.
+- **`org_id` column on `tf_states`** — added to the example DDL (DuckDB + PostgreSQL fixtures and schema-reference docs) for parity with the upstream TF table schema.
+
 ## [0.5.3] - 2026-04-19
 
 ### Added

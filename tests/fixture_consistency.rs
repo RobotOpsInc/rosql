@@ -20,6 +20,7 @@ const FIXTURE_FILES: &[&str] = &[
     "examples/duckdb/fixtures/06_mcap_metadata.sql",
     "examples/duckdb/fixtures/07_events.sql",
     "examples/duckdb/fixtures/08_baseline.sql",
+    "examples/duckdb/fixtures/10_tf_states.sql",
 ];
 
 fn load_fixtures() -> Connection {

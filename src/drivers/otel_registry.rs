@@ -318,6 +318,23 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
     reg.register(simple("robot_id", "topic_messages", "robot_id"));
     reg.register(simple("message_type", "topic_messages", "message_type"));
 
+    // ── tf_states fields ────────────────────────────────────────────
+    // Stores TF2 transform broadcasts (parent_frame → child_frame) for spatial
+    // queries like `FROM tf WHERE parent_frame = 'base_link' AND child_frame = 'tool0'`.
+    // All columns are bare typed columns; robot_id is direct (see `has_direct_robot_id`).
+    reg.register(simple("timestamp", "tf_states", "timestamp"));
+    reg.register(simple("org_id", "tf_states", "org_id"));
+    reg.register(simple("robot_id", "tf_states", "robot_id"));
+    reg.register(simple("parent_frame", "tf_states", "parent_frame"));
+    reg.register(simple("child_frame", "tf_states", "child_frame"));
+    reg.register(simple("translation_x", "tf_states", "translation_x"));
+    reg.register(simple("translation_y", "tf_states", "translation_y"));
+    reg.register(simple("translation_z", "tf_states", "translation_z"));
+    reg.register(simple("rotation_x", "tf_states", "rotation_x"));
+    reg.register(simple("rotation_y", "tf_states", "rotation_y"));
+    reg.register(simple("rotation_z", "tf_states", "rotation_z"));
+    reg.register(simple("rotation_w", "tf_states", "rotation_w"));
+
     // ── mcap_metadata fields ────────────────────────────────────────
     reg.register(simple("session_id", "mcap_metadata", "session_id"));
     reg.register(simple("file_uri", "mcap_metadata", "file_uri"));
