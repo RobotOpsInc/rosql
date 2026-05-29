@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-05-20
+
+### Added
+
+- **`FROM tf` field registry entries** — `tf_states` now has bare-column field registrations (`timestamp`, `org_id`, `robot_id`, `parent_frame`, `child_frame`, `translation_{x,y,z}`, `rotation_{x,y,z,w}`). Previously the `tf` data source was wired in the parser/compiler but the columns weren't exposed to the validator, so `FROM tf WHERE parent_frame = ...` produced an unhelpful error. Compile-test coverage added across all three dialects.
+- **`tf_states` fixture and Parquet view** — new `examples/duckdb/fixtures/10_tf_states.sql` with TF data for the three demo robots; `tf_states/` added to the Parquet backend view mappings and regenerated fixture set so `FROM tf` works end-to-end with `--backend parquet`.
+- **`org_id` column on `tf_states`** — added to the example DDL (DuckDB + PostgreSQL fixtures and schema-reference docs) for parity with the upstream TF table schema.
+
 ## [0.5.3] - 2026-04-19
 
 ### Added
@@ -186,7 +194,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`FORMAT` clause wires through to hints** — explicit `FORMAT table|timeseries|scalar|trace_tree|graph|path` overrides inferred format hint; inference applies automatically when FORMAT is absent
 - **`ExecutionError`** — new `ROSQLError` variant wraps all database execution failures with data source context and an actionable `suggestion`; no raw `sqlx`/`duckdb` error text ever reaches the user
 - **`CompilerWarning` struct** — replaces `Vec<String>` warnings with structured `{ code, message, suggestion }` objects (e.g. `ANOMALY_NO_FACET`)
-- **OTel conventions doc** — `docs/ros2-otel-conventions.md` updated with the full robot_agent metric set: 17 system metrics, 10 ROS2 runtime metrics, 2 process metrics, deprecated name table, updated ROSQL field alias table
+- **OTel conventions doc** — `docs/ros2-otel-conventions.md` updated with the full TraceHouse metric set: 17 system metrics, 10 ROS2 runtime metrics, 2 process metrics, deprecated name table, updated ROSQL field alias table
 - **Position field mappings** — added `gps.lat`/`gps.lon` aliases, `position.x`/`position.y` aliases, `orientation.yaw` (computed from quaternion), `velocity[N]` and `effort[N]` joint state paths
 - **New otel_registry shorthand fields** — `publish_rate`, `bandwidth`, `cpu_usage`, `memory_usage` now point to canonical metric names; 20+ new shorthand aliases for system, ROS2, and process metrics
 - **Proto additions** — `result.proto` adds `FormatHint` enum, `VisualizationConfig` message, `CompilerWarning` message, and three new fields on `QueryResult` (field numbers 8, 9, 16)

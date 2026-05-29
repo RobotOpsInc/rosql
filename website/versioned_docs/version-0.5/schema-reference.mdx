@@ -487,6 +487,7 @@ Stores ROS2 TF2 transform broadcasts — one row per transform stamped message.
 ```sql
 CREATE TABLE tf_states (
     timestamp      TIMESTAMPTZ NOT NULL,
+    org_id         TEXT NOT NULL DEFAULT '',
     robot_id       TEXT NOT NULL,
     parent_frame   TEXT NOT NULL,          -- e.g. 'map', 'odom'
     child_frame    TEXT NOT NULL,          -- e.g. 'base_link', 'camera_link'
@@ -498,6 +499,16 @@ CREATE TABLE tf_states (
     rotation_z     DOUBLE PRECISION NOT NULL DEFAULT 0,
     rotation_w     DOUBLE PRECISION NOT NULL DEFAULT 1
 );
+```
+
+ROSQL exposes every column as a bare field — query them directly without map access:
+
+```sql
+FROM tf
+WHERE parent_frame = 'base_link' AND child_frame = 'tool0'
+AND translation_z > 1.0
+SINCE 1 hour ago
+FACET robot_id
 ```
 
 #### `robot_heartbeats`
