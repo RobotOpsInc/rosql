@@ -16,6 +16,7 @@
 //!   logs/            *.parquet  → otel_logs view
 //!   metrics/         *.parquet  → otel_metrics view
 //!   topic_messages/  *.parquet  → topic_messages view
+//!   tf_states/       *.parquet  → tf_states view
 //!   mcap_metadata/   *.parquet  → mcap_metadata view
 //! ```
 //!
@@ -109,6 +110,7 @@ impl SqlBackend {
     ///   logs/            *.parquet  → otel_logs view
     ///   metrics/         *.parquet  → otel_metrics view
     ///   topic_messages/  *.parquet  → topic_messages view
+    ///   tf_states/       *.parquet  → tf_states view
     ///   mcap_metadata/   *.parquet  → mcap_metadata view
     /// ```
     ///
@@ -210,6 +212,7 @@ impl SqlBackend {
             ("otel_logs", "logs"),
             ("otel_metrics", "metrics"),
             ("topic_messages", "topic_messages"),
+            ("tf_states", "tf_states"),
             ("mcap_metadata", "mcap_metadata"),
         ];
 

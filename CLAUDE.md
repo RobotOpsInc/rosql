@@ -1,8 +1,44 @@
+## Canopy — Knowledge Graph
+
+The org-wide knowledge graph is at `RobotOpsInc/canopy` (`vault/`). This repo is
+documented at `vault/projects/rosql/`.
+
+The vault slug is the repo name lowercased with underscores replaced by hyphens
+(e.g. `robot_agent` → `robot-agent`, `web_app` → `web-app`).
+
+### Read Canopy before…
+
+* Making an architectural decision — check `vault/decisions/` and
+  `vault/projects/rosql/decisions/`
+* Touching a shared interface (protos, RMW API, config schema) — read the relevant
+  project pages to understand what downstream repos depend on
+* Investigating a regression that might be a known incident — check `vault/incidents/`
+
+### Leave a raw note when…
+
+When something notable happens — a decision is made, a public interface changes, a
+non-obvious bug is fixed, a constraint is discovered — create a file at:
+
+`vault/_raw/rosql-YYYY-MM-DD-<short-slug>.md`
+
+in the `RobotOpsInc/canopy` repo and open a PR against `main`. Keep it factual: what
+changed, why, any cross-repo implications. Especially for anything architectural or a
+new feature, describe in detail. You can use illustrations, links, text — the ingestion
+pipeline is very flexible. The canopy ingest workflow handles everything from there.
+Do not write vault pages directly.
+
+
 # CLAUDE.md — ROSQL
 
 ## Project
 
 ROSQL is a Rust parser/compiler that translates a SQL-like DSL for ROS2 robotics telemetry into backend-specific SQL (PostgreSQL, MySQL, DuckDB/Parquet). It ships as a Rust library, CLI binary, gRPC server, and WASM package. The open-source core (parser, AST, compiler, drivers) is at `src/`. The documentation site is at `website/`.
+
+## Generative AI contributions policy
+
+You may use generative AI tools to help prepare contributions, but you are responsible for all submitted work. Before opening a pull request, review AI-assisted changes for correctness, security, licensing, and consistency with this project's style and documentation.
+
+Do not submit code, docs, data, or other content unless you have the right to contribute it under the Apache 2.0 license. If a meaningful part of your contribution was generated or substantially assisted by AI, disclose that in the pull request description.
 
 ## Design Philosophy
 
@@ -12,6 +48,11 @@ ROSQL is designed for **humans** — specifically robotics engineers who know SQ
 - **Clarity over brevity.** Prefer `PATH DEVIATION FOR ROBOT 'r1'` over terse abbreviations.
 - **Every user-facing surface is a design surface.** CLI flags, error messages, docs, and example queries are all part of the language's UX.
 - **Documentation should be intuitive and elegantly communicated.** A user should never encounter a discrepancy between what the docs say and what the code does.
+- **Treat this as internal Robot Ops guidance.** Cross-check changes against the codebase and adjacent docs to keep behavior safe, consistent, and up to date.
+
+## Generative AI Contributions Policy
+
+Generative AI tools may be used to support contributions, but contributors remain responsible for the work they submit. Review and understand all AI-assisted changes, run the applicable checks, and disclose material AI assistance in the pull request. Do not submit AI-generated code or documentation that you cannot maintain, and do not provide secrets, private data, or third-party proprietary content to AI tools when working on ROSQL.
 
 ## Before Every Push
 
@@ -148,7 +189,7 @@ Rules:
 
 ## Release Workflow
 
-1. Branch from `development`
+1. Create a worktree from the GitHub issue branch, and set-head the worktree to `development`. If the issue branch does not exist, create it and associate it with the issue using `gh`.
 2. Make changes; run `just check` — all checks must pass
 3. Add a CHANGELOG entry: `## [x.y.z] - YYYY-MM-DD` with `### Added` / `### Changed` / `### Removed`
 4. Bump the version in `Cargo.toml` (see CONTRIBUTING.md: `just bump-version [major|minor|patch]`)

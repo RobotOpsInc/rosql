@@ -240,6 +240,7 @@ The `--backend parquet --url <path>` option expects the following directory stru
   logs/              *.parquet  →  otel_logs view
   metrics/           *.parquet  →  otel_metrics view
   topic_messages/    *.parquet  →  topic_messages view
+  tf_states/         *.parquet  →  tf_states view        (optional — needed for FROM tf)
   mcap_metadata/     *.parquet  →  mcap_metadata view
   robot_joint_map/   *.parquet  →  robot_joint_map view  (optional — needed for SHOW JOINTS / JOINT DEVIATION)
   ros2_events/       *.parquet  →  ros2_events view      (optional — needed for SHOW DEPLOYMENTS)
@@ -277,6 +278,13 @@ DURING(
   AND fields['percentage'] < 20
 )
 SINCE yesterday
+
+-- TF2 transform broadcasts: find robots with the arm raised above 1 m
+FROM tf
+WHERE parent_frame = 'base_link' AND child_frame = 'tool0'
+AND translation_z > 1.0
+SINCE 1 hour ago
+FACET robot_id
 
 -- Time-bucketed error rate dashboard (TIMESERIES)
 SELECT COUNT(*) AS errors FROM traces WHERE status = 'ERROR'
@@ -433,6 +441,12 @@ ROSQL is in early development and contributions are welcome.
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, build variants, and release process
 - File bugs and feature requests in the [issue tracker](https://github.com/RobotOpsInc/rosql/issues)
 - Questions? Email [kristophm@robotops.com](mailto:kristophm@robotops.com)
+
+## Generative AI contributions policy
+
+You may use generative AI tools to help prepare contributions, but you are responsible for all submitted work. Before opening a pull request, review AI-assisted changes for correctness, security, licensing, and consistency with this project's style and documentation. This is in alignment with the [OSRF Generative AI Contributions Policy](https://osralliance.org/wp-content/uploads/2025/05/OSRF-Policy-on-the-Use-of-Generative-Tools-Generative-AI-in-Contributions.pdf) (May 2025).
+
+Do not submit code, docs, data, or other content unless you have the right to contribute it under the Apache 2.0 license. If a meaningful part of your contribution was generated or substantially assisted by AI, disclose that in the pull request description.
 
 ## Robot Ops platform
 
