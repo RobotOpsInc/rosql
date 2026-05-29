@@ -89,7 +89,7 @@ jobs:
         run: cargo build --release --features server,duckdb --bin rosql ${{ matrix.cross_target != '' && format('--target {0}', matrix.cross_target) || '' }}
 
       - name: Install cargo-about
-        run: cargo install cargo-about --locked
+        run: cargo install cargo-about --locked --features cli
 
       - name: Generate third-party notices
         run: cargo about generate about.hbs > THIRD_PARTY_NOTICES
@@ -214,7 +214,15 @@ jobs:
       - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
-        run: cargo publish --no-verify --allow-dirty
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          if curl -s -H "User-Agent: rosql-release" \
+            "https://crates.io/api/v1/crates/rosql/versions" \
+            | grep -q "\"num\":\"${VERSION}\""; then
+            echo "rosql ${VERSION} already published to crates.io; skipping."
+            exit 0
+          fi
+          cargo publish --no-verify --allow-dirty
 
   upload-demo-data:
     name: Upload demo dataset to S3
@@ -264,4 +272,10 @@ jobs:
 
       - name: Publish with provenance (OIDC trusted publishing)
         working-directory: pkg
-        run: npx --yes npm@11 publish --access public --provenance
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          if npm view "@robotops/rosql@${VERSION}" version >/dev/null 2>&1; then
+            echo "@robotops/rosql@${VERSION} already published to npm; skipping."
+            exit 0
+          fi
+          npx --yes npm@11 publish --access public --provenance
