@@ -44,6 +44,10 @@ ROSQL is designed for **humans** — specifically robotics engineers who know SQ
 - **Documentation should be intuitive and elegantly communicated.** A user should never encounter a discrepancy between what the docs say and what the code does.
 - **Treat this as internal Robot Ops guidance.** Cross-check changes against the codebase and adjacent docs to keep behavior safe, consistent, and up to date.
 
+## Generative AI Contributions Policy
+
+Generative AI tools may be used to support contributions, but contributors remain responsible for the work they submit. Review and understand all AI-assisted changes, run the applicable checks, and disclose material AI assistance in the pull request. Do not submit AI-generated code or documentation that you cannot maintain, and do not provide secrets, private data, or third-party proprietary content to AI tools when working on ROSQL.
+
 ## Before Every Push
 
 Always run these before committing Rust changes — CI enforces both and failures are the most common cause of red builds:
