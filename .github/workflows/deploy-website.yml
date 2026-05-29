@@ -38,7 +38,10 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: latest
+          # Pin to a major version compatible with pnpm-lock.yaml (lockfileVersion 9.0).
+          # `latest` previously drifted to pnpm 11, which turned ignored build scripts
+          # (core-js) into a hard error and broke the deploy.
+          version: 10
 
       - uses: actions/setup-node@v4
         with:
