@@ -434,6 +434,12 @@ ROSQL is in early development and contributions are welcome.
 - File bugs and feature requests in the [issue tracker](https://github.com/RobotOpsInc/rosql/issues)
 - Questions? Email [kristophm@robotops.com](mailto:kristophm@robotops.com)
 
+## Generative AI contributions policy
+
+You may use generative AI tools to help prepare contributions, but you are responsible for all submitted work. Before opening a pull request, review AI-assisted changes for correctness, security, licensing, and consistency with this project's style and documentation.
+
+Do not submit code, docs, data, or other content unless you have the right to contribute it under the Apache 2.0 license. If a meaningful part of your contribution was generated or substantially assisted by AI, disclose that in the pull request description.
+
 ## Robot Ops platform
 
 For fleet-scale telemetry with managed ingestion, storage, and dashboards — including lifecycle anchors, fleet-wide anomaly detection, and ClickHouse performance — see the [Robot Ops platform](https://robotops.com).

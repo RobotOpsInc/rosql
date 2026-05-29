@@ -64,6 +64,12 @@ The generated Rust types (`src/proto/rosql.v1.rs`) are not committed — they're
 4. Increment the version using `just bump-version [major|minor|patch]` depending on the level of the proposed change
 4. Open a pull request against `development`
 
+## Generative AI contributions policy
+
+You may use generative AI tools to help prepare contributions, but you are responsible for all submitted work. Before opening a pull request, review AI-assisted changes for correctness, security, licensing, and consistency with this project's style and documentation.
+
+Do not submit code, docs, data, or other content unless you have the right to contribute it under the Apache 2.0 license. If a meaningful part of your contribution was generated or substantially assisted by AI, disclose that in the pull request description.
+
 ## Documentation
 
 The docs site at [rosql.org](https://rosql.org) is built with Docusaurus and lives in `website/`. To run it locally:

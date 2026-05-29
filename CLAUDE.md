@@ -4,6 +4,12 @@
 
 ROSQL is a Rust parser/compiler that translates a SQL-like DSL for ROS2 robotics telemetry into backend-specific SQL (PostgreSQL, MySQL, DuckDB/Parquet). It ships as a Rust library, CLI binary, gRPC server, and WASM package. The open-source core (parser, AST, compiler, drivers) is at `src/`. The documentation site is at `website/`.
 
+## Generative AI contributions policy
+
+You may use generative AI tools to help prepare contributions, but you are responsible for all submitted work. Before opening a pull request, review AI-assisted changes for correctness, security, licensing, and consistency with this project's style and documentation.
+
+Do not submit code, docs, data, or other content unless you have the right to contribute it under the Apache 2.0 license. If a meaningful part of your contribution was generated or substantially assisted by AI, disclose that in the pull request description.
+
 ## Design Philosophy
 
 ROSQL is designed for **humans** — specifically robotics engineers who know SQL but not necessarily database internals. Keep this in mind on every change:
