@@ -240,6 +240,7 @@ The `--backend parquet --url <path>` option expects the following directory stru
   logs/              *.parquet  →  otel_logs view
   metrics/           *.parquet  →  otel_metrics view
   topic_messages/    *.parquet  →  topic_messages view
+  tf_states/         *.parquet  →  tf_states view        (optional — needed for FROM tf)
   mcap_metadata/     *.parquet  →  mcap_metadata view
   robot_joint_map/   *.parquet  →  robot_joint_map view  (optional — needed for SHOW JOINTS / JOINT DEVIATION)
   ros2_events/       *.parquet  →  ros2_events view      (optional — needed for SHOW DEPLOYMENTS)
@@ -277,6 +278,13 @@ DURING(
   AND fields['percentage'] < 20
 )
 SINCE yesterday
+
+-- TF2 transform broadcasts: find robots with the arm raised above 1 m
+FROM tf
+WHERE parent_frame = 'base_link' AND child_frame = 'tool0'
+AND translation_z > 1.0
+SINCE 1 hour ago
+FACET robot_id
 
 -- Time-bucketed error rate dashboard (TIMESERIES)
 SELECT COUNT(*) AS errors FROM traces WHERE status = 'ERROR'

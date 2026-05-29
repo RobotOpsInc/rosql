@@ -21,6 +21,8 @@ SELECT span_name, duration FROM traces WHERE action_name = '/navigate_to_pose' A
 
 FROM traces WHERE status = 'ERROR' DURING( FROM topics WHERE topic_name = '/battery_state' AND fields['percentage'] < 20 ) SINCE yesterday
 
+FROM tf WHERE parent_frame = 'base_link' AND child_frame = 'tool0' AND translation_z > 1.0 SINCE 1 hour ago FACET robot_id
+
 SELECT COUNT(*) AS errors FROM traces WHERE status = 'ERROR' TIMESERIES 5 min SINCE 1 hour ago FACET robot_id
 
 SELECT * FROM traces WHERE status = 'ERROR' AND action_name = '/navigate_to_pose' SINCE 1 hour ago ENRICH WITH logs LIMIT 20

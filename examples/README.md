@@ -56,7 +56,10 @@ Embedded database — no Docker or external server required. See [duckdb/](duckd
 ```sh
 # Build the example database from fixtures
 duckdb examples/duckdb/rosql_examples.db < examples/duckdb/fixtures/01_schema.sql
-for f in examples/duckdb/fixtures/0[2-6]*.sql; do duckdb examples/duckdb/rosql_examples.db < "$f"; done
+for f in examples/duckdb/fixtures/[0-9][0-9]_*.sql; do
+  [ "$(basename "$f")" = "01_schema.sql" ] && continue
+  duckdb examples/duckdb/rosql_examples.db < "$f"
+done
 
 # Run a query
 cargo run --features server,duckdb --bin rosql -- query \
