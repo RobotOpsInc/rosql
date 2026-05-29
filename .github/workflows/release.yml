@@ -41,17 +41,27 @@ jobs:
 
       - name: Create tag
         run: |
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on origin; reusing it."
+          else
+            git tag "${TAG}"
+            git push origin "${TAG}"
+          fi
 
       - name: Create GitHub Release (draft)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "ROSQL ${{ steps.version.outputs.tag }}" \
-            --notes-file /tmp/release-notes.md \
-            --draft
+          TAG="${{ steps.version.outputs.tag }}"
+          if gh release view "${TAG}" --repo RobotOpsInc/rosql >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists; reusing it."
+          else
+            gh release create "${TAG}" \
+              --title "ROSQL ${TAG}" \
+              --notes-file /tmp/release-notes.md \
+              --draft
+          fi
 
   build-binaries:
     name: Build (${{ matrix.target }})
@@ -108,7 +118,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ needs.create-release.outputs.tag }}" \
-            rosql-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
+            rosql-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz \
+            --clobber
 
   finalize-release:
     name: Publish Release
