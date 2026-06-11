@@ -479,6 +479,8 @@ These tables power the additional data sources. If absent, ROSQL returns a `Data
 | `FROM system_logs` | `system_logs` | OS/kernel-level log events |
 | `FROM diagnostics` | `otel_metrics` | ROS2 diagnostic messages (maps to the `otel_metrics` table) |
 | `FROM events` | `ros2_events` | ROS2 lifecycle and deployment events |
+| `FROM node_graph` | `node_graph_edges` | ROS2 node-graph publisher/subscriber edges |
+| `FROM joints` | `joint_states` | ROS2 `/joint_states` per-joint position/velocity/effort |
 
 #### `tf_states`
 
@@ -555,6 +557,59 @@ CREATE TABLE ros2_events (
     version     TEXT NOT NULL DEFAULT '',
     payload     JSONB NOT NULL DEFAULT '{}'
 );
+```
+
+#### `node_graph_edges`
+
+Stores ROS2 node-graph pub/sub edges — one row per node-to-node connection over a topic. Powers connectivity and QoS-compatibility queries such as finding edges where a `best_effort` publisher feeds a `reliable` subscriber (`compatible = false`).
+
+```sql
+CREATE TABLE node_graph_edges (
+    timestamp      TIMESTAMPTZ NOT NULL,
+    org_id         TEXT NOT NULL DEFAULT '',
+    robot_id       TEXT NOT NULL,
+    source_node    TEXT NOT NULL,          -- publishing node, e.g. '/lidar_driver'
+    target_node    TEXT NOT NULL,          -- subscribing node, e.g. '/costmap_2d'
+    topic          TEXT NOT NULL,          -- e.g. '/scan'
+    message_type   TEXT NOT NULL DEFAULT '',
+    publisher_qos  TEXT NOT NULL DEFAULT '',  -- 'reliable' | 'best_effort'
+    subscriber_qos TEXT NOT NULL DEFAULT '',  -- 'reliable' | 'best_effort'
+    rate_hz        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    compatible     BOOLEAN NOT NULL DEFAULT TRUE   -- false = QoS mismatch
+);
+```
+
+ROSQL exposes every column as a bare field — query them directly without map access:
+
+```sql
+FROM node_graph
+WHERE compatible = false
+FOR ROBOT 'robot-amr-02'
+```
+
+#### `joint_states`
+
+Stores ROS2 `/joint_states` samples — one row per joint per sample. Powers per-joint position/velocity/effort queries such as finding joints under high load (`effort > 10`).
+
+```sql
+CREATE TABLE joint_states (
+    timestamp   TIMESTAMPTZ NOT NULL,
+    org_id      TEXT NOT NULL DEFAULT '',
+    robot_id    TEXT NOT NULL,
+    joint_name  TEXT NOT NULL,          -- e.g. 'shoulder_lift_joint'
+    position    DOUBLE PRECISION NOT NULL DEFAULT 0,  -- radians
+    velocity    DOUBLE PRECISION NOT NULL DEFAULT 0,  -- rad/s
+    effort      DOUBLE PRECISION NOT NULL DEFAULT 0   -- Nm
+);
+```
+
+ROSQL exposes every column as a bare field — query them directly without map access:
+
+```sql
+FROM joints
+WHERE effort > 10
+FOR ROBOT 'robot-amr-02'
+SINCE 1 hour ago
 ```
 
 ---

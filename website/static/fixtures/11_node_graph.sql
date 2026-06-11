@@ -1,0 +1,1 @@
+../../../examples/duckdb/fixtures/11_node_graph.sql
