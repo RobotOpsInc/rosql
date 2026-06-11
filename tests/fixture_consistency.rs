@@ -1,6 +1,6 @@
 //! Fixture consistency tests — validates the integrity of the DuckDB SQL fixture dataset.
 //!
-//! These tests load all 8 fixture files into an in-memory DuckDB database and verify:
+//! These tests load all fixture files into an in-memory DuckDB database and verify:
 //! - Cross-table referential integrity (trace IDs, span IDs, robot IDs)
 //! - Temporal monotonicity for time-series data
 //! - Presence of data required by each showcase query
@@ -21,6 +21,8 @@ const FIXTURE_FILES: &[&str] = &[
     "examples/duckdb/fixtures/07_events.sql",
     "examples/duckdb/fixtures/08_baseline.sql",
     "examples/duckdb/fixtures/10_tf_states.sql",
+    "examples/duckdb/fixtures/11_node_graph.sql",
+    "examples/duckdb/fixtures/12_joint_states.sql",
 ];
 
 fn load_fixtures() -> Connection {
@@ -254,6 +256,47 @@ fn historical_baseline_exists_for_all_robots() {
     assert_eq!(
         robots_with_baseline, 3,
         "baseline data must exist for all 3 robots for showcase query 7 (anomaly detection)"
+    );
+}
+
+#[test]
+fn node_graph_has_qos_mismatch_for_robot_amr02() {
+    let conn = load_fixtures();
+    // FROM node_graph WHERE compatible = false FOR ROBOT 'robot-amr-02' must
+    // return at least one QoS-incompatible edge (showcase query 10).
+    let mismatches: i64 = count(
+        &conn,
+        "SELECT COUNT(*) FROM node_graph_edges \
+         WHERE robot_id = 'robot-amr-02' AND compatible = FALSE",
+    );
+    assert!(
+        mismatches > 0,
+        "must have a QoS-incompatible node-graph edge for robot-amr-02 (showcase query 10)"
+    );
+}
+
+#[test]
+fn joint_states_has_high_effort_samples_for_robot_amr02() {
+    let conn = load_fixtures();
+    // FROM joints WHERE effort > 10 FOR ROBOT 'robot-amr-02' must return rows,
+    // across multiple joints (showcase query 11).
+    let high_effort: i64 = count(
+        &conn,
+        "SELECT COUNT(*) FROM joint_states \
+         WHERE robot_id = 'robot-amr-02' AND effort > 10",
+    );
+    assert!(
+        high_effort > 0,
+        "must have joint samples with effort > 10 for robot-amr-02 (showcase query 11)"
+    );
+    let distinct_joints: i64 = count(
+        &conn,
+        "SELECT COUNT(DISTINCT joint_name) FROM joint_states \
+         WHERE robot_id = 'robot-amr-02'",
+    );
+    assert!(
+        distinct_joints >= 6,
+        "robot-amr-02 arm must expose at least 6 joints (got {distinct_joints})"
     );
 }
 

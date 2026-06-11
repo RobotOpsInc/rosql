@@ -1,8 +1,8 @@
-//! Showcase query execution tests — compile each of the 9 REPL showcase queries
+//! Showcase query execution tests — compile each of the 11 REPL showcase queries
 //! and execute them against the DuckDB SQL fixture dataset.
 //!
 //! Verifies:
-//! - All 9 showcase queries parse and compile without errors
+//! - All 11 showcase queries parse and compile without errors
 //! - Each query returns at least one result row from the fixture data
 //! - Result columns match the expected shape
 //!
@@ -27,6 +27,8 @@ const FIXTURE_FILES: &[&str] = &[
     "examples/duckdb/fixtures/07_events.sql",
     "examples/duckdb/fixtures/08_baseline.sql",
     "examples/duckdb/fixtures/10_tf_states.sql",
+    "examples/duckdb/fixtures/11_node_graph.sql",
+    "examples/duckdb/fixtures/12_joint_states.sql",
 ];
 
 fn load_fixtures() -> Connection {
@@ -204,4 +206,41 @@ fn showcase_09_node_graph() {
     );
     let rows = row_count(&conn, &sql);
     assert!(rows > 0, "expected node graph topology rows, got 0");
+}
+
+// ── Showcase query 10: QoS mismatches in the node graph (FROM node_graph) ─────
+
+#[test]
+fn showcase_10_node_graph_qos_mismatch() {
+    let conn = load_fixtures();
+    let (sql, _hint) =
+        compile_showcase("FROM node_graph\nWHERE compatible = false\nFOR ROBOT 'robot-amr-02'");
+    assert!(
+        sql.contains("node_graph_edges"),
+        "compiled SQL must query the node_graph_edges table: {sql}"
+    );
+    let rows = row_count(&conn, &sql);
+    assert!(
+        rows > 0,
+        "expected QoS-incompatible node-graph edges for robot-amr-02, got 0"
+    );
+}
+
+// ── Showcase query 11: Joint effort over time (FROM joints) ───────────────────
+
+#[test]
+fn showcase_11_joints_effort() {
+    let conn = load_fixtures();
+    let (sql, _hint) = compile_showcase(
+        "FROM joints\nWHERE effort > 10\nFOR ROBOT 'robot-amr-02'\nSINCE 1 hour ago",
+    );
+    assert!(
+        sql.contains("joint_states"),
+        "compiled SQL must query the joint_states table: {sql}"
+    );
+    let rows = row_count(&conn, &sql);
+    assert!(
+        rows > 0,
+        "expected joint samples with effort > 10 for robot-amr-02, got 0"
+    );
 }

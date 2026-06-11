@@ -21,6 +21,18 @@ fn snapshot_from_shorthand() {
 }
 
 #[test]
+fn snapshot_from_node_graph() {
+    let ast = parse("FROM node_graph").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_from_joints() {
+    let ast = parse("FROM joints").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
 fn snapshot_full_query() {
     let ast = parse(
         "SELECT span_name, AVG(duration) AS avg_dur \

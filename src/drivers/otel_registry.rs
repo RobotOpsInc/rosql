@@ -43,6 +43,8 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
     reg.register_table("heartbeats", "robot_heartbeats");
     reg.register_table("system_logs", "system_logs");
     reg.register_table("events", "ros2_events");
+    reg.register_table("node_graph", "node_graph_edges");
+    reg.register_table("joints", "joint_states");
 
     // ── otel_traces fields ──────────────────────────────────────────
     let trace_id = profile.col("trace_id", "TraceId");
@@ -338,6 +340,39 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
     // ── mcap_metadata fields ────────────────────────────────────────
     reg.register(simple("session_id", "mcap_metadata", "session_id"));
     reg.register(simple("file_uri", "mcap_metadata", "file_uri"));
+
+    // ── node_graph_edges fields ─────────────────────────────────────
+    // Stores ROS2 node-graph pub/sub edges (one node publishing to a topic that
+    // another node subscribes to) for connectivity queries like
+    // `FROM node_graph WHERE topic = '/scan' AND compatible = false`.
+    // All columns are bare typed columns; robot_id is direct (see `has_direct_robot_id`).
+    reg.register(simple("timestamp", "node_graph_edges", "timestamp"));
+    reg.register(simple("org_id", "node_graph_edges", "org_id"));
+    reg.register(simple("robot_id", "node_graph_edges", "robot_id"));
+    reg.register(simple("source_node", "node_graph_edges", "source_node"));
+    reg.register(simple("target_node", "node_graph_edges", "target_node"));
+    reg.register(simple("topic", "node_graph_edges", "topic"));
+    reg.register(simple("message_type", "node_graph_edges", "message_type"));
+    reg.register(simple("publisher_qos", "node_graph_edges", "publisher_qos"));
+    reg.register(simple(
+        "subscriber_qos",
+        "node_graph_edges",
+        "subscriber_qos",
+    ));
+    reg.register(simple("rate_hz", "node_graph_edges", "rate_hz"));
+    reg.register(simple("compatible", "node_graph_edges", "compatible"));
+
+    // ── joint_states fields ─────────────────────────────────────────
+    // Stores ROS2 `/joint_states` samples (per-joint position/velocity/effort)
+    // for queries like `FROM joints WHERE joint_name = 'shoulder' AND effort > 10`.
+    // All columns are bare typed columns; robot_id is direct (see `has_direct_robot_id`).
+    reg.register(simple("timestamp", "joint_states", "timestamp"));
+    reg.register(simple("org_id", "joint_states", "org_id"));
+    reg.register(simple("robot_id", "joint_states", "robot_id"));
+    reg.register(simple("joint_name", "joint_states", "joint_name"));
+    reg.register(simple("position", "joint_states", "position"));
+    reg.register(simple("velocity", "joint_states", "velocity"));
+    reg.register(simple("effort", "joint_states", "effort"));
 
     reg
 }

@@ -1,0 +1,1 @@
+../../../examples/duckdb/fixtures/12_joint_states.sql
