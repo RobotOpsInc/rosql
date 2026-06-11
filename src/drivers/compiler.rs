@@ -133,6 +133,8 @@ fn data_source_name(ds: &DataSource) -> String {
         DataSource::Heartbeats => "heartbeats".into(),
         DataSource::Recordings => "recordings".into(),
         DataSource::Events => "events".into(),
+        DataSource::NodeGraph => "node_graph".into(),
+        DataSource::Joints => "joints".into(),
         DataSource::TopicAlias(alias) => alias.topic_name().trim_start_matches('/').into(),
     }
 }
@@ -634,6 +636,8 @@ impl<'a> CompileCtx<'a> {
                 | DataSource::Recordings
                 | DataSource::Events
                 | DataSource::Tf
+                | DataSource::NodeGraph
+                | DataSource::Joints
         )
     }
 

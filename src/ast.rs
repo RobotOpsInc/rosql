@@ -96,6 +96,10 @@ pub enum DataSource {
     Heartbeats,
     Recordings,
     Events,
+    /// ROS2 node graph (publisher/subscriber edges between nodes).
+    NodeGraph,
+    /// ROS2 joint states (`/joint_states` position/velocity/effort).
+    Joints,
     /// Well-known topic alias (e.g. `FROM odom`).
     TopicAlias(TopicAlias),
 }

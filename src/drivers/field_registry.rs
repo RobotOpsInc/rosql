@@ -117,6 +117,8 @@ pub fn data_source_key(source: &DataSource) -> String {
         DataSource::Heartbeats => "heartbeats".into(),
         DataSource::Recordings => "recordings".into(),
         DataSource::Events => "events".into(),
+        DataSource::NodeGraph => "node_graph".into(),
+        DataSource::Joints => "joints".into(),
         DataSource::TopicAlias(_) => "topics".into(),
     }
 }

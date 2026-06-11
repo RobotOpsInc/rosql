@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-06-11
+
+### Added
+
+- **`FROM node_graph` data source** — query the ROS2 node graph (publisher/subscriber edges between nodes). Backed by the `node_graph_edges` table with fields `source_node`, `target_node`, `topic`, `message_type`, `publisher_qos`, `subscriber_qos`, `rate_hz`, `compatible` (plus common `timestamp`/`org_id`/`robot_id`). Parses to `DataSourceType::NodeGraph` (proto value 11). Enables connectivity queries like `FROM node_graph WHERE topic = '/scan' AND compatible = false`.
+- **`FROM joints` data source** — query ROS2 `/joint_states` samples (per-joint position/velocity/effort). Backed by the `joint_states` table with fields `joint_name`, `position`, `velocity`, `effort` (plus common `timestamp`/`org_id`/`robot_id`). Parses to `DataSourceType::Joints` (proto value 12). Enables queries like `FROM joints WHERE joint_name = 'shoulder' AND effort > 10`.
+
 ## [0.5.4] - 2026-05-29
 
 ### Added
