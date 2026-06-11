@@ -1013,6 +1013,8 @@ impl<'src> Parser<'src> {
             "heartbeats" => Ok(DataSource::Heartbeats),
             "recordings" => Ok(DataSource::Recordings),
             "events" => Ok(DataSource::Events),
+            "node_graph" => Ok(DataSource::NodeGraph),
+            "joints" => Ok(DataSource::Joints),
             // Topic aliases
             "odom" => Ok(DataSource::TopicAlias(TopicAlias::Odom)),
             "joint_states" => Ok(DataSource::TopicAlias(TopicAlias::JointStates)),
@@ -1056,6 +1058,11 @@ impl<'src> Parser<'src> {
             Some(Token::Recording) => {
                 self.advance();
                 Ok("recordings".to_string())
+            }
+            // `JOINTS` is also a keyword (`SHOW JOINTS`); accept it as a source.
+            Some(Token::Joints) => {
+                self.advance();
+                Ok("joints".to_string())
             }
             Some(Token::Session) => {
                 self.advance();
@@ -2051,6 +2058,8 @@ mod tests {
             ("heartbeats", DataSource::Heartbeats),
             ("recordings", DataSource::Recordings),
             ("events", DataSource::Events),
+            ("node_graph", DataSource::NodeGraph),
+            ("joints", DataSource::Joints),
         ] {
             let q = parse_ok(&format!("FROM {name}"));
             match q {

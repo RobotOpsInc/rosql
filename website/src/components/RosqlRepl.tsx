@@ -59,6 +59,14 @@ const EXAMPLE_QUERIES = [
     label: 'ROS2 node topology',
     query: "SHOW NODE GRAPH\nFOR ROBOT 'robot-amr-02'",
   },
+  {
+    label: 'QoS mismatches in the node graph',
+    query: "FROM node_graph\nWHERE compatible = false\nFOR ROBOT 'robot-amr-02'",
+  },
+  {
+    label: 'Joint effort over time',
+    query: "FROM joints\nWHERE effort > 10\nFOR ROBOT 'robot-amr-02'\nSINCE 1 hour ago",
+  },
 ];
 
 const FIXTURE_FILES = [
@@ -70,6 +78,8 @@ const FIXTURE_FILES = [
   '/fixtures/06_mcap_metadata.sql',
   '/fixtures/07_events.sql',
   '/fixtures/08_baseline.sql',
+  '/fixtures/11_node_graph.sql',
+  '/fixtures/12_joint_states.sql',
 ];
 
 type OutputState =

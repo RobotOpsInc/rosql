@@ -468,6 +468,10 @@ FROM topics WHERE topic_name = '/battery_state' AND fields['voltage'] < 11.5 V F
 
 SHOW NODE GRAPH FOR ROBOT 'robot-amr-02'
 
+FROM node_graph WHERE compatible = false FOR ROBOT 'robot-amr-02'
+
+FROM joints WHERE effort > 10 FOR ROBOT 'robot-amr-02' SINCE 1 hour ago
+
 -- ── Homepage (index.tsx) ─────────────────────────────────────────────────────
 
 FROM joint_states WHERE fields['position[2]'] > 30 deg DURING( FROM battery WHERE fields['percentage'] < 15 ) FOR ROBOT 'arm-01' SINCE 2 hours ago

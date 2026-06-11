@@ -99,3 +99,29 @@ CREATE TABLE IF NOT EXISTS robot_joint_map (
     robot_ids          TEXT[] NOT NULL DEFAULT '{}',
     joint_map          JSONB NOT NULL DEFAULT '[]'
 );
+
+-- Optional: ROS2 node-graph pub/sub edges (FROM node_graph)
+CREATE TABLE IF NOT EXISTS node_graph_edges (
+    timestamp      TIMESTAMPTZ NOT NULL,
+    org_id         TEXT NOT NULL DEFAULT '',
+    robot_id       TEXT NOT NULL,
+    source_node    TEXT NOT NULL,
+    target_node    TEXT NOT NULL,
+    topic          TEXT NOT NULL,
+    message_type   TEXT NOT NULL DEFAULT '',
+    publisher_qos  TEXT NOT NULL DEFAULT '',
+    subscriber_qos TEXT NOT NULL DEFAULT '',
+    rate_hz        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    compatible     BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- Optional: ROS2 /joint_states samples (FROM joints)
+CREATE TABLE IF NOT EXISTS joint_states (
+    timestamp   TIMESTAMPTZ NOT NULL,
+    org_id      TEXT NOT NULL DEFAULT '',
+    robot_id    TEXT NOT NULL,
+    joint_name  TEXT NOT NULL,
+    position    DOUBLE PRECISION NOT NULL DEFAULT 0,
+    velocity    DOUBLE PRECISION NOT NULL DEFAULT 0,
+    effort      DOUBLE PRECISION NOT NULL DEFAULT 0
+);

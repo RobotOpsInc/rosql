@@ -168,6 +168,10 @@ fn data_source_to_proto(ds: &ast::DataSource) -> pb::DataSource {
             pb::data_source::Source::Type(pb::DataSourceType::Recordings as i32)
         }
         ast::DataSource::Events => pb::data_source::Source::Type(pb::DataSourceType::Events as i32),
+        ast::DataSource::NodeGraph => {
+            pb::data_source::Source::Type(pb::DataSourceType::NodeGraph as i32)
+        }
+        ast::DataSource::Joints => pb::data_source::Source::Type(pb::DataSourceType::Joints as i32),
         ast::DataSource::TopicAlias(alias) => {
             let alias_type = match alias {
                 ast::TopicAlias::Odom => pb::TopicAliasType::Odom,
@@ -624,6 +628,34 @@ mod tests {
             }
             _ => panic!("expected Standard"),
         }
+    }
+
+    #[test]
+    fn convert_node_graph_and_joints_data_source_types() {
+        // ROB-303 / AC-Q1: `FROM node_graph` → DataSourceType 11,
+        // `FROM joints` → DataSourceType 12 in the emitted proto AST.
+        for (query, expected) in [
+            ("FROM node_graph", pb::DataSourceType::NodeGraph as i32),
+            ("FROM joints", pb::DataSourceType::Joints as i32),
+        ] {
+            let ast = parse(query).unwrap();
+            let proto = query_to_proto(&ast);
+            match proto.query.unwrap() {
+                pb::rosql_query::Query::Standard(sq) => {
+                    let ds = sq.data_source.expect("data_source present");
+                    match ds.source.expect("source present") {
+                        pb::data_source::Source::Type(t) => {
+                            assert_eq!(t, expected, "query: {query}");
+                        }
+                        _ => panic!("expected Type source for {query}"),
+                    }
+                }
+                _ => panic!("expected Standard for {query}"),
+            }
+        }
+        // Pin the wire values explicitly.
+        assert_eq!(pb::DataSourceType::NodeGraph as i32, 11);
+        assert_eq!(pb::DataSourceType::Joints as i32, 12);
     }
 
     #[test]

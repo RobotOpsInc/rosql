@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-06-11
+
+### Added
+
+- **`FROM node_graph` data source** — query the ROS2 node graph (publisher/subscriber edges between nodes). Backed by the `node_graph_edges` table with fields `source_node`, `target_node`, `topic`, `message_type`, `publisher_qos`, `subscriber_qos`, `rate_hz`, `compatible` (plus common `timestamp`/`org_id`/`robot_id`). Parses to `DataSourceType::NodeGraph` (proto value 11). Enables connectivity queries like `FROM node_graph WHERE topic = '/scan' AND compatible = false`.
+- **`FROM joints` data source** — query ROS2 `/joint_states` samples (per-joint position/velocity/effort). Backed by the `joint_states` table with fields `joint_name`, `position`, `velocity`, `effort` (plus common `timestamp`/`org_id`/`robot_id`). Parses to `DataSourceType::Joints` (proto value 12). Enables queries like `FROM joints WHERE joint_name = 'shoulder' AND effort > 10`.
+- **`node_graph_edges` + `joint_states` fixtures** — new `examples/duckdb/fixtures/11_node_graph.sql` and `12_joint_states.sql` (mirrored into the website DuckDB-WASM fixtures and the PostgreSQL example schema) with realistic data for the demo robots, including a QoS-incompatible `/scan` edge (`compatible = false`) and a 6-DoF arm with varied per-joint effort. Covered by `tests/fixture_consistency.rs` and `tests/showcase_queries.rs`.
+- **Schema-reference docs** — `node_graph_edges` and `joint_states` table definitions and `FROM node_graph` / `FROM joints` rows added to the schema reference (next + version-0.5).
+- **Hero-demo examples** — two new REPL dropdown queries ("QoS mismatches in the node graph", "Joint effort over time") that compile and execute against the bundled fixtures, plus matching entries in the `doc_examples.rosql` corpus.
+
 ## [0.5.4] - 2026-05-29
 
 ### Added
