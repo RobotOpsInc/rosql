@@ -46,6 +46,14 @@ jobs:
       - name: Test
         run: cargo test
 
+      # ROB-297 / AC-Q1: driver-parity conformance gate. Asserts the OSS parser +
+      # dialect/registry conventions against the shared fixture (conformance/cases.json),
+      # the same contract the go_backend ClickHouse planner must satisfy. Run explicitly
+      # so a conformance regression is a clearly-named CI failure (it is also covered by
+      # the `cargo test` step above).
+      - name: Conformance suite (driver parity)
+        run: cargo test --test conformance
+
   test-cli:
     name: Test (CLI integration)
     runs-on: ubuntu-latest

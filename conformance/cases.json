@@ -1,0 +1,170 @@
+{
+  "$schema_version": 1,
+  "description": "ROSQL driver-parity conformance fixture (ROB-297, AC-Q1). This is the shared, machine-readable contract that BOTH the OSS rosql crate (parser + dialect/registry conventions) and the go_backend ClickHouse planner must satisfy. Each case maps a ROSQL query to the data-source -> table mapping (AC-P4), the canonical PascalCase ClickHouse column identifiers for the OTel tables (AC-P2 case-sensitivity fix), and the inferred presentation-layer format_hint. See conformance/README.md for the format spec and how go_backend consumes it.",
+  "schema_profile": "OtelClickhouse",
+  "column_cases": [
+    {
+      "name": "traces_columns_are_pascalcase",
+      "comment": "AC-P2: the ClickHouse OTel exporter uses PascalCase columns. The old bug emitted lowercase (trace_id) against a PascalCase schema. These mappings are the regression guard. 'node' is a map-access field whose backing map column is SpanAttributes (also PascalCase).",
+      "table": "otel_traces",
+      "expected_columns": {
+        "trace_id": "TraceId",
+        "span_id": "SpanId",
+        "parent_span_id": "ParentSpanId",
+        "span_name": "SpanName",
+        "service": "ServiceName",
+        "duration": "Duration",
+        "status": "StatusCode",
+        "node": "SpanAttributes",
+        "timestamp": "Timestamp"
+      }
+    },
+    {
+      "name": "native_robotics_tables_use_bare_columns",
+      "comment": "The ROS2-native tables (tf_states, node_graph_edges, joint_states) are NOT OTel-exported, so their columns stay bare snake_case in BOTH schema profiles. Encoding this prevents an over-eager PascalCase rule from corrupting them.",
+      "tables": {
+        "tf_states": {
+          "robot_id": "robot_id",
+          "parent_frame": "parent_frame",
+          "child_frame": "child_frame",
+          "translation_x": "translation_x"
+        },
+        "node_graph_edges": {
+          "robot_id": "robot_id",
+          "source_node": "source_node",
+          "target_node": "target_node",
+          "topic": "topic",
+          "compatible": "compatible"
+        },
+        "joint_states": {
+          "robot_id": "robot_id",
+          "joint_name": "joint_name",
+          "position": "position",
+          "velocity": "velocity",
+          "effort": "effort"
+        }
+      }
+    }
+  ],
+  "query_cases": [
+    {
+      "name": "logs_table_and_logtable_hint",
+      "query": "FROM logs",
+      "data_source_key": "logs",
+      "expected_table": "otel_logs",
+      "expected_format_hint": "LogTable"
+    },
+    {
+      "name": "system_logs",
+      "query": "FROM system_logs",
+      "data_source_key": "system_logs",
+      "expected_table": "system_logs",
+      "expected_format_hint": "LogTable"
+    },
+    {
+      "name": "traces_scalar_count",
+      "query": "SELECT COUNT(*) FROM traces SINCE 1 hour ago",
+      "data_source_key": "traces",
+      "expected_table": "otel_traces",
+      "expected_format_hint": "ScalarCards"
+    },
+    {
+      "name": "metrics_scalar_avg",
+      "query": "SELECT AVG(cpu) FROM metrics SINCE 1 hour ago",
+      "data_source_key": "metrics",
+      "expected_table": "otel_metrics",
+      "expected_format_hint": "ScalarCards"
+    },
+    {
+      "name": "diagnostics_maps_to_otel_metrics",
+      "comment": "diagnostics is a logical source that shares the otel_metrics table.",
+      "query": "FROM diagnostics",
+      "data_source_key": "diagnostics",
+      "expected_table": "otel_metrics",
+      "expected_format_hint": "Table"
+    },
+    {
+      "name": "topics",
+      "query": "FROM topics",
+      "data_source_key": "topics",
+      "expected_table": "topic_messages",
+      "expected_format_hint": "Table"
+    },
+    {
+      "name": "tf_maps_to_tf_states",
+      "comment": "AC-P4: tf -> tf_states.",
+      "query": "FROM tf",
+      "data_source_key": "tf",
+      "expected_table": "tf_states",
+      "expected_format_hint": "Table"
+    },
+    {
+      "name": "heartbeats",
+      "query": "FROM heartbeats",
+      "data_source_key": "heartbeats",
+      "expected_table": "robot_heartbeats",
+      "expected_format_hint": "Table"
+    },
+    {
+      "name": "recordings",
+      "query": "FROM recordings",
+      "data_source_key": "recordings",
+      "expected_table": "mcap_metadata",
+      "expected_format_hint": "RecordingList"
+    },
+    {
+      "name": "events",
+      "query": "FROM events",
+      "data_source_key": "events",
+      "expected_table": "ros2_events",
+      "expected_format_hint": "Table"
+    },
+    {
+      "name": "node_graph_table_query_is_table_shape",
+      "comment": "AC-P4: node_graph -> node_graph_edges. A plain `FROM node_graph` table query renders as a Table; the DIRECTED_GRAPH / NODE_GRAPH shapes come from the SHOW NODE GRAPH and MESSAGE FLOW compound clauses below.",
+      "query": "FROM node_graph",
+      "data_source_key": "node_graph",
+      "expected_table": "node_graph_edges",
+      "expected_format_hint": "Table"
+    },
+    {
+      "name": "joints_maps_to_joint_states_table_shape",
+      "comment": "AC-P4: joints -> joint_states, and a plain `FROM joints` query renders as a TABLE.",
+      "query": "FROM joints",
+      "data_source_key": "joints",
+      "expected_table": "joint_states",
+      "expected_format_hint": "Table"
+    },
+    {
+      "name": "odom_alias_resolves_to_topic_messages",
+      "comment": "Well-known topic alias resolves through the topics table.",
+      "query": "FROM odom",
+      "data_source_key": "topics",
+      "expected_table": "topic_messages",
+      "expected_format_hint": "Table"
+    },
+    {
+      "name": "show_node_graph_is_node_graph_shape",
+      "comment": "The undirected NODE_GRAPH presentation shape.",
+      "query": "SHOW NODE GRAPH",
+      "data_source_key": null,
+      "expected_table": null,
+      "expected_format_hint": "NodeGraph"
+    },
+    {
+      "name": "message_flow_is_directed_graph_shape",
+      "comment": "node-graph / message-flow DIRECTED_GRAPH shape.",
+      "query": "MESSAGE FLOW FROM TOPIC '/cmd_vel'",
+      "data_source_key": null,
+      "expected_table": null,
+      "expected_format_hint": "DirectedGraph"
+    },
+    {
+      "name": "trace_command_is_gantt",
+      "query": "TRACE 'abc123'",
+      "data_source_key": null,
+      "expected_table": null,
+      "expected_format_hint": "Gantt"
+    }
+  ]
+}
