@@ -11,7 +11,7 @@ export function RecordingListViz({ rows }: VizProps) {
       {rows.map((row, i) => {
         const robotId = String(row['robot_id'] ?? '');
         const sessionId = String(row['session_id'] ?? '');
-        const fileUri = String(row['file_uri'] ?? row['s3_key'] ?? '');
+        const fileUri = String(row['file_uri'] ?? '');
         const startTime = String(row['start_time'] ?? '').slice(0, 19);
         const endTime = String(row['end_time'] ?? '').slice(0, 19);
         const topics = row['topics'];
