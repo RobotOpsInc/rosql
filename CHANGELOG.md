@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **ROSQL generalization — `robot.*` vocabulary + generic aliases (ROB-432)** — the query vocabulary is now decoupled from ROS-only terms, driven by the robotics semantic conventions v0 (`robot.*` portable concepts vs `ros.*` ROS mapping). This is **additive and backward-compatible**; every existing ROS query form keeps working unchanged.
+  - **`robot.*` concept fields** — `robot.action.{name,goal_id,status,result}`, `robot.component`, `robot.transform.{parent,child}`, `robot.joint.name`, `robot.trajectory.point_count`, `robot.target.frame`, `robot.object.id` are now selectable and filterable (span-attribute map access), e.g. `SELECT robot.action.result FROM traces`.
+  - **Generic field aliases** — transport-neutral names that prefer the portable `robot.*` key and fall back to the `ros.*` mapping via `COALESCE` for ROS data: `component` → `robot.component` (fallback `ros.node`), `action` → `robot.action.name` (fallback `ros.action.name`), `channel` → `ros.topic` (no portable key yet).
+  - **Generic data-source aliases** — `FROM channels` (↔ `topics`), `FROM transforms` (↔ `tf`), `FROM components` (↔ `node_graph`) parse to the same AST/tables as their ROS-named forms.
+  - **Registry-driven SHOW/flow compilers** — `SHOW TOPICS` / `SHOW NODES` / `SHOW NODE GRAPH` / `MESSAGE FLOW` now resolve their attribute keys through the field registry instead of hardcoding `ros.*` literals (identical SQL for ROS data today; re-pointable for a future `robot.*`-keyed source).
+  - Docs: `docs/ros2-otel-conventions.md` gains a two-namespace vocabulary section with dual-path (generic ↔ ROS) tables. Test coverage: parser snapshots + `compile_audit` (PostgreSQL + DuckDB) for the new forms and back-compat assertions; new corpus entries in `doc_examples.rosql`.
+
 ## [0.5.5] - 2026-06-11
 
 ### Added

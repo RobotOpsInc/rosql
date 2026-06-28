@@ -683,7 +683,12 @@ impl<'a> CompileCtx<'a> {
             .resolve("topic")
             .map(|f| f.column.as_str())
             .unwrap_or("span_attributes");
-        let topic_attr = self.dialect.json_access(span_attrs_col, "ros.topic");
+        // Resolve attribute keys through the registry (ROB-432) so the same
+        // compiler works for `robot.*`-keyed data; identical SQL for ROS data.
+        let topic_key = self.concept_key("topic", "ros.topic");
+        let pub_key = self.concept_key("publisher_node", "ros.publisher_node");
+        let sub_key = self.concept_key("subscriber_node", "ros.subscriber_node");
+        let topic_attr = self.dialect.json_access(span_attrs_col, &topic_key);
 
         // Seed filter: spans on the source topic
         let mut seed_where = format!("{topic_attr} = '{from_topic}'");
@@ -701,13 +706,9 @@ impl<'a> CompileCtx<'a> {
 
         // Project the three columns the DirectedGraph viz expects.
         // Use json_access_text so DuckDB returns VARCHAR, not JSON.
-        let pub_node = self
-            .dialect
-            .json_access_text(span_attrs_col, "ros.publisher_node");
-        let sub_node = self
-            .dialect
-            .json_access_text(span_attrs_col, "ros.subscriber_node");
-        let topic_text = self.dialect.json_access_text(span_attrs_col, "ros.topic");
+        let pub_node = self.dialect.json_access_text(span_attrs_col, &pub_key);
+        let sub_node = self.dialect.json_access_text(span_attrs_col, &sub_key);
+        let topic_text = self.dialect.json_access_text(span_attrs_col, &topic_key);
 
         // Terminal filter — translated to use the outer projected aliases.
         let terminal_where = match to_target {
@@ -870,19 +871,18 @@ impl<'a> CompileCtx<'a> {
             .resolve("topic")
             .map(|f| f.column.as_str())
             .unwrap_or("span_attributes");
+        // Attribute keys resolved through the registry (ROB-432).
+        let topic_key = self.concept_key("topic", "ros.topic");
+        let msg_type_key = self.concept_key("message_type", "ros.message_type");
+        let pub_key = self.concept_key("publisher_node", "ros.publisher_node");
+        let sub_key = self.concept_key("subscriber_node", "ros.subscriber_node");
         // Use json_access for WHERE/GROUP BY and json_access_text for SELECT aliases
         // to avoid DuckDB type cast errors when ordering/comparing extracted values.
-        let topic_col = self.dialect.json_access(span_attrs, "ros.topic");
-        let topic_col_text = self.dialect.json_access_text(span_attrs, "ros.topic");
-        let msg_type_col = self
-            .dialect
-            .json_access_text(span_attrs, "ros.message_type");
-        let pub_node_col = self
-            .dialect
-            .json_access_text(span_attrs, "ros.publisher_node");
-        let sub_node_col = self
-            .dialect
-            .json_access_text(span_attrs, "ros.subscriber_node");
+        let topic_col = self.dialect.json_access(span_attrs, &topic_key);
+        let topic_col_text = self.dialect.json_access_text(span_attrs, &topic_key);
+        let msg_type_col = self.dialect.json_access_text(span_attrs, &msg_type_key);
+        let pub_node_col = self.dialect.json_access_text(span_attrs, &pub_key);
+        let sub_node_col = self.dialect.json_access_text(span_attrs, &sub_key);
 
         // Dialect-aware timestamp difference for avg_rate_hz calculation
         let diff_secs = self
@@ -923,15 +923,16 @@ impl<'a> CompileCtx<'a> {
             .resolve("topic")
             .map(|f| f.column.as_str())
             .unwrap_or("span_attributes");
-        let node_col = self.dialect.json_access(span_attrs, "ros.node");
-        let node_col_text = self.dialect.json_access_text(span_attrs, "ros.node");
-        let topic_col_text = self.dialect.json_access_text(span_attrs, "ros.topic");
-        let pub_node_col_text = self
-            .dialect
-            .json_access_text(span_attrs, "ros.publisher_node");
-        let sub_node_col_text = self
-            .dialect
-            .json_access_text(span_attrs, "ros.subscriber_node");
+        // Attribute keys resolved through the registry (ROB-432).
+        let node_key = self.concept_key("node", "ros.node");
+        let topic_key = self.concept_key("topic", "ros.topic");
+        let pub_key = self.concept_key("publisher_node", "ros.publisher_node");
+        let sub_key = self.concept_key("subscriber_node", "ros.subscriber_node");
+        let node_col = self.dialect.json_access(span_attrs, &node_key);
+        let node_col_text = self.dialect.json_access_text(span_attrs, &node_key);
+        let topic_col_text = self.dialect.json_access_text(span_attrs, &topic_key);
+        let pub_node_col_text = self.dialect.json_access_text(span_attrs, &pub_key);
+        let sub_node_col_text = self.dialect.json_access_text(span_attrs, &sub_key);
         let status_col = self.col("status_code");
 
         let mut where_parts = vec![format!("{node_col_text} IS NOT NULL")];
@@ -963,13 +964,13 @@ impl<'a> CompileCtx<'a> {
             .resolve("topic")
             .map(|f| f.column.as_str())
             .unwrap_or("span_attributes");
-        let pub_node_text = self
-            .dialect
-            .json_access_text(span_attrs, "ros.publisher_node");
-        let sub_node_text = self
-            .dialect
-            .json_access_text(span_attrs, "ros.subscriber_node");
-        let topic_text = self.dialect.json_access_text(span_attrs, "ros.topic");
+        // Attribute keys resolved through the registry (ROB-432).
+        let pub_key = self.concept_key("publisher_node", "ros.publisher_node");
+        let sub_key = self.concept_key("subscriber_node", "ros.subscriber_node");
+        let topic_key = self.concept_key("topic", "ros.topic");
+        let pub_node_text = self.dialect.json_access_text(span_attrs, &pub_key);
+        let sub_node_text = self.dialect.json_access_text(span_attrs, &sub_key);
+        let topic_text = self.dialect.json_access_text(span_attrs, &topic_key);
 
         let mut where_parts = vec![
             format!("{pub_node_text} IS NOT NULL"),
@@ -1875,7 +1876,18 @@ impl<'a> CompileCtx<'a> {
                 if let (Some(ref map_col), Some(ref map_key)) =
                     (&field_def.map_column, &field_def.map_key)
                 {
-                    return Ok(self.dialect.json_access(map_col, map_key));
+                    // Generic concept aliases (ROB-432) prefer the portable
+                    // `robot.*` key and fall back to the `ros.*` mapping via
+                    // COALESCE. Fields with no fallback keys (the vast majority)
+                    // resolve to a single access, exactly as before.
+                    if field_def.fallback_keys.is_empty() {
+                        return Ok(self.dialect.json_access(map_col, map_key));
+                    }
+                    let mut accesses = vec![self.dialect.json_access(map_col, map_key)];
+                    for fk in &field_def.fallback_keys {
+                        accesses.push(self.dialect.json_access(map_col, fk));
+                    }
+                    return Ok(format!("COALESCE({})", accesses.join(", ")));
                 }
             }
             return Ok(self.dialect.quote_ident(&field_def.column));
@@ -1883,6 +1895,21 @@ impl<'a> CompileCtx<'a> {
 
         // Unknown field — pass through quoted (preserves case for OTel PascalCase columns)
         Ok(self.dialect.quote_ident(field_name))
+    }
+
+    /// Resolve the underlying attribute *key* (the JSON map key) for a concept
+    /// field, looking it up in the registry and falling back to `ros_default`.
+    ///
+    /// This decouples the SHOW/flow compilers from hardcoded `ros.*` literals
+    /// (ROB-432): for ROS data the registry maps e.g. `topic → ros.topic`, so
+    /// the generated SQL is byte-for-byte identical; a future `robot.*`-keyed
+    /// registry would transparently re-point these without touching the
+    /// compiler.
+    fn concept_key(&self, field_name: &str, ros_default: &str) -> String {
+        self.registry
+            .resolve(field_name)
+            .and_then(|f| f.map_key.clone())
+            .unwrap_or_else(|| ros_default.to_string())
     }
 }
 

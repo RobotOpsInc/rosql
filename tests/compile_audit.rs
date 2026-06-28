@@ -1510,3 +1510,151 @@ fn combo_tf_where_since_facet() {
         );
     }
 }
+
+// ===========================================================================
+// ROB-432: ROSQL generalization — robot.* vocabulary + generic aliases.
+//
+// Additive + backward-compatible. These tests assert that:
+//   1. Generic, transport-neutral forms compile (PG + DuckDB, per CLAUDE.md).
+//   2. The portable `robot.*` concept keys are selectable/filterable.
+//   3. Existing ROS query forms still compile to *identical* SQL (back-compat).
+// ===========================================================================
+
+// Helper: assert PG + DuckDB both compile and contain `expected`.
+fn assert_compiles_both(query: &str, expected: &str) {
+    for dialect in [SqlDialect::PostgreSQL, SqlDialect::DuckDB] {
+        let sql = compile_sql(query, dialect);
+        assert!(
+            sql.contains(expected),
+            "{dialect:?} SQL missing '{expected}':\n{sql}"
+        );
+    }
+}
+
+#[test]
+fn generic_source_channels_compiles() {
+    // `FROM channels` resolves to the topics table, like `FROM topics`.
+    assert_compiles_both("FROM channels", "topic_messages");
+}
+
+#[test]
+fn generic_source_transforms_compiles() {
+    assert_compiles_both("FROM transforms", "tf_states");
+}
+
+#[test]
+fn generic_source_components_compiles() {
+    assert_compiles_both("FROM components", "node_graph_edges");
+}
+
+#[test]
+fn generic_source_aliases_match_ros_sql() {
+    // Byte-for-byte identical SQL to the ROS-named form (back-compat proof).
+    for dialect in [SqlDialect::PostgreSQL, SqlDialect::DuckDB] {
+        assert_eq!(
+            compile_sql("FROM channels", dialect),
+            compile_sql("FROM topics", dialect)
+        );
+        assert_eq!(
+            compile_sql("FROM transforms", dialect),
+            compile_sql("FROM tf", dialect)
+        );
+        assert_eq!(
+            compile_sql("FROM components", dialect),
+            compile_sql("FROM node_graph", dialect)
+        );
+    }
+}
+
+#[test]
+fn generic_field_component_prefers_robot_then_ros() {
+    // The generic `component` alias prefers robot.component and falls back to
+    // ros.node via COALESCE — so it works on both robot.* and ROS data.
+    let q = "FROM traces WHERE component = '/planner'";
+    assert_compiles_both(q, "COALESCE");
+    assert_compiles_both(q, "robot.component");
+    assert_compiles_both(q, "ros.node");
+}
+
+#[test]
+fn generic_field_action_prefers_robot_then_ros() {
+    let q = "FROM traces WHERE action = 'navigate_to_pose'";
+    assert_compiles_both(q, "COALESCE");
+    assert_compiles_both(q, "robot.action.name");
+    assert_compiles_both(q, "ros.action.name");
+}
+
+#[test]
+fn generic_field_channel_resolves_to_topic_key() {
+    // No portable robot.channel.* yet — `channel` maps to ros.topic (single key).
+    let q = "FROM traces WHERE channel = '/cmd_vel'";
+    assert_compiles_both(q, "ros.topic");
+    // single-key resolution: no COALESCE wrapper for `channel`
+    let sql = compile_sql(q, SqlDialect::PostgreSQL);
+    assert!(!sql.contains("COALESCE"), "got: {sql}");
+}
+
+#[test]
+fn robot_concept_keys_are_selectable() {
+    // Portable robot.* concept keys can be selected (map-access on span attrs).
+    let q = "SELECT robot.action.result, robot.action.goal_id, robot.component FROM traces";
+    assert_compiles_both(q, "robot.action.result");
+    assert_compiles_both(q, "robot.action.goal_id");
+    assert_compiles_both(q, "robot.component");
+}
+
+#[test]
+fn robot_concept_keys_are_filterable() {
+    let q = "FROM traces WHERE robot.action.result = 'aborted' \
+             AND robot.target.frame = 'map' AND robot.object.id = 'cube_1'";
+    assert_compiles_both(q, "robot.action.result");
+    assert_compiles_both(q, "robot.target.frame");
+    assert_compiles_both(q, "robot.object.id");
+}
+
+#[test]
+fn combo_generic_source_where_since_facet() {
+    // Combination test (CLAUDE.md rule 3): generic alias + WHERE + SINCE + FACET.
+    let q = "FROM channels WHERE topic_name = '/scan' \
+             SINCE 1 hour ago FACET robot_id";
+    assert_compiles_both(q, "topic_messages");
+    assert_compiles_both(q, "GROUP BY");
+}
+
+#[test]
+fn combo_robot_concept_where_since_facet() {
+    let q = "SELECT robot.action.result FROM traces \
+             WHERE robot.action.status = 'succeeded' \
+             SINCE 30 minutes ago FACET robot_id";
+    assert_compiles_both(q, "robot.action.result");
+    assert_compiles_both(q, "robot.action.status");
+    assert_compiles_both(q, "GROUP BY");
+}
+
+#[test]
+fn ros_forms_still_compile_unchanged() {
+    // Back-compat: classic ROS field/source names keep working.
+    assert_compiles_both("FROM traces WHERE node = '/planner'", "ros.node");
+    assert_compiles_both("FROM traces WHERE topic = '/cmd_vel'", "ros.topic");
+    assert_compiles_both(
+        "FROM traces WHERE action_name = 'navigate_to_pose'",
+        "ros.action.name",
+    );
+    assert_compiles_both("FROM topics", "topic_messages");
+    assert_compiles_both("FROM tf", "tf_states");
+    // The classic ROS `node` field is a single-key access (no COALESCE).
+    let sql = compile_sql(
+        "FROM traces WHERE node = '/planner'",
+        SqlDialect::PostgreSQL,
+    );
+    assert!(!sql.contains("COALESCE"), "got: {sql}");
+}
+
+#[test]
+fn show_topics_still_uses_ros_keys() {
+    // SHOW compilers now resolve keys through the registry, but ROS data still
+    // produces the exact same `ros.*` literals (back-compat).
+    assert_compiles_both("SHOW TOPICS", "ros.topic");
+    assert_compiles_both("SHOW NODES", "ros.node");
+    assert_compiles_both("SHOW NODE GRAPH", "ros.publisher_node");
+}

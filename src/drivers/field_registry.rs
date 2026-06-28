@@ -19,7 +19,7 @@ pub struct FieldRegistry {
 }
 
 /// Definition of a single queryable field.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FieldDef {
     /// The ROSQL field name (e.g. "duration", "node").
     pub name: String,
@@ -35,6 +35,15 @@ pub struct FieldDef {
     pub map_column: Option<String>,
     /// The key inside the map column (e.g. "ros.node").
     pub map_key: Option<String>,
+    /// Additional map keys to fall back to (in order) when `map_key` is absent.
+    ///
+    /// Enables generic concept aliases that prefer the portable `robot.*`
+    /// vocabulary but transparently fall back to the `ros.*` mapping for ROS
+    /// data (ROB-432). When non-empty, a map-access field compiles to a
+    /// `COALESCE(...)` over `[map_key, ..fallback_keys]`. Empty for the vast
+    /// majority of fields, which resolve to a single key.
+    #[serde(default)]
+    pub fallback_keys: Vec<String>,
     /// For metric fields, the MetricName filter value.
     pub metric_filter: Option<String>,
 }
@@ -138,6 +147,7 @@ mod tests {
             is_map_access: false,
             map_column: None,
             map_key: None,
+            fallback_keys: Vec::new(),
             metric_filter: None,
         });
         let field = reg.resolve("duration").unwrap();
@@ -180,6 +190,7 @@ mod tests {
             is_map_access: false,
             map_column: None,
             map_key: None,
+            fallback_keys: Vec::new(),
             metric_filter: None,
         });
         reg.register(FieldDef {
@@ -190,6 +201,7 @@ mod tests {
             is_map_access: true,
             map_column: Some("resource_attributes".into()),
             map_key: Some("robot.id".into()),
+            fallback_keys: Vec::new(),
             metric_filter: None,
         });
         let for_traces = reg.resolve_for_table("robot_id", "otel_traces").unwrap();
@@ -212,6 +224,7 @@ mod tests {
             is_map_access: false,
             map_column: None,
             map_key: None,
+            fallback_keys: Vec::new(),
             metric_filter: None,
         });
         // Unknown table falls back to the one entry.

@@ -32,6 +32,41 @@ fn snapshot_from_joints() {
     insta::assert_yaml_snapshot!(ast);
 }
 
+// ROB-432: generic, transport-neutral data-source aliases resolve to the same
+// AST as their ROS-named forms (`channels` ↔ topics, `transforms` ↔ tf,
+// `components` ↔ node_graph).
+#[test]
+fn snapshot_from_channels_alias() {
+    let ast = parse("FROM channels").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_from_transforms_alias() {
+    let ast = parse("FROM transforms").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+#[test]
+fn snapshot_from_components_alias() {
+    let ast = parse("FROM components").unwrap();
+    insta::assert_yaml_snapshot!(ast);
+}
+
+// The generic aliases parse to the *same* AST as the ROS-named forms.
+#[test]
+fn generic_source_aliases_match_ros_forms() {
+    assert_eq!(
+        parse("FROM channels").unwrap(),
+        parse("FROM topics").unwrap()
+    );
+    assert_eq!(parse("FROM transforms").unwrap(), parse("FROM tf").unwrap());
+    assert_eq!(
+        parse("FROM components").unwrap(),
+        parse("FROM node_graph").unwrap()
+    );
+}
+
 #[test]
 fn snapshot_full_query() {
     let ast = parse(
