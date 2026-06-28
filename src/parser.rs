@@ -1015,6 +1015,13 @@ impl<'src> Parser<'src> {
             "events" => Ok(DataSource::Events),
             "node_graph" => Ok(DataSource::NodeGraph),
             "joints" => Ok(DataSource::Joints),
+            // Generic, transport-neutral data-source aliases (ROB-432).
+            // These resolve to the same AST/tables as their ROS-named forms so
+            // the same query power applies to any robot; the ROS names keep
+            // working unchanged.
+            "channels" => Ok(DataSource::Topics), // ↔ topics
+            "transforms" => Ok(DataSource::Tf),   // ↔ tf
+            "components" => Ok(DataSource::NodeGraph), // ↔ node_graph (node concept)
             // Topic aliases
             "odom" => Ok(DataSource::TopicAlias(TopicAlias::Odom)),
             "joint_states" => Ok(DataSource::TopicAlias(TopicAlias::JointStates)),
@@ -1861,7 +1868,14 @@ impl<'src> Parser<'src> {
                     | Token::Joint
                     | Token::Joints
                     | Token::Plan
-                    | Token::Of,
+                    | Token::Of
+                    // ROB-432: `robot` is a keyword (FOR ROBOT) but is also the
+                    // root of the portable `robot.*` concept vocabulary, so it
+                    // must be accepted as the leading segment of a field name
+                    // (e.g. `robot.action.result`). FOR ROBOT parsing matches
+                    // Token::Robot directly before reaching field parsing, so
+                    // this does not affect scope clauses.
+                    | Token::Robot,
                 ) => Some(self.source[span.clone()].to_string()),
                 _ => None,
             }

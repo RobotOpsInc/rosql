@@ -67,10 +67,7 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
         source_table: "otel_traces".into(),
         column: duration.into(),
         storage_unit: Some("ns".into()),
-        is_map_access: false,
-        map_column: None,
-        map_key: None,
-        metric_filter: None,
+        ..Default::default()
     });
     reg.register(simple("status", "otel_traces", status_code));
     reg.register(simple("timestamp", "otel_traces", timestamp));
@@ -90,6 +87,74 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
         "ros.action.status",
     ));
     reg.register(map_field("topic", "otel_traces", span_attrs, "ros.topic"));
+    // ROS pub/sub attribution + message type (used by SHOW TOPICS/NODES/NODE GRAPH
+    // and MESSAGE FLOW). Registered so the SHOW/flow compilers resolve their
+    // attribute keys through the registry rather than hardcoding `ros.*` literals.
+    reg.register(map_field(
+        "message_type",
+        "otel_traces",
+        span_attrs,
+        "ros.message_type",
+    ));
+    reg.register(map_field(
+        "publisher_node",
+        "otel_traces",
+        span_attrs,
+        "ros.publisher_node",
+    ));
+    reg.register(map_field(
+        "subscriber_node",
+        "otel_traces",
+        span_attrs,
+        "ros.subscriber_node",
+    ));
+
+    // ── robot.* concept vocabulary (ROB-432) ────────────────────────────
+    // Portable, robotics-general concept keys per the robotics semantic
+    // conventions v0 (`robot.*`). These let queries filter/select on the
+    // durable concept vocabulary directly (e.g. `SELECT robot.action.result`,
+    // `WHERE robot.component = '...'`) regardless of transport. The field name
+    // is the dotted concept key itself; it resolves to the same span_attributes
+    // map access. ROS-specific keys (`ros.*`) remain registered above unchanged.
+    for key in [
+        "robot.action.name",
+        "robot.action.goal_id",
+        "robot.action.status",
+        "robot.action.result",
+        "robot.component",
+        "robot.transform.parent",
+        "robot.transform.child",
+        "robot.joint.name",
+        "robot.trajectory.point_count",
+        "robot.target.frame",
+        "robot.object.id",
+    ] {
+        reg.register(map_field(key, "otel_traces", span_attrs, key));
+    }
+
+    // ── Generic concept aliases (ROB-432) ───────────────────────────────
+    // Transport-neutral field names that prefer the portable `robot.*` key and
+    // transparently fall back to the `ros.*` mapping for ROS data (via COALESCE
+    // at compile time). The existing ROS field names (`node`, `topic`, …) keep
+    // working unchanged — these are additive.
+    //   component → robot.component  (fallback: ros.node)
+    //   action    → robot.action.name (fallback: ros.action.name)
+    //   channel   → ros.topic         (no portable `robot.channel.*` exists yet)
+    reg.register(map_field_fallback(
+        "component",
+        "otel_traces",
+        span_attrs,
+        "robot.component",
+        &["ros.node"],
+    ));
+    reg.register(map_field_fallback(
+        "action",
+        "otel_traces",
+        span_attrs,
+        "robot.action.name",
+        &["ros.action.name"],
+    ));
+    reg.register(map_field("channel", "otel_traces", span_attrs, "ros.topic"));
 
     // Resource attributes shared across all OTel tables.
     // robot_id and org_id live in resource_attributes on Postgres/DuckDB.
@@ -308,11 +373,7 @@ pub fn otel_registry(profile: SchemaProfile) -> FieldRegistry {
         name: "log_service".into(),
         source_table: "otel_logs".into(),
         column: service_name.into(),
-        storage_unit: None,
-        is_map_access: false,
-        map_column: None,
-        map_key: None,
-        metric_filter: None,
+        ..Default::default()
     });
 
     // ── topic_messages fields ───────────────────────────────────────
@@ -391,11 +452,7 @@ fn simple(name: &str, table: &str, column: &str) -> FieldDef {
         name: name.into(),
         source_table: table.into(),
         column: column.into(),
-        storage_unit: None,
-        is_map_access: false,
-        map_column: None,
-        map_key: None,
-        metric_filter: None,
+        ..Default::default()
     }
 }
 
@@ -404,11 +461,33 @@ fn map_field(name: &str, table: &str, map_column: &str, map_key: &str) -> FieldD
         name: name.into(),
         source_table: table.into(),
         column: map_column.into(),
-        storage_unit: None,
         is_map_access: true,
         map_column: Some(map_column.into()),
         map_key: Some(map_key.into()),
-        metric_filter: None,
+        ..Default::default()
+    }
+}
+
+/// A generic concept alias: prefers `primary_key`, falling back (via `COALESCE`)
+/// to each of `fallback_keys` in order. Used to decouple the query vocabulary
+/// from ROS-only terms — e.g. `component` prefers `robot.component` but resolves
+/// to `ros.node` for ROS data (ROB-432).
+fn map_field_fallback(
+    name: &str,
+    table: &str,
+    map_column: &str,
+    primary_key: &str,
+    fallback_keys: &[&str],
+) -> FieldDef {
+    FieldDef {
+        name: name.into(),
+        source_table: table.into(),
+        column: map_column.into(),
+        is_map_access: true,
+        map_column: Some(map_column.into()),
+        map_key: Some(primary_key.into()),
+        fallback_keys: fallback_keys.iter().map(|k| (*k).to_string()).collect(),
+        ..Default::default()
     }
 }
 
@@ -423,10 +502,8 @@ fn metric_field(
         source_table: "otel_metrics".into(),
         column: value_column.into(),
         storage_unit: storage_unit.map(|s| s.into()),
-        is_map_access: false,
-        map_column: None,
-        map_key: None,
         metric_filter: Some(metric_name.into()),
+        ..Default::default()
     }
 }
 
@@ -474,5 +551,61 @@ mod tests {
         let node = reg.resolve("node").unwrap();
         assert!(node.is_map_access);
         assert_eq!(node.map_key.as_deref(), Some("ros.node"));
+    }
+
+    // ── ROB-432: robot.* vocabulary + generic aliases ───────────────────
+
+    #[test]
+    fn robot_concept_keys_registered() {
+        let reg = default_otel_registry();
+        for key in [
+            "robot.action.result",
+            "robot.action.goal_id",
+            "robot.component",
+            "robot.transform.parent",
+            "robot.joint.name",
+            "robot.trajectory.point_count",
+            "robot.target.frame",
+            "robot.object.id",
+        ] {
+            let f = reg
+                .resolve(key)
+                .unwrap_or_else(|| panic!("missing concept key {key}"));
+            assert!(f.is_map_access, "{key} should be span-attr map access");
+            assert_eq!(f.map_key.as_deref(), Some(key));
+            assert_eq!(f.source_table, "otel_traces");
+        }
+    }
+
+    #[test]
+    fn generic_aliases_prefer_robot_then_ros() {
+        let reg = default_otel_registry();
+        let component = reg.resolve("component").unwrap();
+        assert_eq!(component.map_key.as_deref(), Some("robot.component"));
+        assert_eq!(component.fallback_keys, vec!["ros.node".to_string()]);
+
+        let action = reg.resolve("action").unwrap();
+        assert_eq!(action.map_key.as_deref(), Some("robot.action.name"));
+        assert_eq!(action.fallback_keys, vec!["ros.action.name".to_string()]);
+
+        // `channel` has no portable robot.* key yet — single ros.topic mapping.
+        let channel = reg.resolve("channel").unwrap();
+        assert_eq!(channel.map_key.as_deref(), Some("ros.topic"));
+        assert!(channel.fallback_keys.is_empty());
+    }
+
+    #[test]
+    fn ros_field_names_unchanged() {
+        // Back-compat: the classic ROS field names still resolve as before.
+        let reg = default_otel_registry();
+        assert_eq!(
+            reg.resolve("node").unwrap().map_key.as_deref(),
+            Some("ros.node")
+        );
+        assert_eq!(
+            reg.resolve("topic").unwrap().map_key.as_deref(),
+            Some("ros.topic")
+        );
+        assert!(reg.resolve("node").unwrap().fallback_keys.is_empty());
     }
 }

@@ -2,6 +2,57 @@
 
 This document defines the complete schema that ROSQL expects from a ROS2 telemetry pipeline. If you're building a ROS2-to-OTel bridge or setting up your own telemetry storage, implement these conventions to get full ROSQL feature support.
 
+## Two-namespace vocabulary: portable `robot.*` concepts vs ROS `ros.*` mapping (ROB-432)
+
+ROSQL's query vocabulary is decoupled from ROS-only terms so the same query power applies to **any** robot, not just ROS. There are two attribute namespaces, following the [robotics semantic conventions v0](https://github.com/RobotOpsInc/) (`robotics-semantic-conventions-v0.md`, ROB-430):
+
+- **`robot.*` — portable concept keys.** Robotics-general: any robot has actions, transforms, joints, trajectories, components. This is the durable vocabulary ROSQL displays and filters on; a non-ROS framework maps onto the same concepts later.
+- **`ros.*` — the ROS mapping / implementation keys** (topic, node, message type, GID). Present only when the transport *is* ROS. A future framework gets its own `<framework>.*` mapping while reusing the same `robot.*` concepts.
+
+This change is **additive and backward-compatible**: every existing ROS query form keeps working unchanged. The generalization adds (a) selectable/filterable `robot.*` concept fields, (b) transport-neutral *generic field aliases* that prefer `robot.*` and fall back to `ros.*` for ROS data, and (c) generic *data-source aliases*.
+
+### Generic field aliases (dual-path: generic ↔ ROS)
+
+These transport-neutral field names resolve through the field registry. A generic alias with a `robot.*` concept prefers the portable key and **falls back** to the `ros.*` mapping via `COALESCE(...)`, so the same query works on `robot.*`-keyed data *and* on existing ROS data.
+
+| Generic field | Resolves to (preferred) | Fallback (ROS data) | Notes |
+|---|---|---|---|
+| `component` | `span_attributes->>'robot.component'` | `span_attributes->>'ros.node'` | The logical component / node concept |
+| `action` | `span_attributes->>'robot.action.name'` | `span_attributes->>'ros.action.name'` | Action identifier |
+| `channel` | `span_attributes->>'ros.topic'` | — | No portable `robot.channel.*` exists yet; maps to the ROS topic key |
+
+The existing ROS field names are unchanged and continue to resolve to a single `ros.*` key (no `COALESCE`): `node` → `ros.node`, `topic` → `ros.topic`, `action_name` → `ros.action.name`, `action_status` → `ros.action.status`, `message_type` → `ros.message_type`.
+
+### `robot.*` concept fields (selectable / filterable)
+
+These portable concept keys can be selected and filtered directly (e.g. `SELECT robot.action.result FROM traces`, `WHERE robot.component = '/planner'`). Each is a `span_attributes` map access keyed by the concept key itself.
+
+| ROSQL field | `span_attributes` key | Concept |
+|---|---|---|
+| `robot.action.name` | `robot.action.name` | Action name |
+| `robot.action.goal_id` | `robot.action.goal_id` | Goal UUID — deterministic cross-process join key |
+| `robot.action.status` | `robot.action.status` | Lifecycle: accepted / executing / succeeded / aborted / canceled |
+| `robot.action.result` | `robot.action.result` | Terminal domain outcome (distinct from span status) |
+| `robot.component` | `robot.component` | Logical component / node |
+| `robot.transform.parent` | `robot.transform.parent` | Transform parent frame |
+| `robot.transform.child` | `robot.transform.child` | Transform child frame |
+| `robot.joint.name` | `robot.joint.name` | Joint name(s) |
+| `robot.trajectory.point_count` | `robot.trajectory.point_count` | Trajectory point count |
+| `robot.target.frame` | `robot.target.frame` | Target pose frame id |
+| `robot.object.id` | `robot.object.id` | Manipulation object / grasp target id |
+
+### Generic data-source aliases (dual-path: generic ↔ ROS)
+
+These transport-neutral `FROM` targets resolve to the same tables/AST as their ROS-named forms. Both forms are accepted.
+
+| Generic source | ROS-named form | Underlying table |
+|---|---|---|
+| `FROM channels` | `FROM topics` | `topic_messages` |
+| `FROM transforms` | `FROM tf` | `tf_states` |
+| `FROM components` | `FROM node_graph` | `node_graph_edges` |
+
+> **Design note.** `robot.*` is the *portable concept* vocabulary; `ros.*` is the *ROS mapping*. ROSQL keys its display/filter vocabulary off `robot.*` so it works for any robot. The `SHOW TOPICS` / `SHOW NODES` / `SHOW NODE GRAPH` / `MESSAGE FLOW` compilers now resolve their attribute keys through the registry rather than hardcoding `ros.*` literals — producing identical SQL for ROS data today, and re-pointing transparently for a future `robot.*`-keyed source. See `robotics-semantic-conventions-v0.md` for the authoritative concept dictionary.
+
 ## Span attributes
 
 ### ROS2 action executions
@@ -258,8 +309,13 @@ These are the ROSQL field names and what columns they resolve to.
 | `action_name` | `span_attributes->>'ros.action.name'` | — |
 | `action_status` | `span_attributes->>'ros.action.status'` | — |
 | `topic` | `span_attributes->>'ros.topic'` | — |
+| `message_type` | `span_attributes->>'ros.message_type'` | — |
+| `publisher_node` | `span_attributes->>'ros.publisher_node'` | — |
+| `subscriber_node` | `span_attributes->>'ros.subscriber_node'` | — |
 | `robot_id` | `resource_attributes->>'robot.id'` | — |
 | `org_id` | `resource_attributes->>'organization.id'` | — |
+
+For the portable `robot.*` concept fields (e.g. `robot.action.result`) and the generic, transport-neutral aliases (`component`, `action`, `channel`), see [Two-namespace vocabulary](#two-namespace-vocabulary-portable-robot-concepts-vs-ros-ros-mapping-rob-432) above.
 
 ### From `otel_metrics`
 
@@ -354,3 +410,5 @@ These ROSQL source names are aliases for common ROS2 topics:
 | `FROM battery` | `FROM topics WHERE topic_name = '/battery_state'` |
 | `FROM cmd_vel` | `FROM topics WHERE topic_name = '/cmd_vel'` |
 | `FROM imu` | `FROM topics WHERE topic_name = '/imu/data'` |
+
+In addition to these well-known ROS2 topic aliases, ROSQL accepts the transport-neutral *generic data-source aliases* `channels` (↔ `topics`), `transforms` (↔ `tf`), and `components` (↔ `node_graph`). See [Generic data-source aliases](#generic-data-source-aliases-dual-path-generic--ros) above.
