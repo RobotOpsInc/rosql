@@ -42,11 +42,10 @@ pub fn get_completions(query: &str, cursor_pos: usize) -> Vec<Completion> {
         return data_source_completions();
     }
 
-    if upper.ends_with("WHERE ")
-        || upper.ends_with("WHERE")
-        || upper.ends_with("AND ")
-        || upper.ends_with("OR ")
-    {
+    if matches!(
+        upper.split_whitespace().last(),
+        Some("WHERE" | "AND" | "OR")
+    ) {
         return field_completions();
     }
 
@@ -365,6 +364,32 @@ mod tests {
         assert!(labels.contains(&"duration"));
         assert!(labels.contains(&"status"));
         assert!(labels.contains(&"node"));
+    }
+
+    #[test]
+    fn completions_after_logical_operators() {
+        for operator in ["AND", "OR", "and", "or"] {
+            for whitespace in ["", " ", "\t", "\n"] {
+                let prefix = format!("FROM traces WHERE status = 'ERROR' {operator}{whitespace}");
+                let query = format!("{prefix}duration > 500 ms");
+                let completions = get_completions(&query, prefix.len());
+                assert!(
+                    completions
+                        .iter()
+                        .any(|c| c.label == "duration" && c.kind == CompletionKind::Field),
+                    "missing field completions after {prefix:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn identifier_suffixes_do_not_trigger_field_completions() {
+        for identifier in ["brand", "sensor", "somewhere"] {
+            let query = format!("FROM traces WHERE {identifier} ");
+            let completions = get_completions(&query, query.len());
+            assert!(completions.iter().all(|c| c.kind != CompletionKind::Field));
+        }
     }
 
     #[test]
