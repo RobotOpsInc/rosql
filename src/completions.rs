@@ -27,8 +27,15 @@ pub enum CompletionKind {
 }
 
 /// Get context-aware completions at a cursor position in a ROSQL query.
+///
+/// `cursor_pos` is a byte offset. Offsets beyond the query are clamped to its end;
+/// offsets inside a UTF-8 character are rounded down to that character's start.
 pub fn get_completions(query: &str, cursor_pos: usize) -> Vec<Completion> {
-    let prefix = &query[..cursor_pos.min(query.len())];
+    let mut end = cursor_pos.min(query.len());
+    while !query.is_char_boundary(end) {
+        end -= 1;
+    }
+    let prefix = &query[..end];
     let trimmed = prefix.trim();
 
     // Determine context from the last significant token
@@ -347,6 +354,27 @@ mod tests {
         let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
         assert!(labels.contains(&"logs"));
         assert!(labels.contains(&"traces"));
+    }
+
+    #[test]
+    fn completions_at_utf8_interior_offsets() {
+        for character in ['é', '中', '🦀'] {
+            let prefix = "FROM ";
+            let query = format!("{prefix}{character}");
+            let expected = get_completions(&query, prefix.len());
+            for offset in prefix.len() + 1..query.len() {
+                assert_eq!(get_completions(&query, offset), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn completions_clamp_offsets_after_unicode_queries() {
+        let query = "FROM logs WHERE message = '中🦀' FORMAT ";
+        let at_end = get_completions(query, query.len());
+        assert!(at_end.iter().any(|c| c.label == "table"));
+        assert_eq!(get_completions(query, usize::MAX), at_end);
+        assert_eq!(get_completions("", usize::MAX), get_completions("", 0));
     }
 
     #[test]

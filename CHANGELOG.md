@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Avoid panicking when a completion cursor byte offset falls inside a UTF-8 character; round it down to the character boundary.
+
 ### Added
 
 - **ROSQL generalization — `robot.*` vocabulary + generic aliases (ROB-432)** — the query vocabulary is now decoupled from ROS-only terms, driven by the robotics semantic conventions v0 (`robot.*` portable concepts vs `ros.*` ROS mapping). This is **additive and backward-compatible**; every existing ROS query form keeps working unchanged.
