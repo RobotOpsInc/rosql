@@ -270,7 +270,8 @@ pub fn haversine_distance(lat1_deg: f64, lon1_deg: f64, lat2_deg: f64, lon2_deg:
     let dlon = (lon2_deg - lon1_deg).to_radians();
 
     let a = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
-    let c = 2.0 * a.sqrt().asin();
+    // Roundoff near antipodal points can put `a` slightly above one.
+    let c = 2.0 * a.clamp(0.0, 1.0).sqrt().asin();
 
     EARTH_RADIUS_M * c
 }
@@ -582,6 +583,23 @@ mod tests {
         // Expected: ~5,570 km
         let d = haversine_distance(40.7128, -74.0060, 51.5074, -0.1278);
         assert!((d - 5_570_000.0).abs() < 50_000.0, "got {d}");
+    }
+
+    #[test]
+    fn haversine_antipodal_distance_is_finite() {
+        let distance = haversine_distance(
+            -57.98127004972625,
+            179.31209611774352,
+            57.98127003660664,
+            -0.68790383747285,
+        );
+        assert!(distance.is_finite(), "near-antipodal distance: {distance}");
+        assert!((distance - PI * 6_371_000.0).abs() < 1.0);
+        for latitude in [-82.0, -60.0, 0.0, 60.0, 82.0] {
+            let distance = haversine_distance(latitude, 0.0, -latitude, 180.0);
+            assert!(distance.is_finite(), "latitude {latitude}: {distance}");
+            assert!((distance - PI * 6_371_000.0).abs() < 1.0);
+        }
     }
 
     #[test]

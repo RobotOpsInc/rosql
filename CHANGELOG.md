@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep Haversine distances finite for nearly antipodal coordinates despite floating-point roundoff.
+
 ### Added
 
 - **ROSQL generalization — `robot.*` vocabulary + generic aliases (ROB-432)** — the query vocabulary is now decoupled from ROS-only terms, driven by the robotics semantic conventions v0 (`robot.*` portable concepts vs `ros.*` ROS mapping). This is **additive and backward-compatible**; every existing ROS query form keeps working unchanged.
